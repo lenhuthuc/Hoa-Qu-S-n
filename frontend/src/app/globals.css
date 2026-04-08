@@ -1,0 +1,55 @@
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --foreground: #020617;
+  --background: #f8fafc;
+}
+
+body {
+  color: var(--foreground);
+  background: var(--background);
+  overflow-x: hidden;
+}
+
+/* Glassmorphism utilities */
+.glass-panel {
+  @apply bg-white/70 backdrop-blur-xl border border-white/40 shadow-[0_8px_30px_rgb(0,0,0,0.04)];
+}
+
+.dark-glass-panel {
+  @apply bg-surface-glass backdrop-blur-2xl border border-white/10 shadow-[0_8px_32px_rgb(0,0,0,0.3)];
+}
+
+.text-gradient {
+  @apply bg-clip-text text-transparent bg-gradient-to-r from-primary-600 to-primary-400;
+}
+
+/* Custom animated background elements */
+.bg-blobs::before, .bg-blobs::after {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  border-radius: 50%;
+  filter: blur(80px);
+  opacity: 0.5;
+}
+.bg-blobs::before {
+  top: -10%;
+  left: -10%;
+  width: 500px;
+  height: 500px;
+  background: theme('colors.primary.200');
+  animation: blob 8s infinite alternate;
+}
+.bg-blobs::after {
+  bottom: -10%;
+  right: -10%;
+  width: 600px;
+  height: 600px;
+  background: theme('colors.accent.200');
+  animation: blob 10s infinite alternate-reverse;
+}

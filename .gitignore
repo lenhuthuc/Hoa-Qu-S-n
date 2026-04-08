@@ -1,0 +1,38 @@
+# ── Hoa Quả Sơn — Root .gitignore ──
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# OS junk
+desktop.ini
+Thumbs.db
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+*.iml
+
+# ── Java / Spring (Ecommerce/) ──
+Ecommerce/target/
+Ecommerce/uploads/
+Ecommerce/.mvn/wrapper/maven-wrapper.jar
+
+# ── Node.js (frontend/ & gateway/) ──
+**/node_modules/
+frontend/.next/
+frontend/out/
+
+# ── Python (fastapi-service/) ──
+**/__pycache__/
+**/*.pyc
+**/.mypy_cache/
+
+# ── Docker ──
+docker-compose.override.yml
+
+# ── Uploads & temp ──
+**/uploads/
+*.log

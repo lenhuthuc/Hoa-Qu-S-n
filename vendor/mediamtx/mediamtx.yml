@@ -1,0 +1,51 @@
+# ─── MediaMTX Configuration for Hoa Quả Sơn Livestream ───
+
+# Global settings
+logLevel: info
+logDestinations: [stdout]
+
+# API for programmatic stream management
+api: yes
+apiAddress: :9997
+
+# RTMP server (receives stream from FFmpeg or OBS)
+rtmp: yes
+rtmpAddress: :1935
+
+# HLS server (serves adaptive bitrate to viewers)
+hls: yes
+hlsAddress: :8888
+hlsAlwaysRemux: no
+hlsSegmentCount: 7
+hlsSegmentDuration: 1s
+hlsPartDuration: 200ms
+hlsSegmentMaxSize: 50M
+hlsAllowOrigin: "*"
+hlsVariant: lowLatency
+
+# WebRTC server (browser ingest from seller)
+webrtc: yes
+webrtcAddress: :8889
+webrtcAdditionalHosts: [127.0.0.1]
+webrtcICEServers2:
+  - url: stun:stun.l.google.com:19302
+
+# Record settings (disabled - we use CDN)
+record: no
+
+# Path defaults
+pathDefaults:
+  # Authentication for publishing
+  publishUser: ""
+  publishPass: ""
+  # Allow reading without auth
+  readUser: ""
+  readPass: ""
+  # Note: Sellers publish via WebRTC (WHIP). MediaMTX built-in HLS server
+  # automatically remuxes the WebRTC stream to LL-HLS for viewers.
+  # No external FFmpeg transcode is needed.
+
+# Paths configuration
+paths:
+  # Livestream paths are created dynamically via API
+  all_others:
