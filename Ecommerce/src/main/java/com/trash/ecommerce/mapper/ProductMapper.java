@@ -1,0 +1,23 @@
+package com.trash.ecommerce.mapper;
+
+import com.trash.ecommerce.dto.ProductDetailsResponseDTO;
+import com.trash.ecommerce.entity.Product;
+import org.springframework.stereotype.Component;
+
+@Component
+public class ProductMapper {
+
+    public ProductDetailsResponseDTO mapperProduct(Product product) {
+        ProductDetailsResponseDTO productDTO = new ProductDetailsResponseDTO();
+        productDTO.setId(product.getId());
+        productDTO.setProduct_name(product.getProductName());
+        productDTO.setQuantity(product.getQuantity());
+        productDTO.setPrice(product.getPrice());
+        productDTO.setCategory(product.getCategory());
+        productDTO.setDescription(product.getDescription());
+        productDTO.setImage(product.getImage());
+        productDTO.setRatingCount(product.getRatingCount());
+        productDTO.setRating(product.getRating() != null ? product.getRating().doubleValue() : 0.0);
+        return productDTO;
+    }
+}
