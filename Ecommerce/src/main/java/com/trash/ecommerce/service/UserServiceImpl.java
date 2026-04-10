@@ -10,6 +10,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 import com.trash.ecommerce.dto.*;
+import com.trash.ecommerce.entity.Address;
 import com.trash.ecommerce.entity.Role;
 import com.trash.ecommerce.exception.FindingUserError;
 import com.trash.ecommerce.exception.UserAuthorizationException;
@@ -31,8 +32,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.trash.ecommerce.entity.Cart;
+import com.trash.ecommerce.entity.Product;
 import com.trash.ecommerce.entity.Users;
 import com.trash.ecommerce.repository.CartRepository;
+import com.trash.ecommerce.repository.ProductRepository;
 import com.trash.ecommerce.repository.UserRepository;
 
 @Service
@@ -50,6 +53,8 @@ public class UserServiceImpl implements UserService {
     private JwtService jwtService;
     @Autowired
     private CartRepository cartRepository;
+    @Autowired
+    private ProductRepository productRepository;
     @Autowired
     private RedisTemplate<String, Object> redisTemplate;
     @Autowired
@@ -162,16 +167,7 @@ public class UserServiceImpl implements UserService {
     public UserProfileDTO getOwnProfile(Long id) {
         Users user = userRepository.findById(id)
                         .orElseThrow(() -> new RuntimeException("User is not found"));
-        UserProfileDTO userProfileDTO = new UserProfileDTO();
-        userProfileDTO.setId(user.getId());
-        userProfileDTO.setEmail(user.getEmail());
-        userProfileDTO.setAddress(user.getAddress());
-        Set<String> roles = new HashSet<>();
-        for (Role role : user.getRoles()) {
-            roles.add(role.getRoleName());
-        }
-        userProfileDTO.setRoles(roles);
-        return userProfileDTO;
+        return userMapper.mapToUserProfileDTO(user);
     }
 
     @Override
@@ -196,8 +192,27 @@ public class UserServiceImpl implements UserService {
             targetUser.setEmail(user.getEmail());
         }
 
-        if (user.getAddress() != null && !user.getAddress().isEmpty()) {
-            targetUser.setAddress(user.getAddress());
+        if (user.getFullName() != null) {
+            targetUser.setFullName(user.getFullName());
+        }
+        if (user.getPhone() != null) {
+            targetUser.setPhone(user.getPhone());
+        }
+        if (user.getAvatar() != null) {
+            targetUser.setAvatar(user.getAvatar());
+        }
+
+        // Handle structured address
+        if (user.getProvince() != null && !user.getProvince().isEmpty()) {
+            Address address = targetUser.getAddress();
+            if (address == null) {
+                address = new Address();
+            }
+            address.setProvince(user.getProvince());
+            address.setDistrict(user.getDistrict());
+            address.setWard(user.getWard());
+            address.setStreetDetail(user.getStreetDetail());
+            targetUser.setAddress(address);
         }
 
 
@@ -221,7 +236,14 @@ public class UserServiceImpl implements UserService {
         Users user = userRepository.findById(id)
                 .orElseThrow(() -> new UsernameNotFoundException("Current user not found"));
         
-        // Ngắt quan hệ ManyToMany
+        // Ngắt FK product.seller_id → users.id (không có cascade từ Users)
+        List<Product> sellerProducts = productRepository.findBySellerId(id);
+        for (Product product : sellerProducts) {
+            product.setSeller(null);
+        }
+        productRepository.saveAll(sellerProducts);
+
+        // Ngắt quan hệ ManyToMany (join tables)
         if (user.getRoles() != null) {
             user.getRoles().clear();
         }
@@ -229,12 +251,8 @@ public class UserServiceImpl implements UserService {
             user.getPaymentMethods().clear();
         }
         
-        // Ngắt OneToOne
-        if (user.getCart() != null) {
-            user.getCart().setUser(null);
-            user.setCart(null);
-        }
-        
+        // CascadeType.ALL trên Users sẽ tự cascade delete:
+        // cart, orders (→ orderItems, invoice → invoiceItems), reviews, invoices, userInteractions
         userRepository.delete(user);
     }
 

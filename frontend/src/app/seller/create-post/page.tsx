@@ -2,8 +2,8 @@
 
 import { useState, useCallback, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { Upload, Sparkles, Loader2, Check, ArrowRight, ImageIcon, Leaf, Tag, TrendingUp, BarChart3 } from "lucide-react";
-import { aiApi, searchApi, isLoggedIn } from "@/lib/api";
+import { Upload, Sparkles, Loader2, Check, ArrowRight, ImageIcon, Leaf, Tag, TrendingUp, BarChart3, QrCode } from "lucide-react";
+import { aiApi, searchApi, categoryApi, facebookApi, isLoggedIn } from "@/lib/api";
 import toast from "react-hot-toast";
 
 interface AIResult {
@@ -28,8 +28,23 @@ interface EditableFields {
   product_name: string;
   title: string;
   description: string;
-  category: string;
+  categoryId: number;
   suggested_price_per_kg: number;
+  quantity: number;
+  batchId: string;
+  origin: string;
+}
+
+interface CategoryOption {
+  id: number;
+  name: string;
+  slug: string;
+}
+
+interface FacebookPage {
+  pageId: string;
+  pageName: string;
+  connectedAt: string;
 }
 
 export default function CreatePostPage() {
@@ -40,11 +55,77 @@ export default function CreatePostPage() {
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<AIResult | null>(null);
   const [editable, setEditable] = useState<EditableFields | null>(null);
+  const [categories, setCategories] = useState<CategoryOption[]>([]);
+  const [facebookPages, setFacebookPages] = useState<FacebookPage[]>([]);
+  const [postToFacebook, setPostToFacebook] = useState(false);
+  const [facebookPageId, setFacebookPageId] = useState("");
+  const [facebookMessage, setFacebookMessage] = useState("");
+  const [connectingFacebook, setConnectingFacebook] = useState(false);
   const prevPreviewRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!isLoggedIn()) { router.push("/login"); }
+    categoryApi.getAll().then((res) => {
+      const cats = res.data?.data || res.data || [];
+      setCategories(Array.isArray(cats) ? cats : []);
+    }).catch(() => {});
+
+    facebookApi.getPages()
+      .then((res) => {
+        const pages = res.data?.data || res.data || [];
+        if (Array.isArray(pages)) {
+          setFacebookPages(pages);
+          if (pages.length > 0) {
+            setFacebookPageId(pages[0].pageId);
+          }
+        }
+      })
+      .catch(() => {});
   }, [router]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const code = new URLSearchParams(window.location.search).get("code");
+    if (!code) return;
+
+    const connect = async () => {
+      try {
+        const redirectUri = `${window.location.origin}/seller/create-post`;
+        await facebookApi.handleOAuthCallback(code, redirectUri);
+        const pagesRes = await facebookApi.getPages();
+        const pages = pagesRes.data?.data || pagesRes.data || [];
+        if (Array.isArray(pages)) {
+          setFacebookPages(pages);
+          if (pages.length > 0) setFacebookPageId(pages[0].pageId);
+        }
+        toast.success("Kết nối Facebook Page thành công");
+      } catch {
+        toast.error("Không thể xử lý callback Facebook");
+      } finally {
+        router.replace("/seller/create-post");
+      }
+    };
+
+    connect();
+  }, [router]);
+
+  const handleConnectFacebook = async () => {
+    try {
+      setConnectingFacebook(true);
+      const redirectUri = `${window.location.origin}/seller/create-post`;
+      const res = await facebookApi.getOAuthUrl(redirectUri);
+      const oauthUrl = res.data?.oauthUrl || res.data?.data?.oauthUrl;
+      if (!oauthUrl) {
+        toast.error("Không lấy được URL xác thực Facebook");
+        return;
+      }
+      window.location.href = oauthUrl;
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || "Không thể khởi tạo Facebook OAuth");
+    } finally {
+      setConnectingFacebook(false);
+    }
+  };
 
   const handleImage = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -70,12 +151,19 @@ export default function CreatePostPage() {
       if (res.data.success) {
         const data: AIResult = res.data.data;
         setResult(data);
+        // Auto-match AI category name to a categoryId
+        const matchedCat = categories.find(
+          (c) => c.name.toLowerCase() === data.category?.toLowerCase()
+        );
         setEditable({
           product_name: data.product_name,
           title: data.title,
           description: data.description,
-          category: data.category,
+          categoryId: matchedCat?.id || (categories[0]?.id ?? 0),
           suggested_price_per_kg: data.suggested_price_per_kg,
+          quantity: 100,
+          batchId: "",
+          origin: "",
         });
         toast.success("AI đã phân tích xong!");
       } else {
@@ -92,49 +180,75 @@ export default function CreatePostPage() {
     if (!editable || !image) return;
     setSubmitting(true);
     try {
-      // 1. Create product in Spring service
-      const createRes = await aiApi.createProduct(
-        {
-          productName: editable.product_name,
-          price: editable.suggested_price_per_kg,
-          quantity: 100,
-          category: editable.category,
-          description: editable.description,
-        },
-        image
-      );
+      const payload = {
+        productName: editable.product_name,
+        price: editable.suggested_price_per_kg,
+        quantity: editable.quantity,
+        categoryId: editable.categoryId,
+        description: editable.description,
+        batchId: editable.batchId || undefined,
+        origin: editable.origin || undefined,
+      };
 
-      if (createRes.status !== 200) {
-        toast.error("Không thể tạo sản phẩm");
-        return;
+      let productId = Date.now();
+      let dbSuccess = true;
+
+      if (postToFacebook) {
+        if (!facebookPageId) {
+          toast.error("Vui lòng chọn Facebook Page trước khi đăng đồng bộ");
+          return;
+        }
+
+        const createRes = await aiApi.createProductWithFacebook(
+          payload,
+          image,
+          facebookPageId,
+          facebookMessage || editable.title
+        );
+
+        dbSuccess = Boolean(createRes.data?.databaseSuccess);
+        const facebookSuccess = Boolean(createRes.data?.facebookSuccess);
+        const createdProduct = createRes.data?.database?.data;
+        productId = createdProduct?.productId || productId;
+
+        if (dbSuccess && facebookSuccess) {
+          toast.success("Đã đăng sản phẩm và đồng bộ Facebook thành công");
+        } else if (dbSuccess && !facebookSuccess) {
+          toast.success("Đã tạo sản phẩm, nhưng Facebook đăng bài thất bại");
+        } else if (!dbSuccess && facebookSuccess) {
+          toast.error("Facebook đăng bài thành công, nhưng lưu DB thất bại");
+        } else {
+          toast.error("Cả lưu DB và đăng Facebook đều thất bại");
+          return;
+        }
+      } else {
+        const createRes = await aiApi.createProduct(payload, image);
+        if (createRes.status !== 200) {
+          toast.error("Không thể tạo sản phẩm");
+          return;
+        }
+        const createdProduct = createRes.data?.data || createRes.data;
+        productId = createdProduct?.productId || productId;
+        toast.success("Đã tạo sản phẩm thành công!");
       }
-
-      toast.success("Đã tạo sản phẩm thành công!");
 
       // 2. Embed product into Qdrant for semantic search
-      // Try to get the product ID from the response or use a timestamp-based fallback
-      try {
+      if (dbSuccess) {
+        try {
         await searchApi.embedProduct({
-          product_id: Date.now(), // Best-effort; Spring doesn't return the ID
+          product_id: productId,
           product_name: editable.product_name,
           description: editable.description,
-          category: editable.category,
+          category: categories.find((c) => c.id === editable.categoryId)?.name || "",
           price: editable.suggested_price_per_kg,
         });
-      } catch {
-        // Embedding is non-critical; product was already created
-        console.warn("Embed product failed — semantic search may not include this item");
+        } catch {
+          // Embedding is non-critical; product was already created
+          console.warn("Embed product failed — semantic search may not include this item");
+        }
       }
 
-      // Reset form
-      setResult(null);
-      setEditable(null);
-      setImage(null);
-      if (prevPreviewRef.current) {
-        URL.revokeObjectURL(prevPreviewRef.current);
-        prevPreviewRef.current = null;
-      }
-      setPreview(null);
+      router.push("/seller/dashboard");
     } catch (err: any) {
       toast.error(err.response?.data?.message || "Lỗi khi đăng sản phẩm");
     } finally {
@@ -148,7 +262,13 @@ export default function CreatePostPage() {
   return (
     <div className="min-h-screen relative overflow-hidden bg-blobs py-12 px-4 sm:px-6 lg:px-8">
       {/* Header */}
-      <div className="max-w-6xl mx-auto mb-10 text-center animate-float">
+      <div className="max-w-6xl mx-auto mb-10 text-center animate-float relative">
+        <button 
+          onClick={() => router.push("/seller/dashboard")}
+          className="absolute left-0 top-0 text-gray-500 hover:text-primary-600 flex items-center gap-1 font-medium bg-white/60 px-4 py-2 rounded-xl backdrop-blur-md border border-white/50"
+        >
+          <ArrowRight className="w-4 h-4 rotate-180" /> Quay lại
+        </button>
         <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white/60 backdrop-blur-md border border-white/50 text-primary-700 shadow-sm mb-4">
           <Sparkles className="w-4 h-4" />
           <span className="text-sm font-medium tracking-wide uppercase">AI Assistant</span>
@@ -241,27 +361,37 @@ export default function CreatePostPage() {
                     />
                   </div>
                   
-                  <div className="group">
-                    <label className="flex items-center gap-2 text-sm font-medium text-slate-500 mb-1.5 uppercase tracking-wider">
-                       <ArrowRight className="w-4 h-4" /> Tiêu đề bài đăng
-                    </label>
-                    <input 
-                      value={editable?.title ?? ""}
-                      onChange={(e) => setEditable((prev) => prev ? { ...prev, title: e.target.value } : prev)}
-                      className="w-full bg-white/60 border border-slate-200 rounded-xl px-4 py-3 text-slate-800 text-lg font-semibold focus:ring-2 focus:ring-primary-400 focus:border-transparent outline-none transition-all shadow-sm"
-                    />
+                    <div className="group">
+                      <label className="flex items-center gap-2 text-sm font-medium text-slate-500 mb-1.5 uppercase tracking-wider">
+                         <BarChart3 className="w-4 h-4" /> Số lượng (kg)
+                      </label>
+                      <input 
+                        type="number"
+                        min={1}
+                        value={editable?.quantity ?? 100}
+                        onChange={(e) => setEditable((prev) => prev ? { ...prev, quantity: parseInt(e.target.value) || 0 } : prev)}
+                        className="w-full bg-white/60 border border-slate-200 rounded-xl px-4 py-3 text-slate-800 font-medium focus:ring-2 focus:ring-primary-400 focus:border-transparent outline-none transition-all shadow-sm"
+                      />
+                    </div>
                   </div>
+
+                  <div>
 
                   <div className="grid grid-cols-2 gap-5">
                     <div>
                       <label className="flex items-center gap-2 text-sm font-medium text-slate-500 mb-1.5 uppercase tracking-wider">
                          <Leaf className="w-4 h-4" /> Phân loại
                       </label>
-                      <input 
-                        value={editable?.category ?? ""}
-                        onChange={(e) => setEditable((prev) => prev ? { ...prev, category: e.target.value } : prev)}
+                      <select
+                        value={editable?.categoryId ?? 0}
+                        onChange={(e) => setEditable((prev) => prev ? { ...prev, categoryId: Number(e.target.value) } : prev)}
                         className="w-full bg-white/60 border border-slate-200 rounded-xl px-4 py-3 text-slate-700 focus:ring-2 focus:ring-primary-400 outline-none transition-all shadow-sm"
-                      />
+                      >
+                        <option value={0}>Chọn danh mục</option>
+                        {categories.map((cat) => (
+                          <option key={cat.id} value={cat.id}>{cat.name}</option>
+                        ))}
+                      </select>
                     </div>
                     <div>
                       <label className="flex items-center gap-2 text-sm font-medium text-slate-500 mb-1.5 uppercase tracking-wider">
@@ -285,6 +415,80 @@ export default function CreatePostPage() {
                       rows={4} 
                       className="w-full bg-white/60 border border-slate-200 rounded-xl px-4 py-3 text-slate-700 leading-relaxed focus:ring-2 focus:ring-primary-400 focus:border-transparent outline-none transition-all shadow-sm resize-none"
                     />
+                  </div>
+
+                  {/* Traceability Fields */}
+                  <div className="grid grid-cols-2 gap-5">
+                    <div>
+                      <label className="flex items-center gap-2 text-sm font-medium text-slate-500 mb-1.5 uppercase tracking-wider">
+                        <QrCode className="w-4 h-4" /> Mã lô hàng
+                      </label>
+                      <input
+                        value={editable?.batchId ?? ""}
+                        onChange={(e) => setEditable((prev) => prev ? { ...prev, batchId: e.target.value } : prev)}
+                        placeholder="VD: LO-DUAHAU-2026-001"
+                        className="w-full bg-white/60 border border-slate-200 rounded-xl px-4 py-3 text-slate-700 focus:ring-2 focus:ring-primary-400 outline-none transition-all shadow-sm"
+                      />
+                    </div>
+                    <div>
+                      <label className="flex items-center gap-2 text-sm font-medium text-slate-500 mb-1.5 uppercase tracking-wider">
+                        <Leaf className="w-4 h-4" /> Xuất xứ
+                      </label>
+                      <input
+                        value={editable?.origin ?? ""}
+                        onChange={(e) => setEditable((prev) => prev ? { ...prev, origin: e.target.value } : prev)}
+                        placeholder="VD: Bình Dương, Việt Nam"
+                        className="w-full bg-white/60 border border-slate-200 rounded-xl px-4 py-3 text-slate-700 focus:ring-2 focus:ring-primary-400 outline-none transition-all shadow-sm"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Facebook Sync Fields */}
+                  <div className="rounded-xl border border-blue-100 bg-blue-50/60 p-4 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <label className="flex items-center gap-2 text-sm font-semibold text-blue-700 uppercase tracking-wider">
+                        Đồng bộ Facebook Page
+                      </label>
+                      <button
+                        type="button"
+                        onClick={handleConnectFacebook}
+                        disabled={connectingFacebook}
+                        className="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700 disabled:opacity-60"
+                      >
+                        {connectingFacebook ? "Đang kết nối..." : "Kết nối Facebook"}
+                      </button>
+                    </div>
+
+                    <label className="flex items-center gap-2 text-sm text-slate-700">
+                      <input
+                        type="checkbox"
+                        checked={postToFacebook}
+                        onChange={(e) => setPostToFacebook(e.target.checked)}
+                        className="rounded border-slate-300"
+                      />
+                      Đăng bài cùng Facebook khi tạo sản phẩm
+                    </label>
+
+                    {postToFacebook && (
+                      <div className="grid md:grid-cols-2 gap-3">
+                        <select
+                          value={facebookPageId}
+                          onChange={(e) => setFacebookPageId(e.target.value)}
+                          className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-slate-700 focus:ring-2 focus:ring-blue-400 outline-none"
+                        >
+                          <option value="">Chọn Facebook Page</option>
+                          {facebookPages.map((p) => (
+                            <option key={p.pageId} value={p.pageId}>{p.pageName} ({p.pageId})</option>
+                          ))}
+                        </select>
+                        <input
+                          value={facebookMessage}
+                          onChange={(e) => setFacebookMessage(e.target.value)}
+                          placeholder="Nội dung đăng FB (để trống sẽ tự tạo)"
+                          className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-slate-700 focus:ring-2 focus:ring-blue-400 outline-none"
+                        />
+                      </div>
+                    )}
                   </div>
                 </div>
 

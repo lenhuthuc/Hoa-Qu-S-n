@@ -37,6 +37,10 @@ public class PaymentServiceImpl implements PaymentService {
     private EmailService emailService;
     @Autowired
     private InvoiceService invoiceService;
+    @Autowired
+    private NotificationService notificationService;
+    @Autowired
+    private EventPublisher eventPublisher;
     private Map<String, String> vnpayResponse(String code, String message) {
     return Map.of(
         "RspCode", code,
@@ -246,6 +250,30 @@ public class PaymentServiceImpl implements PaymentService {
                                 invoiceService.createInvoice(userId, orderId, order.getPaymentMethod().getId());
                             } else {
                                 throw new PaymentException("Payment method not found for order");
+                            }
+
+                            // Notify buyer about successful payment
+                            notificationService.send(userId,
+                                    "Thanh to\u00e1n th\u00e0nh c\u00f4ng",
+                                    "\u0110\u01a1n h\u00e0ng #" + orderId + " \u0111\u00e3 \u0111\u01b0\u1ee3c thanh to\u00e1n qua VNPay",
+                                    NotificationType.ORDER_PLACED,
+                                    orderId);
+                            eventPublisher.publishOrderUpdate(userId, orderId,
+                                    "PAID", "Thanh to\u00e1n th\u00e0nh c\u00f4ng");
+
+                            // Notify sellers about paid order
+                            Set<Long> notifiedSellers = new HashSet<>();
+                            for (OrderItem oi : order.getOrderItems()) {
+                                if (oi.getProduct() != null && oi.getProduct().getSeller() != null) {
+                                    Long sellerId = oi.getProduct().getSeller().getId();
+                                    if (notifiedSellers.add(sellerId)) {
+                                        notificationService.send(sellerId,
+                                                "\u0110\u01a1n h\u00e0ng #" + orderId + " \u0111\u00e3 thanh to\u00e1n",
+                                                "Kh\u00e1ch h\u00e0ng " + user.getFullName() + " \u0111\u00e3 thanh to\u00e1n \u0111\u01a1n h\u00e0ng",
+                                                NotificationType.ORDER_PLACED,
+                                                orderId);
+                                    }
+                                }
                             }
                         }
                         else

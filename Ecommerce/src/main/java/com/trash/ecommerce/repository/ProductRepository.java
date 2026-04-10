@@ -9,6 +9,9 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import com.trash.ecommerce.entity.Product;
+
+import java.util.List;
+
 @Repository
 public interface ProductRepository extends JpaRepository <Product, Long> {
     @Query(
@@ -23,4 +26,10 @@ public interface ProductRepository extends JpaRepository <Product, Long> {
             "WHERE p.id = :id AND p.quantity >= :amount",
             nativeQuery = true)
     int decreaseStock(@Param("id") Long id, @Param("amount") Long amount);
+
+    Page<Product> findByCategoryId(Long categoryId, PageRequest pageRequest);
+
+    List<Product> findBySellerId(Long sellerId);
+
+    List<Product> findByBatchId(String batchId);
 }

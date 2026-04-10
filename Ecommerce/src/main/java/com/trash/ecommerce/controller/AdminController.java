@@ -18,8 +18,9 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
+import java.util.Map;
 @RestController
-@RequestMapping("api/admin")
+@RequestMapping("/api/admin")
 public class AdminController {
 
     private Logger logger = LoggerFactory.getLogger(CartController.class);
@@ -54,7 +55,7 @@ public class AdminController {
     }
 
     @DeleteMapping("/users/{id}")
-    public ResponseEntity<UserResponseDTO> deleteUser(
+    public ResponseEntity<?> deleteUser(
             @PathVariable Long id,
             @RequestHeader("Authorization") String token
     ) {
@@ -62,7 +63,7 @@ public class AdminController {
             userService.deleteUser(id, token);
             return ResponseEntity.ok(new UserResponseDTO("Succesful"));
         } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("message", e.getMessage()));
         }
     }
 
@@ -73,7 +74,7 @@ public class AdminController {
             @RequestPart("file") MultipartFile file
     ) {
         try {
-            ProductResponseDTO productResponseDTO = productService.createProduct(productRequestDTO, file);
+            ProductResponseDTO productResponseDTO = productService.createProduct(productRequestDTO, file, null);
             return ResponseEntity.ok(productResponseDTO);
         } catch (Exception e) {
             throw new ProductCreatingException(e.getMessage());
@@ -81,7 +82,7 @@ public class AdminController {
     }
 
     @PutMapping("/products/{id}")
-    public ResponseEntity<ProductResponseDTO> updateProduct(
+    public ResponseEntity<?> updateProduct(
             @RequestPart("products") ProductRequestDTO productRequestDTO,
             @PathVariable Long id,
             @RequestPart("file") MultipartFile file
@@ -91,7 +92,7 @@ public class AdminController {
             return ResponseEntity.ok(productResponseDTO);
         } catch (Exception e) {
             logger.error("Update product has some problem", e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("message", e.getMessage()));
         }
     }
 

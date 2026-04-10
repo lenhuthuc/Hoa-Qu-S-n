@@ -1,0 +1,15 @@
+package com.trash.ecommerce.entity;
+
+public enum NotificationType {
+    ORDER_PLACED,
+    ORDER_SHIPPED,
+    ORDER_COMPLETED,
+    ORDER_CANCELLED,
+    RETURN_REQUESTED,
+    RETURN_APPROVED,
+    RETURN_REJECTED,
+    RETURN_REFUNDED,
+    REVIEW_RECEIVED,
+    LIVESTREAM_STARTED,
+    SYSTEM
+}

@@ -21,22 +21,23 @@ public class InvoiceController {
     private JwtService jwtService;
 
     @PostMapping
-    public ResponseEntity<InvoiceResponse> createInvoice(
+    public ResponseEntity<?> createInvoice(
             @RequestHeader("Authorization") String token,
             @RequestParam Long orderId,
-            @RequestParam Long paymentMethodId) {
+            @RequestParam(defaultValue = "1") Long paymentMethodId) {
         try {
             Long userId = jwtService.extractId(token);
             InvoiceResponse invoice = invoiceService.createInvoice(userId, orderId, paymentMethodId);
             return ResponseEntity.ok(invoice);
         } catch (Exception e) {
             logger.error("Generated invoice has some errors", e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(java.util.Map.of("message", e.getMessage() != null ? e.getMessage() : "Lỗi tạo hóa đơn"));
         }
     }
 
     @DeleteMapping("/{invoiceId}")
-    public ResponseEntity<Void> deleteInvoice(
+    public ResponseEntity<?> deleteInvoice(
             @RequestHeader("Authorization") String token,
             @PathVariable Long invoiceId) {
         try {
@@ -45,7 +46,8 @@ public class InvoiceController {
             return ResponseEntity.noContent().build();
         } catch (Exception e) {
             logger.error("Delete invoice has some errors", e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(java.util.Map.of("message", e.getMessage() != null ? e.getMessage() : "Lỗi xóa hóa đơn"));
         }
     }
 }

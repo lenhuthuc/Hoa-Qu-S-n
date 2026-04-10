@@ -14,10 +14,22 @@ const uploadRoutes = require("./routes/upload");
 
 const app = express();
 const server = http.createServer(app);
+const allowedOrigins = (process.env.CORS_ORIGINS || "")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+if (allowedOrigins.length === 0) {
+  allowedOrigins.push(
+    "http://localhost:3000",
+    "http://localhost:3001",
+    "http://127.0.0.1:3000",
+    "http://127.0.0.1:3001"
+  );
+}
 
 // ─── Middleware (non-body-consuming) ───
 app.use(helmet({ crossOriginResourcePolicy: false }));
-app.use(cors({ origin: ["http://localhost:3001", "http://localhost:3000"], credentials: true }));
+app.use(cors({ origin: allowedOrigins, credentials: true }));
 app.use(morgan("short"));
 
 // Rate limiting
@@ -47,6 +59,17 @@ const springProxy = createProxyMiddleware({
     "/api/traceability/**",
     "/api/shipping/**",
     "/api/market-prices/**",
+    "/api/categories/**",
+    "/api/coins/**",
+    "/api/messages/**",
+    "/api/notifications/**",
+    "/api/returns/**",
+    "/api/wishlist/**",
+    "/api/vouchers/**",
+    "/api/stories/**",
+    "/api/shop/**",
+    "/api/seller/**",
+    "/api/trust-score/**",
   ],
   on: {
     proxyReq: (proxyReq, req) => {

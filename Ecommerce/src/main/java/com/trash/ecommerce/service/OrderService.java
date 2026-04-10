@@ -9,7 +9,8 @@ import java.util.List;
 public interface OrderService {
     public List<OrderSummaryDTO> getAllMyOrders(Long userId, String IpAddress);
     public OrderResponseDTO getOrderById(Long userId, Long orderId, String IpAddress);
-    public OrderResponseDTO createMyOrder(Long userId, Long paymentMethodId, String IpAddress);
+    public OrderResponseDTO createMyOrder(Long userId, Long paymentMethodId, String voucherCode, String IpAddress);
     public OrderMessageResponseDTO deleteOrder(Long userId, Long orderId);
+    public OrderMessageResponseDTO updateBuyerOrderStatus(Long userId, Long orderId, String status);
 
 }

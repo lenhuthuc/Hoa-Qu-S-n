@@ -39,6 +39,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/user/auth/login", "/api/user/auth/register", "/api/user/auth/logout").permitAll()
                         .requestMatchers("/api/user/auth/reset-password", "/api/user/auth/verify-otp", "/api/user/auth/change-password").permitAll()
                         .requestMatchers("/api/products/**").permitAll()
+                        .requestMatchers("/api/categories/**").permitAll()
                         .requestMatchers("GET", "/api/reviews/products/**").permitAll()
                         .requestMatchers("/api/reviews/**").authenticated()
                         .requestMatchers("/api/admin/**").hasAuthority("ADMIN")
@@ -49,6 +50,22 @@ public class SecurityConfig {
                         .requestMatchers("/api/farming-journal/**").authenticated()
                         .requestMatchers("/api/traceability/**").authenticated()
                         .requestMatchers("/api/shipping/**").authenticated()
+                        .requestMatchers("GET", "/api/trust-score/**").permitAll()
+                        .requestMatchers("/api/trust-score/**").authenticated()
+                        .requestMatchers("/api/returns/**").authenticated()
+                        .requestMatchers("/api/seller/**").authenticated()
+                        .requestMatchers("/api/notifications/**").authenticated()
+                        .requestMatchers("GET", "/api/vouchers/available").permitAll()
+                        .requestMatchers("POST", "/api/vouchers/validate").permitAll()
+                        .requestMatchers("/api/vouchers/**").authenticated()
+                        .requestMatchers("/api/wishlist/**").authenticated()
+                        .requestMatchers("GET", "/api/shop/**").permitAll()
+                        .requestMatchers("/api/messages/**").authenticated()
+                        .requestMatchers("/api/coins/**").authenticated()
+                        .requestMatchers("GET", "/api/stories").permitAll()
+                        .requestMatchers("GET", "/api/stories/seller/**").permitAll()
+                        .requestMatchers("/api/stories/**").authenticated()
+                        .requestMatchers("/api/admin/analytics/**").hasAuthority("ADMIN")
                         .anyRequest().authenticated()
                 )
                 .exceptionHandling(exception -> exception
@@ -85,7 +102,12 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource configurationSource() {
         CorsConfiguration config = new CorsConfiguration();
-        config.setAllowedOrigins(List.of("http://localhost:3000", "http://localhost:3001"));
+        config.setAllowedOrigins(List.of(
+            "http://localhost:3000",
+            "http://localhost:3001",
+            "http://127.0.0.1:3000",
+            "http://127.0.0.1:3001"
+        ));
         config.setAllowedMethods(List.of("*"));
         config.setAllowedHeaders(List.of("*"));
         config.setAllowCredentials(true);

@@ -28,7 +28,7 @@ public class PaymentController {
     private UserService userService;
 
     @PostMapping("/createUrl")
-    public ResponseEntity<String> createUrlVNPay(
+    public ResponseEntity<?> createUrlVNPay(
             @RequestParam("totalPrice") BigDecimal total_price,
             @RequestParam("orderInfo") String orderInfo,
             @RequestParam("orderId") Long orderId,
@@ -40,12 +40,13 @@ public class PaymentController {
             return ResponseEntity.ok(Url);
         } catch (Exception e) {
             logger.error("Payment has errors", e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(java.util.Map.of("message", e.getMessage() != null ? e.getMessage() : "Lỗi thanh toán"));
         }
     }
 
     @PostMapping("/methods")
-    public ResponseEntity<PaymentMethodMessageResponse> addPaymentMethod(
+    public ResponseEntity<?> addPaymentMethod(
             @RequestHeader("Authorization") String token,
             @RequestParam String name) {
         try {
@@ -54,7 +55,8 @@ public class PaymentController {
             return ResponseEntity.ok(response);
         } catch (Exception e) {
             logger.error("addPaymentMethod has errors", e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(java.util.Map.of("message", e.getMessage() != null ? e.getMessage() : "Lỗi thêm phương thức thanh toán"));
         }
     }
 

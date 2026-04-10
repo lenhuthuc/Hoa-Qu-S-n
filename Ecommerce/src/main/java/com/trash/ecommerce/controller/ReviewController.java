@@ -24,7 +24,7 @@ public class ReviewController {
     private JwtService jwtService;
 
     @PostMapping("/products/{productId}")
-    public ResponseEntity<ReviewResponse> createReview(
+    public ResponseEntity<?> createReview(
             @RequestHeader("Authorization") String token,
             @PathVariable Long productId,
             @RequestBody ReviewRequest reviewRequest) {
@@ -34,12 +34,13 @@ public class ReviewController {
             return ResponseEntity.ok(response);
         } catch (Exception e) {
             logger.error("createReview has errors", e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(java.util.Map.of("message", e.getMessage() != null ? e.getMessage() : "Lỗi tạo đánh giá"));
         }
     }
 
     @DeleteMapping("/products/{productId}/{reviewId}")
-    public ResponseEntity<Void> deleteReview(
+    public ResponseEntity<?> deleteReview(
             @RequestHeader("Authorization") String token,
             @PathVariable Long productId,
             @PathVariable Long reviewId) {
@@ -49,18 +50,20 @@ public class ReviewController {
             return ResponseEntity.noContent().build();
         } catch (Exception e) {
             logger.error("deleteReview has errors", e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(java.util.Map.of("message", e.getMessage() != null ? e.getMessage() : "Lỗi xóa đánh giá"));
         }
     }
 
     @GetMapping("/products/{productId}")
-    public ResponseEntity<List<ReviewResponse>> getProductReviews(@PathVariable Long productId) {
+    public ResponseEntity<?> getProductReviews(@PathVariable Long productId) {
         try {
             List<ReviewResponse> reviews = reviewService.findReviewByProductId(productId);
             return ResponseEntity.ok(reviews);
         } catch (Exception e) {
             logger.error("getProductReviews has errors", e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(java.util.Map.of("message", e.getMessage() != null ? e.getMessage() : "Lỗi lấy đánh giá"));
         }
     }
 }

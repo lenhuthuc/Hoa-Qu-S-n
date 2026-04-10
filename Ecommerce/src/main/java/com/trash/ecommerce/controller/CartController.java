@@ -29,19 +29,20 @@ public class CartController {
     private JwtService jwtService;
 
     @GetMapping("/items")
-    public ResponseEntity<List<CartItemDetailsResponseDTO>> getCartItems(@RequestHeader("Authorization") String token) {
+    public ResponseEntity<?> getCartItems(@RequestHeader("Authorization") String token) {
         try {
             Long userId = jwtService.extractId(token);
             List<CartItemDetailsResponseDTO> cartItems = cartService.getAllItemFromMyCart(userId);
             return ResponseEntity.ok(cartItems);
         } catch (Exception e) {
             logger.error("Get item has errors", e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(java.util.Map.of("message", e.getMessage() != null ? e.getMessage() : "Lỗi lấy giỏ hàng"));
         }
     }
 
     @PutMapping("/items/{productId}")
-    public ResponseEntity<CartItemTransactionalResponse> updateCartItem(
+    public ResponseEntity<?> updateCartItem(
             @RequestHeader("Authorization") String token,
             @PathVariable Long productId,
             @RequestParam(value = "quantity", defaultValue = "1", required = false) Long quantity) {
@@ -51,12 +52,13 @@ public class CartController {
             return ResponseEntity.ok(response);
         } catch (Exception e) {
             logger.error("add product failed", e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(java.util.Map.of("message", e.getMessage() != null ? e.getMessage() : "Lỗi cập nhật giỏ hàng"));
         }
     }
 
     @DeleteMapping("/items/{productId}")
-    public ResponseEntity<CartItemTransactionalResponse> removeCartItem(
+    public ResponseEntity<?> removeCartItem(
             @RequestHeader("Authorization") String token,
             @PathVariable Long productId) {
         try {
@@ -65,7 +67,8 @@ public class CartController {
             return ResponseEntity.ok(response);
         } catch (Exception e) {
             logger.error("delete product from cart has failed", e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(java.util.Map.of("message", e.getMessage() != null ? e.getMessage() : "Lỗi xóa sản phẩm khỏi giỏ"));
         }
     }
 }

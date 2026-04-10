@@ -146,6 +146,8 @@ services:
         condition: service_healthy
       mongodb:
         condition: service_healthy
+    volumes:
+      - spring_uploads:/app/uploads
     networks:
       - hoaquason_network
 
@@ -195,6 +197,7 @@ volumes:
   mongo_data:
   redis_data:
   qdrant_data:
+  spring_uploads:
 
 networks:
   hoaquason_network:

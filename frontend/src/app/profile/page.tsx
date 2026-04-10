@@ -11,7 +11,13 @@ interface UserProfile {
   email: string;
   fullName?: string;
   phone?: string;
-  address?: string;
+  address?: {
+    id?: number;
+    province?: string;
+    district?: string;
+    ward?: string;
+    streetDetail?: string;
+  };
   role?: string;
   createdAt?: string;
 }
@@ -23,7 +29,10 @@ export default function ProfilePage() {
   const [saving, setSaving] = useState(false);
   const [fullName, setFullName] = useState("");
   const [phone, setPhone] = useState("");
-  const [address, setAddress] = useState("");
+  const [province, setProvince] = useState("");
+  const [district, setDistrict] = useState("");
+  const [ward, setWard] = useState("");
+  const [streetDetail, setStreetDetail] = useState("");
 
   useEffect(() => {
     (async () => {
@@ -33,7 +42,10 @@ export default function ProfilePage() {
         setProfile(data);
         setFullName(data.fullName || "");
         setPhone(data.phone || "");
-        setAddress(data.address || "");
+        setProvince(data.address?.province || "");
+        setDistrict(data.address?.district || "");
+        setWard(data.address?.ward || "");
+        setStreetDetail(data.address?.streetDetail || "");
       } catch {
         toast.error("Vui lòng đăng nhập");
         router.push("/login");
@@ -48,7 +60,7 @@ export default function ProfilePage() {
     if (!profile) return;
     setSaving(true);
     try {
-      await userApi.update(profile.id, { fullName, phone, address });
+      await userApi.update(profile.id, { fullName, phone, province, district, ward, streetDetail });
       toast.success("Cập nhật thành công!");
     } catch (err: any) {
       toast.error(err.response?.data?.message || "Lỗi khi cập nhật");
@@ -138,15 +150,42 @@ export default function ProfilePage() {
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1.5">Địa chỉ</label>
-            <div className="relative">
-              <MapPin className="absolute left-3 top-3 w-5 h-5 text-gray-400" />
-              <textarea
-                value={address}
-                onChange={(e) => setAddress(e.target.value)}
-                placeholder="Số nhà, đường, phường/xã, quận/huyện, tỉnh/thành phố"
-                rows={3}
-                className="w-full pl-10 pr-4 py-3 border rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none resize-none"
-              />
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="relative">
+                  <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                  <input
+                    type="text"
+                    value={province}
+                    onChange={(e) => setProvince(e.target.value)}
+                    placeholder="Tỉnh/Thành phố"
+                    className="w-full pl-10 pr-4 py-3 border rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none"
+                  />
+                </div>
+                <input
+                  type="text"
+                  value={district}
+                  onChange={(e) => setDistrict(e.target.value)}
+                  placeholder="Quận/Huyện"
+                  className="w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <input
+                  type="text"
+                  value={ward}
+                  onChange={(e) => setWard(e.target.value)}
+                  placeholder="Phường/Xã"
+                  className="w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none"
+                />
+                <input
+                  type="text"
+                  value={streetDetail}
+                  onChange={(e) => setStreetDetail(e.target.value)}
+                  placeholder="Số nhà, tên đường"
+                  className="w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none"
+                />
+              </div>
             </div>
           </div>
 

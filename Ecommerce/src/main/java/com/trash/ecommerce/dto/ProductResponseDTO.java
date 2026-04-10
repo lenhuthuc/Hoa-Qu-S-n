@@ -9,4 +9,9 @@ import lombok.NoArgsConstructor;
 @Data
 public class ProductResponseDTO {
     String message;
+    Long productId;
+
+    public ProductResponseDTO(String message) {
+        this.message = message;
+    }
 }

@@ -1,30 +1,44 @@
+"use client";
+
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Leaf, Search, Video, QrCode, TruckIcon, Sparkles } from "lucide-react";
+import { Leaf, Search, Video, QrCode, TruckIcon, Sparkles, Loader2, ArrowRight } from "lucide-react";
+import { productApi } from "@/lib/api";
+import toast from "react-hot-toast";
+
+interface Product {
+  id: number;
+  productName: string;
+  price: number;
+  description: string;
+  imageUrl?: string;
+  categoryName?: string;
+}
 
 export default function Home() {
+  const [products, setProducts] = useState<Product[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await productApi.getAll(0, 8); // fetch top 8 products
+        // Extract data depending on how Spring Boot wraps it, usually res.data?.data?.content or just array
+        const data = res.data?.data?.content || res.data?.data || res.data || [];
+        setProducts(Array.isArray(data) ? data.slice(0, 8) : []);
+      } catch {
+        // silently fail or show minimal toast
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
+
+  const formatPrice = (price: number) =>
+    new Intl.NumberFormat("vi-VN", { style: "currency", currency: "VND" }).format(price);
+
   return (
     <main className="min-h-screen bg-gradient-to-b from-primary-50 to-white">
-      {/* Header */}
-      <header className="border-b bg-white/80 backdrop-blur-sm sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
-          <Link href="/" className="flex items-center gap-2 text-primary-700 font-bold text-xl">
-            <Leaf className="w-7 h-7" />
-            Hoa Quả Sơn
-          </Link>
-          <nav className="flex items-center gap-4">
-            <Link href="/search" className="text-gray-600 hover:text-primary-600 flex items-center gap-1">
-              <Search className="w-4 h-4" /> Tìm kiếm
-            </Link>
-            <Link href="/live" className="text-gray-600 hover:text-primary-600 flex items-center gap-1">
-              <Video className="w-4 h-4" /> Livestream
-            </Link>
-            <Link href="/seller/dashboard" className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700">
-              Bán hàng
-            </Link>
-          </nav>
-        </div>
-      </header>
-
       {/* Hero */}
       <section className="max-w-7xl mx-auto px-4 py-20 text-center">
         <h1 className="text-5xl font-bold text-gray-900 mb-4">
@@ -45,22 +59,88 @@ export default function Home() {
         </div>
       </section>
 
+      {/* Featured Products */}
+      <section className="max-w-7xl mx-auto px-4 py-16 bg-white rounded-3xl shadow-sm border mb-16">
+        <div className="flex items-center justify-between mb-8">
+          <h2 className="text-2xl font-bold text-gray-900">Sản phẩm mới nhất</h2>
+          <Link href="/search" className="flex items-center gap-1 text-primary-600 hover:text-primary-700 font-medium">
+            Xem tất cả <ArrowRight className="w-4 h-4" />
+          </Link>
+        </div>
+
+        {loading ? (
+          <div className="flex justify-center py-12">
+            <Loader2 className="w-8 h-8 animate-spin text-primary-600" />
+          </div>
+        ) : products.length === 0 ? (
+          <div className="text-center py-12 text-gray-500">
+            <Leaf className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+            <p>Chưa có sản phẩm nào được hiển thị</p>
+          </div>
+        ) : (
+          <div className="grid sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+            {products.map((p) => (
+              <Link 
+                key={p.id} 
+                href={`/product/${p.id}`}
+                className="group bg-white rounded-2xl border hover:shadow-lg transition-all duration-300 overflow-hidden flex flex-col hover:-translate-y-1"
+              >
+                <div className="aspect-square bg-gray-100 flex items-center justify-center relative overflow-hidden">
+                  {p.imageUrl ? (
+                    <img 
+                      src={p.imageUrl} 
+                      alt={p.productName} 
+                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" 
+                    />
+                  ) : (
+                    <Leaf className="w-12 h-12 text-gray-300" />
+                  )}
+                  {p.categoryName && (
+                    <div className="absolute top-3 left-3 bg-white/90 backdrop-blur-sm px-2.5 py-1 rounded-full text-xs font-semibold text-primary-700 shadow-sm">
+                      {p.categoryName}
+                    </div>
+                  )}
+                </div>
+                <div className="p-4 flex-1 flex flex-col">
+                  <h3 className="font-semibold text-gray-900 mb-1 line-clamp-1 group-hover:text-primary-600 transition-colors">
+                    {p.productName}
+                  </h3>
+                  <p className="text-xs text-gray-500 line-clamp-2 mb-3 flex-1">
+                    {p.description || "Chưa có mô tả chi tiết."}
+                  </p>
+                  <div className="flex items-center justify-between mt-auto pt-3 border-t">
+                    <span className="font-bold text-lg text-primary-600">
+                      {formatPrice(p.price)}
+                    </span>
+                    <span className="text-xs text-primary-600 font-medium opacity-0 -translate-x-2 group-hover:opacity-100 group-hover:translate-x-0 transition-all duration-300 flex items-center gap-1">
+                      Mua ngay <ArrowRight className="w-3 h-3" />
+                    </span>
+                  </div>
+                </div>
+              </Link>
+            ))}
+          </div>
+        )}
+      </section>
+
       {/* Features */}
-      <section className="max-w-7xl mx-auto px-4 py-16">
-        <h2 className="text-2xl font-bold text-center mb-12">Tính năng nổi bật</h2>
+      <section className="max-w-7xl mx-auto px-4 py-16 mb-20 bg-gray-50 rounded-3xl">
+        <h2 className="text-2xl font-bold text-center mb-12">Tại sao chọn Hoa Quả Sơn?</h2>
         <div className="grid md:grid-cols-3 gap-8">
           {[
-            { icon: Sparkles, title: "AI tạo bài đăng", desc: "Upload ảnh nông sản, AI tự động tạo tiêu đề, mô tả và gợi ý giá bán" },
-            { icon: Search, title: "Tìm kiếm thông minh", desc: "Tìm kiếm bằng ngôn ngữ tự nhiên: 'trái cây giải nhiệt', 'rau sạch organic'" },
-            { icon: Video, title: "Livestream bán hàng", desc: "Phát trực tiếp từ vườn, người mua đặt hàng ngay trong stream" },
-            { icon: QrCode, title: "Truy xuất nguồn gốc", desc: "Quét mã QR xem toàn bộ hành trình từ gieo trồng đến thu hoạch" },
-            { icon: TruckIcon, title: "Vận chuyển thông minh", desc: "Tự động kiểm tra thời gian giao hàng phù hợp với hạn sử dụng sản phẩm" },
-            { icon: Leaf, title: "Nhật ký canh tác", desc: "Ghi lại quá trình trồng trọt hàng ngày, tạo niềm tin với khách hàng" },
+            { icon: Sparkles, title: "AI Nông Nghiệp", desc: "AI tự động chấm điểm chất lượng, gợi ý giá và nhận diện sâu bệnh" },
+            { icon: Search, title: "Tìm kiếm ngữ nghĩa", desc: "Tìm kiếm tự nhiên: 'trái cây giải nhiệt', 'quà biếu lễ Tết'" },
+            { icon: Video, title: "Livestream", desc: "Mua hàng trực tiếp từ vườn qua sóng livestream độ trễ thấp" },
+            { icon: QrCode, title: "Truy xuất Blockchain", desc: "Minh bạch 100% vòng đời nông sản qua mã QR" },
+            { icon: TruckIcon, title: "Vận chuyển", desc: "Giao hàng tối ưu hóa, đảm bảo độ tươi ngon đến tận tay" },
+            { icon: Leaf, title: "Nhật ký số", desc: "Bản ghi canh tác điện tử, kết nối niềm tin nông hộ và người mua" },
           ].map((f, i) => (
-            <div key={i} className="p-6 bg-white rounded-xl shadow-sm border hover:shadow-md transition">
-              <f.icon className="w-10 h-10 text-primary-600 mb-4" />
-              <h3 className="font-semibold text-lg mb-2">{f.title}</h3>
-              <p className="text-gray-600 text-sm">{f.desc}</p>
+            <div key={i} className="p-6 bg-white rounded-2xl shadow-sm border hover:shadow-md transition-shadow group">
+              <div className="w-14 h-14 bg-primary-50 rounded-2xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+                <f.icon className="w-7 h-7 text-primary-600" />
+              </div>
+              <h3 className="font-bold text-gray-900 mb-2">{f.title}</h3>
+              <p className="text-gray-600 text-sm leading-relaxed">{f.desc}</p>
             </div>
           ))}
         </div>

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import {
   Shield,
   Users,
@@ -14,24 +15,24 @@ import {
   Leaf,
   X,
 } from "lucide-react";
-import { adminApi, productApi, isLoggedIn, hasRole } from "@/lib/api";
+import { adminApi, productApi, categoryApi, isLoggedIn, hasRole } from "@/lib/api";
 import toast from "react-hot-toast";
 
 interface UserItem {
   id: number;
   email: string;
   fullName?: string;
-  role?: string;
+  roles?: string[];
   createdAt?: string;
 }
 
 interface Product {
   id: number;
-  name: string;
+  productName: string;
   price: number;
-  category?: string;
+  categoryName?: string;
   imageUrl?: string;
-  stock?: number;
+  quantity?: number;
 }
 
 type Tab = "users" | "products";
@@ -43,14 +44,19 @@ export default function AdminPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreateProduct, setShowCreateProduct] = useState(false);
-  const [newProduct, setNewProduct] = useState({ name: "", price: "", category: "", description: "" });
+  const [newProduct, setNewProduct] = useState({ productName: "", price: "", quantity: "100", categoryId: "", description: "" });
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [creating, setCreating] = useState(false);
+  const [categories, setCategories] = useState<{id: number; name: string}[]>([]);
 
   useEffect(() => {
     if (!isLoggedIn()) { router.push("/login"); return; }
     if (!hasRole("ADMIN")) { toast.error("Bạn không có quyền truy cập"); router.push("/"); return; }
     loadData();
+    categoryApi.getAll().then((res) => {
+      const cats = res.data?.data || res.data || [];
+      setCategories(Array.isArray(cats) ? cats : []);
+    }).catch(() => {});
   }, [tab]);
 
   const loadData = async () => {
@@ -95,7 +101,7 @@ export default function AdminPage() {
   };
 
   const handleCreateProduct = async () => {
-    if (!newProduct.name.trim() || !newProduct.price) {
+    if (!newProduct.productName.trim() || !newProduct.price) {
       toast.error("Vui lòng nhập tên và giá sản phẩm");
       return;
     }
@@ -106,14 +112,15 @@ export default function AdminPage() {
     setCreating(true);
     try {
       await adminApi.createProduct({
-        name: newProduct.name,
+        productName: newProduct.productName,
         price: Number(newProduct.price),
-        category: newProduct.category,
+        quantity: Number(newProduct.quantity) || 100,
+        categoryId: Number(newProduct.categoryId),
         description: newProduct.description,
       }, imageFile);
       toast.success("Đã tạo sản phẩm");
       setShowCreateProduct(false);
-      setNewProduct({ name: "", price: "", category: "", description: "" });
+      setNewProduct({ productName: "", price: "", quantity: "100", categoryId: "", description: "" });
       setImageFile(null);
       if (tab === "products") loadData();
     } catch {
@@ -131,6 +138,9 @@ export default function AdminPage() {
       <div className="flex items-center gap-3 mb-6">
         <Shield className="w-7 h-7 text-primary-600" />
         <h1 className="text-2xl font-bold text-gray-800">Quản trị hệ thống</h1>
+        <Link href="/admin/analytics" className="ml-auto flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700">
+          📊 Thống kê & Phân tích
+        </Link>
       </div>
 
       {/* Tabs */}
@@ -187,9 +197,9 @@ export default function AdminPage() {
                       <td className="py-3 px-4 text-gray-600">{user.fullName || "—"}</td>
                       <td className="py-3 px-4">
                         <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${
-                          user.role === "ADMIN" ? "bg-red-100 text-red-700" : "bg-gray-100 text-gray-600"
+                          user.roles?.includes("ADMIN") ? "bg-red-100 text-red-700" : "bg-gray-100 text-gray-600"
                         }`}>
-                          {user.role || "USER"}
+                          {user.roles?.includes("ADMIN") ? "ADMIN" : user.roles?.includes("SELLER") ? "SELLER" : "USER"}
                         </span>
                       </td>
                       <td className="py-3 px-4 text-gray-400 text-xs">
@@ -235,8 +245,8 @@ export default function AdminPage() {
                 </div>
                 <div className="space-y-3">
                   <input
-                    value={newProduct.name}
-                    onChange={(e) => setNewProduct({ ...newProduct, name: e.target.value })}
+                    value={newProduct.productName}
+                    onChange={(e) => setNewProduct({ ...newProduct, productName: e.target.value })}
                     placeholder="Tên sản phẩm"
                     className="w-full border rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary-300 outline-none"
                   />
@@ -248,11 +258,22 @@ export default function AdminPage() {
                     className="w-full border rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary-300 outline-none"
                   />
                   <input
-                    value={newProduct.category}
-                    onChange={(e) => setNewProduct({ ...newProduct, category: e.target.value })}
-                    placeholder="Danh mục"
+                    type="number"
+                    value={newProduct.quantity}
+                    onChange={(e) => setNewProduct({ ...newProduct, quantity: e.target.value })}
+                    placeholder="Số lượng"
                     className="w-full border rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary-300 outline-none"
                   />
+                  <select
+                    value={newProduct.categoryId}
+                    onChange={(e) => setNewProduct({ ...newProduct, categoryId: e.target.value })}
+                    className="w-full border rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary-300 outline-none"
+                  >
+                    <option value="">Chọn danh mục</option>
+                    {categories.map((cat) => (
+                      <option key={cat.id} value={cat.id}>{cat.name}</option>
+                    ))}
+                  </select>
                   <textarea
                     value={newProduct.description}
                     onChange={(e) => setNewProduct({ ...newProduct, description: e.target.value })}
@@ -307,16 +328,16 @@ export default function AdminPage() {
                           <div className="flex items-center gap-3">
                             <div className="w-10 h-10 bg-gray-100 rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden">
                               {product.imageUrl ? (
-                                <img src={product.imageUrl} alt={product.name} className="w-full h-full object-cover" />
+                                <img src={product.imageUrl} alt={product.productName} className="w-full h-full object-cover" />
                               ) : (
                                 <Leaf className="w-4 h-4 text-gray-300" />
                               )}
                             </div>
-                            <span className="font-medium text-gray-800">{product.name}</span>
+                            <span className="font-medium text-gray-800">{product.productName}</span>
                           </div>
                         </td>
                         <td className="py-3 px-4 text-right font-bold text-gray-700">{formatPrice(product.price)}</td>
-                        <td className="py-3 px-4 text-gray-500">{product.category || "—"}</td>
+                        <td className="py-3 px-4 text-gray-500">{product.categoryName || "—"}</td>
                         <td className="py-3 px-4 text-center">
                           <div className="flex items-center justify-center gap-1">
                             <button

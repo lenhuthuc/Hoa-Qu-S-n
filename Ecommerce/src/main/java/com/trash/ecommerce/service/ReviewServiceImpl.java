@@ -2,6 +2,7 @@ package com.trash.ecommerce.service;
 
 import com.trash.ecommerce.dto.ReviewRequest;
 import com.trash.ecommerce.dto.ReviewResponse;
+import com.trash.ecommerce.entity.NotificationType;
 import com.trash.ecommerce.entity.Product;
 import com.trash.ecommerce.entity.Review;
 import com.trash.ecommerce.entity.Users;
@@ -33,6 +34,14 @@ public class ReviewServiceImpl implements ReviewService {
     private ProductRepository productRepository;
     @Autowired
     private OrderRepository orderRepository;
+    @Autowired
+    private AgriCoinService agriCoinService;
+    @Autowired
+    private TrustScoreService trustScoreService;
+    @Autowired
+    private NotificationService notificationService;
+    @Autowired
+    private EventPublisher eventPublisher;
     @Override
     public ReviewResponse createComment(Long userId, Long productId, ReviewRequest reviewRequest) {
         if (reviewRequest == null) {
@@ -65,6 +74,24 @@ public class ReviewServiceImpl implements ReviewService {
         reviewRepository.save(review);
         // Trigger sẽ tự động cập nhật rating, nhưng ta refresh product để đảm bảo
         productRepository.flush();
+        // Award AgriCoin for review
+        try {
+            agriCoinService.reward(userId, 10, "REVIEW_REWARD", "Thưởng đánh giá sản phẩm: " + product.getProductName(), review.getId());
+        } catch (Exception ignored) {}
+
+        // Recalculate seller trust score and notify seller
+        if (product.getSeller() != null) {
+            Long sellerId = product.getSeller().getId();
+            trustScoreService.recalculateTrustScore(sellerId);
+            notificationService.send(sellerId,
+                    "Đánh giá mới",
+                    users.getFullName() + " đã đánh giá " + reviewRequest.getRating() + "⭐ cho " + product.getProductName(),
+                    NotificationType.REVIEW_RECEIVED,
+                    review.getId());
+            eventPublisher.publishNotification(sellerId,
+                    "Đánh giá mới", "REVIEW_RECEIVED", review.getId());
+        }
+
         return reviewsMapper.mapReview(review);
     }
 

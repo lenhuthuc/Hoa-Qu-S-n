@@ -33,24 +33,64 @@ public class ShippingValidationService {
                 .orElseThrow(() -> new RuntimeException("Product not found: " + productId));
 
         int shelfLifeDays = product.getShelfLifeDays() != null ? product.getShelfLifeDays() : 30;
+        
+        // 1. Get Seller Coordinates from OSM
+        String sellerAddress = product.getSeller().getAddress().getFullAddress();
+        double[] sellerCoords = getCoordinatesFromOSM(sellerAddress);
+        double sellerLat = sellerCoords[0];
+        double sellerLon = sellerCoords[1];
+        String sellerProvince = product.getSeller().getAddress().getProvince();
+
+        // 2. Get Buyer Coordinates (for simulation, we assume specific hardcoded names for demo IDs)
+        // Default to Hanoi as requested
+        String buyerAddressQuery = "Quận Ba Đình, Hà Nội"; 
+        String buyerProvince = "Thành phố Hà Nội";
+
+        if (toDistrictId.equals("1444")) { // ID 1444 simulates a shift to HCM
+            buyerAddressQuery = "Quận 1, Thành phố Hồ Chí Minh";
+            buyerProvince = "Thành phố Hồ Chí Minh";
+        }
+
+        double[] buyerCoords = getCoordinatesFromOSM(buyerAddressQuery);
+        double buyerLat = buyerCoords[0];
+        double buyerLon = buyerCoords[1];
+
+        double distanceKm = calculateDistance(sellerLat, sellerLon, buyerLat, buyerLon);
 
         // Fetch shipping options from GHN API
         List<ShippingOption> allOptions = fetchGhnShippingOptions(toDistrictId, toWardCode);
-
         List<ShippingOption> available = new ArrayList<>();
         List<ShippingOption> disabled = new ArrayList<>();
 
         for (ShippingOption option : allOptions) {
-            if (option.getEstimatedDays() <= shelfLifeDays) {
-                option.setCompatible(true);
-                available.add(option);
-            } else {
+            String serviceMode = option.getServiceName().toLowerCase();
+            
+            if (option.getEstimatedDays() > shelfLifeDays) {
                 option.setCompatible(false);
-                option.setReason(String.format(
-                        "Thời gian giao hàng (%d ngày) vượt quá hạn sử dụng sản phẩm (%d ngày)",
+                option.setReason(String.format("ETD (%d ngày) > Hạn sử dụng (%d ngày)", 
                         option.getEstimatedDays(), shelfLifeDays));
                 disabled.add(option);
+                continue;
             }
+
+            if (serviceMode.contains("hỏa tốc") || serviceMode.contains("express")) {
+                if (distanceKm > 30) {
+                    option.setCompatible(false);
+                    option.setReason(String.format("Giao hỏa tốc chỉ hỗ trợ < 30km (Tính toán thực tế: %d km)", Math.round(distanceKm)));
+                    disabled.add(option);
+                    continue;
+                }
+                if (!sellerProvince.toLowerCase().contains(buyerProvince.toLowerCase()) && 
+                    !buyerProvince.toLowerCase().contains(sellerProvince.toLowerCase())) {
+                    option.setCompatible(false);
+                    option.setReason("Giao hỏa tốc chỉ hỗ trợ nội tỉnh/thành phố");
+                    disabled.add(option);
+                    continue;
+                }
+            }
+
+            option.setCompatible(true);
+            available.add(option);
         }
 
         return ShippingValidationResponse.builder()
@@ -62,23 +102,63 @@ public class ShippingValidationService {
                 .build();
     }
 
+    private double[] getCoordinatesFromOSM(String address) {
+        try {
+            WebClient client = WebClient.builder()
+                    .baseUrl("https://nominatim.openstreetmap.org")
+                    .defaultHeader(HttpHeaders.USER_AGENT, "HoaQuaSon-Ecommerce-App/1.0")
+                    .build();
+
+            List<Map<String, Object>> results = client.get()
+                    .uri(uriBuilder -> uriBuilder
+                            .path("/search")
+                            .queryParam("q", address)
+                            .queryParam("format", "json")
+                            .queryParam("limit", 1)
+                            .build())
+                    .retrieve()
+                    .bodyToMono(List.class)
+                    .block();
+
+            if (results != null && !results.isEmpty()) {
+                Map<String, Object> first = results.get(0);
+                double lat = Double.parseDouble((String) first.get("lat"));
+                double lon = Double.parseDouble((String) first.get("lon"));
+                return new double[]{lat, lon};
+            }
+        } catch (Exception e) {
+            System.err.println("OSM Geocoding error: " + e.getMessage());
+        }
+        // Fallback to District 1, Ho Chi Minh City if API fails or no results
+        return new double[]{10.7769, 106.7009};
+    }
+
+    private double calculateDistance(double lat1, double lon1, double lat2, double lon2) {
+        final int R = 6371; // Radius of the earth
+        double latDistance = Math.toRadians(lat2 - lat1);
+        double lonDistance = Math.toRadians(lon2 - lon1);
+        double a = Math.sin(latDistance / 2) * Math.sin(latDistance / 2)
+                + Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2))
+                * Math.sin(lonDistance / 2) * Math.sin(lonDistance / 2);
+        double c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        return R * c;
+    }
+
     @SuppressWarnings("unchecked")
     private List<ShippingOption> fetchGhnShippingOptions(String toDistrictId, String toWardCode) {
         List<ShippingOption> options = new ArrayList<>();
 
+        // If GHN Token is missing, provide mock services to test logic
         if (ghnToken == null || ghnToken.isEmpty()) {
-            // Return mock data when GHN token is not configured
             options.add(ShippingOption.builder()
-                    .carrier("GHN").serviceName("Giao hàng nhanh")
-                    .estimatedDays(2).fee(30000L).build());
-            options.add(ShippingOption.builder()
-                    .carrier("GHN").serviceName("Giao hàng tiết kiệm")
-                    .estimatedDays(5).fee(18000L).build());
+                    .carrier("GHN").serviceName("Giao hàng tiêu chuẩn")
+                    .estimatedDays(3).fee(30000L).build());
             options.add(ShippingOption.builder()
                     .carrier("GHN").serviceName("Giao hàng hỏa tốc")
-                    .estimatedDays(1).fee(55000L).build());
+                    .estimatedDays(1).fee(60000L).build());
             return options;
         }
+// (rest of the code remains same)
 
         try {
             WebClient client = WebClient.builder()

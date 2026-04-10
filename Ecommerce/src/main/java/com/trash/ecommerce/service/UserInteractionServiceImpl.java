@@ -12,16 +12,14 @@ import com.trash.ecommerce.exception.ProductFingdingException;
 import com.trash.ecommerce.mapper.ProductMapper;
 
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Service;
 
-import org.springframework.http.MediaType;
 import jakarta.transaction.Transactional;
-import org.springframework.web.reactive.function.client.WebClient;
 
 import java.time.LocalDateTime;
+import java.util.Collections;
 import java.util.List;
-import java.util.Map;
+import java.util.stream.Collectors;
 
 @Service
 public class UserInteractionServiceImpl implements UserInteractionService {
@@ -56,26 +54,40 @@ public class UserInteractionServiceImpl implements UserInteractionService {
     public List<ProductDetailsResponseDTO> getUserInteractions(Long userId) {
         List<UserInteractions> userInteractions = userInteractionsRepository.findByUserId(userId);
         if (userInteractions.isEmpty()) {
-            throw new RuntimeException("No interactions found for user");
+            return Collections.emptyList();
         }
-        List<Long> productIdList = userInteractions.stream().map(
-            product -> product.getProduct().getId()
-        ).toList();
-        WebClient webClient = WebClient.create();
-        List<Long> result = webClient.post()
-            .uri("http://127.0.0.1:8000/recommend_user")
-            .contentType(MediaType.APPLICATION_JSON)
-            .bodyValue(Map.of(
-                "view_ids", productIdList
-            ))
-            .retrieve()
-            .bodyToMono(new ParameterizedTypeReference<List<Long>>() {})
-            .block();
-        return result.stream()
-                        .map(id -> productRepository.findById(id)
-                        .orElseThrow(() -> new ProductFingdingException("Product not found")))
-                        .map(productMapper::mapperProduct)
-                        .toList();
+        // Get category IDs from interacted products for same-category recommendations
+        List<Long> interactedProductIds = userInteractions.stream()
+            .map(ui -> ui.getProduct().getId())
+            .distinct()
+            .collect(Collectors.toList());
+
+        List<Long> categoryIds = userInteractions.stream()
+            .map(ui -> ui.getProduct().getCategory())
+            .filter(cat -> cat != null)
+            .map(cat -> cat.getId())
+            .distinct()
+            .collect(Collectors.toList());
+
+        // Recommend products from same categories, excluding already viewed
+        List<Product> candidates = productRepository.findAll().stream()
+            .filter(p -> !interactedProductIds.contains(p.getId()))
+            .filter(p -> p.getCategory() != null && categoryIds.contains(p.getCategory().getId()))
+            .limit(10)
+            .collect(Collectors.toList());
+
+        // Fallback: if not enough same-category products, add top-rated ones
+        if (candidates.size() < 5) {
+            List<Long> candidateIds = candidates.stream().map(Product::getId).collect(Collectors.toList());
+            productRepository.findAll().stream()
+                .filter(p -> !interactedProductIds.contains(p.getId()) && !candidateIds.contains(p.getId()))
+                .limit(10 - candidates.size())
+                .forEach(candidates::add);
+        }
+
+        return candidates.stream()
+            .map(productMapper::mapperProduct)
+            .collect(Collectors.toList());
     }
 
     public List<UserInteractions> getProductInteractions(Long productId) {

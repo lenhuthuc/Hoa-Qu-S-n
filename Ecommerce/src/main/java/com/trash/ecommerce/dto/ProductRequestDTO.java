@@ -15,7 +15,9 @@ public class ProductRequestDTO {
     private BigDecimal price;
     @NotNull
     private Long quantity;
-    private String category;
+    private Long categoryId;
     private String description;
+    private String batchId;
+    private String origin;
 }
 

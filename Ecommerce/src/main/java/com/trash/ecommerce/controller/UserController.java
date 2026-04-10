@@ -1,7 +1,9 @@
 package com.trash.ecommerce.controller;
 
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 
 import com.trash.ecommerce.dto.*;
 import com.trash.ecommerce.exception.ProductCreatingException;
@@ -22,6 +24,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.trash.ecommerce.exception.FindingUserError;
+import com.trash.ecommerce.service.FacebookIntegrationService;
 import com.trash.ecommerce.service.UserService;
 
 import jakarta.validation.Valid;
@@ -46,6 +49,8 @@ public class UserController {
     private JwtService jwtService;
     @Autowired
     private ProductService productService;
+    @Autowired
+    private FacebookIntegrationService facebookIntegrationService;
 
     @PostMapping("auth/register")
     public ResponseEntity<UserRegisterResponseDTO> createUser(
@@ -63,6 +68,10 @@ public class UserController {
         try {
             userRegisterResponseDTO = userService.register(userRegisterRequestDTO);
             return ResponseEntity.ok(userRegisterResponseDTO);
+        } catch (RuntimeException e) {
+            logger.warn("Đăng kí thất bại: {}", e.getMessage());
+            return ResponseEntity.status(HttpStatus.CONFLICT)
+                    .body(new UserRegisterResponseDTO(e.getMessage()));
         } catch (Exception e) {
             logger.error("Đăng kí thất bại ",e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
@@ -225,15 +234,83 @@ public class UserController {
     // ========== SELLER: PRODUCT MANAGEMENT ==========
     @PostMapping("/products")
     public ResponseEntity<ProductResponseDTO> createProduct(
+            @RequestHeader("Authorization") String token,
             @RequestPart("products") ProductRequestDTO productRequestDTO,
             @RequestPart("file") MultipartFile file
     ) {
         try {
-            ProductResponseDTO productResponseDTO = productService.createProduct(productRequestDTO, file);
+            Long sellerId = jwtService.extractId(token);
+            ProductResponseDTO productResponseDTO = productService.createProduct(productRequestDTO, file, sellerId);
             return ResponseEntity.ok(productResponseDTO);
         } catch (Exception e) {
             throw new ProductCreatingException(e.getMessage());
         }
+    }
+
+    @PostMapping("/products/publish-with-facebook")
+    public ResponseEntity<?> createProductAndPublishFacebook(
+            @RequestHeader("Authorization") String token,
+            @RequestPart("products") ProductRequestDTO productRequestDTO,
+            @RequestPart("file") MultipartFile file,
+            @RequestParam String pageId,
+            @RequestParam(required = false) String message
+    ) {
+        Long sellerId;
+        try {
+            sellerId = jwtService.extractId(token);
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(Map.of("message", "Token không hợp lệ"));
+        }
+
+        CompletableFuture<Map<String, Object>> dbFuture = CompletableFuture.supplyAsync(() -> {
+            Map<String, Object> result = new LinkedHashMap<>();
+            try {
+                ProductResponseDTO db = productService.createProduct(productRequestDTO, file, sellerId);
+                result.put("success", true);
+                result.put("data", db);
+            } catch (Exception ex) {
+                result.put("success", false);
+                result.put("error", ex.getMessage());
+            }
+            return result;
+        });
+
+        CompletableFuture<Map<String, Object>> fbFuture = CompletableFuture.supplyAsync(() -> {
+            Map<String, Object> result = new LinkedHashMap<>();
+            try {
+                Map<String, Object> fb = facebookIntegrationService.publishFromProductDraft(
+                        sellerId, pageId, productRequestDTO, file, message
+                );
+                result.put("success", true);
+                result.put("data", fb);
+            } catch (Exception ex) {
+                result.put("success", false);
+                result.put("error", ex.getMessage());
+            }
+            return result;
+        });
+
+        Map<String, Object> dbResult = dbFuture.join();
+        Map<String, Object> fbResult = fbFuture.join();
+
+        boolean dbSuccess = Boolean.TRUE.equals(dbResult.get("success"));
+        boolean fbSuccess = Boolean.TRUE.equals(fbResult.get("success"));
+
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("database", dbResult);
+        response.put("facebook", fbResult);
+        response.put("databaseSuccess", dbSuccess);
+        response.put("facebookSuccess", fbSuccess);
+        response.put("overallSuccess", dbSuccess || fbSuccess);
+
+        if (dbSuccess && fbSuccess) {
+            return ResponseEntity.ok(response);
+        }
+        if (!dbSuccess && !fbSuccess) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
+        }
+        return ResponseEntity.status(HttpStatus.MULTI_STATUS).body(response);
     }
 
     @PutMapping("/products/{id}")

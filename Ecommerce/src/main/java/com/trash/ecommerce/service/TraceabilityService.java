@@ -7,7 +7,9 @@ import com.google.zxing.qrcode.QRCodeWriter;
 import com.trash.ecommerce.dto.FarmingLogResponse;
 import com.trash.ecommerce.dto.TraceabilityResponse;
 import com.trash.ecommerce.entity.FarmingLog;
+import com.trash.ecommerce.entity.Product;
 import com.trash.ecommerce.repository.FarmingLogRepository;
+import com.trash.ecommerce.repository.ProductRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -23,6 +25,7 @@ import java.util.stream.Collectors;
 public class TraceabilityService {
 
     private final FarmingLogRepository farmingLogRepository;
+    private final ProductRepository productRepository;
 
     public TraceabilityResponse getTraceability(String batchId) {
         List<FarmingLog> logs = farmingLogRepository.findByBatchIdOrderByCreatedAtAsc(batchId);
@@ -47,8 +50,42 @@ public class TraceabilityService {
                         .build())
                 .collect(Collectors.toList());
 
+        // Populate product info from linked product
+        String productName = null;
+        String sellerName = null;
+        String origin = null;
+        List<Product> products = productRepository.findByBatchId(batchId);
+        if (!products.isEmpty()) {
+            Product product = products.get(0);
+            productName = product.getProductName();
+            origin = product.getOrigin();
+            if (product.getSeller() != null) {
+                sellerName = product.getSeller().getFullName() != null
+                        ? product.getSeller().getFullName()
+                        : product.getSeller().getEmail();
+            }
+        }
+
+        // Derive planting/harvest dates from timeline
+        String plantedAt = timeline.stream()
+                .filter(t -> "PLANTING".equals(t.getActivityType()))
+                .findFirst()
+                .map(t -> t.getCapturedAt() != null ? t.getCapturedAt().toString() : null)
+                .orElse(null);
+        String harvestAt = timeline.stream()
+                .filter(t -> "HARVESTING".equals(t.getActivityType()))
+                .findFirst()
+                .map(t -> t.getCapturedAt() != null ? t.getCapturedAt().toString() : null)
+                .orElse(null);
+
         return TraceabilityResponse.builder()
                 .batchId(batchId)
+                .productName(productName)
+                .sellerName(sellerName)
+                .origin(origin)
+                .plantedAt(plantedAt)
+                .harvestAt(harvestAt)
+                .status(harvestAt != null ? "HARVESTED" : "GROWING")
                 .timeline(timeline)
                 .totalEntries(timeline.size())
                 .build();

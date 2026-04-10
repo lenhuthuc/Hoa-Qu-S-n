@@ -31,6 +31,7 @@ public class OrderMapper {
             orderSummaryDTO.setStatus("UNKNOWN");
         }
         orderSummaryDTO.setTotalPrice(order.getTotalPrice());
+        orderSummaryDTO.setShippingFee(order.getShippingFee());
         orderSummaryDTO.setPaymentMethodName(order.getPaymentMethod() != null ? order.getPaymentMethod().getMethodName() : null);
         orderSummaryDTO.setPaymentUrl(paymentUrl);
         // Xử lý an toàn cho orderItems - tránh lazy loading exception
@@ -51,10 +52,14 @@ public class OrderMapper {
 
         OrderResponseDTO dto = new OrderResponseDTO();
 
+        dto.setId(order.getId());
         dto.setStatus(order.getStatus());
         dto.setTotalPrice(order.getTotalPrice());
-        dto.setAddress(order.getAddress());
+        dto.setShippingFee(order.getShippingFee());
+        dto.setAddress(order.getAddress() != null ? order.getAddress().getFullAddress() : null);
         dto.setPaymentUrl(paymentUrl);
+        dto.setCreatedAt(order.getCreateAt());
+        dto.setPaymentMethodName(order.getPaymentMethod() != null ? order.getPaymentMethod().getMethodName() : null);
         if (order.getOrderItems() != null) {
             Set<CartItemDetailsResponseDTO> itemDTOs = order.getOrderItems().stream()
                     .map(this::toCartItemDetailsResponseDTO)
@@ -76,6 +81,7 @@ public class OrderMapper {
         if (orderItem.getProduct() != null) {
             dto.setProductId(orderItem.getProduct().getId());
             dto.setProductName(orderItem.getProduct().getProductName());
+            dto.setImageUrl(orderItem.getProduct().getPrimaryImagePath() != null ? "/api/products/" + orderItem.getProduct().getId() + "/img" : null);
         }
         dto.setPrice(orderItem.getPrice());
         dto.setQuantity(orderItem.getQuantity());

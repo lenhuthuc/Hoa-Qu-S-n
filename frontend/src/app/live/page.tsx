@@ -22,7 +22,7 @@ export default function LivePage() {
     setLoading(true);
     try {
       const res = await livestreamApi.getActive();
-      setStreams(res.data?.data || []);
+      setStreams(res.data?.data || res.data || []);
     } catch {
       setStreams([]);
     } finally {

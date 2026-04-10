@@ -18,6 +18,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.JoinTable;
 import jakarta.persistence.ManyToMany;
+import jakarta.persistence.ManyToOne;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.OneToOne;
 import jakarta.persistence.Table;
@@ -41,8 +42,18 @@ public class Users implements UserDetails {
     @Column(name = "password", nullable = false)
     private String password;
 
-    @Column(name = "address")
-    private String address;
+    @Column(name = "full_name", length = 150)
+    private String fullName;
+
+    @Column(name = "phone", length = 20)
+    private String phone;
+
+    @Column(name = "avatar", length = 1000)
+    private String avatar;
+
+    @ManyToOne(fetch = FetchType.LAZY, cascade = {CascadeType.PERSIST, CascadeType.MERGE})
+    @JoinColumn(name = "address_id")
+    private Address address;
 
     @ManyToMany(
         fetch = FetchType.EAGER,

@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Package, Loader2, Eye, ChevronRight, ShoppingBag, Trash2 } from "lucide-react";
+import { Package, Loader2, Eye, ChevronRight, ShoppingBag, Trash2, CheckCircle } from "lucide-react";
 import { orderApi } from "@/lib/api";
 import toast from "react-hot-toast";
 
@@ -18,10 +18,12 @@ interface Order {
 
 const statusMap: Record<string, { label: string; color: string }> = {
   PENDING: { label: "Chờ xác nhận", color: "bg-amber-100 text-amber-700" },
-  PROCESSING: { label: "Đang xử lý", color: "bg-blue-100 text-blue-700" },
-  SHIPPING: { label: "Đang giao", color: "bg-purple-100 text-purple-700" },
-  DELIVERED: { label: "Đã giao", color: "bg-green-100 text-green-700" },
-  COMPLETED: { label: "Hoàn thành", color: "bg-green-100 text-green-700" },
+  PLACED: { label: "Đã đặt hàng", color: "bg-blue-100 text-blue-700" },
+  PENDING_PAYMENT: { label: "Chờ thanh toán", color: "bg-amber-100 text-amber-700" },
+  PAID: { label: "Đã thanh toán", color: "bg-green-100 text-green-700" },
+  PREPARING: { label: "Đang chuẩn bị", color: "bg-orange-100 text-orange-700" },
+  SHIPPED: { label: "Đang giao", color: "bg-purple-100 text-purple-700" },
+  FINISHED: { label: "Hoàn thành", color: "bg-green-100 text-green-700" },
   CANCELLED: { label: "Đã hủy", color: "bg-red-100 text-red-700" },
 };
 
@@ -34,10 +36,14 @@ export default function OrdersPage() {
     (async () => {
       try {
         const res = await orderApi.getMyOrders();
-        setOrders(res.data?.data || []);
-      } catch {
-        toast.error("Vui lòng đăng nhập");
-        router.push("/login");
+        setOrders(res.data?.data || res.data || []);
+      } catch (err: any) {
+        if (err.response?.status === 401 || err.response?.status === 403) {
+          toast.error("Vui lòng đăng nhập");
+          router.push("/login");
+        } else {
+          toast.error(err.response?.data?.message || "Không thể tải đơn hàng");
+        }
       } finally {
         setLoading(false);
       }
@@ -47,14 +53,25 @@ export default function OrdersPage() {
   const formatPrice = (price: number) =>
     new Intl.NumberFormat("vi-VN", { style: "currency", currency: "VND" }).format(price);
 
-  const handleDelete = async (id: number) => {
+  const handleCancel = async (id: number) => {
     if (!confirm("Bạn muốn hủy đơn hàng này?")) return;
     try {
-      await orderApi.delete(id);
-      setOrders((prev) => prev.filter((o) => o.id !== id));
+      await orderApi.updateStatus(id, "CANCELLED");
+      setOrders((prev) => prev.map((o) => o.id === id ? { ...o, status: "CANCELLED" } : o));
       toast.success("Đã hủy đơn hàng");
-    } catch {
-      toast.error("Không thể hủy đơn hàng");
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || "Không thể hủy đơn hàng");
+    }
+  };
+
+  const handleConfirmReceived = async (id: number) => {
+    if (!confirm("Xác nhận đã nhận hàng?")) return;
+    try {
+      await orderApi.updateStatus(id, "FINISHED");
+      setOrders((prev) => prev.map((o) => o.id === id ? { ...o, status: "FINISHED" } : o));
+      toast.success("Đã xác nhận nhận hàng");
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || "Không thể cập nhật");
     }
   };
 
@@ -104,13 +121,22 @@ export default function OrdersPage() {
                   </div>
 
                   <div className="flex items-center gap-2">
-                    {(order.status === "PENDING" || order.status === "PROCESSING") && (
+                    {order.status === "SHIPPED" && (
                       <button
-                        onClick={() => handleDelete(order.id)}
-                        className="p-2 text-gray-400 hover:text-red-500 transition"
+                        onClick={() => handleConfirmReceived(order.id)}
+                        className="flex items-center gap-1 px-3 py-1.5 text-sm bg-green-50 hover:bg-green-100 text-green-700 rounded-lg transition font-medium"
+                        title="Xác nhận đã nhận hàng"
+                      >
+                        <CheckCircle className="w-4 h-4" /> Đã nhận hàng
+                      </button>
+                    )}
+                    {(["PENDING", "PENDING_PAYMENT", "PLACED", "PREPARING"].includes(order.status)) && (
+                      <button
+                        onClick={() => handleCancel(order.id)}
+                        className="flex items-center gap-1 px-3 py-1.5 text-sm bg-red-50 hover:bg-red-100 text-red-700 rounded-lg transition font-medium"
                         title="Hủy đơn"
                       >
-                        <Trash2 className="w-5 h-5" />
+                        <Trash2 className="w-4 h-4" /> Hủy đơn
                       </button>
                     )}
                     <Link

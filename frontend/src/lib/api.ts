@@ -15,8 +15,15 @@ const api = axios.create({
 // Attach JWT token to requests
 api.interceptors.request.use((config) => {
   if (typeof window !== "undefined") {
+    const reqUrl = config.url || "";
+    const isAuthEndpoint = reqUrl.includes("/api/user/auth/login")
+      || reqUrl.includes("/api/user/auth/register")
+      || reqUrl.includes("/api/user/auth/reset-password")
+      || reqUrl.includes("/api/user/auth/verify-otp")
+      || reqUrl.includes("/api/user/auth/change-password");
+
     const token = localStorage.getItem("hqs_token");
-    if (token) {
+    if (token && !isAuthEndpoint) {
       config.headers.Authorization = `Bearer ${token}`;
     }
   }
@@ -85,7 +92,7 @@ export const aiApi = {
     });
   },
   createProduct: (
-    product: { productName: string; price: number; quantity: number; category: string; description: string },
+    product: { productName: string; price: number; quantity: number; categoryId: number; description: string; batchId?: string; origin?: string },
     imageFile: File
   ) => {
     const form = new FormData();
@@ -95,6 +102,32 @@ export const aiApi = {
       headers: { "Content-Type": "multipart/form-data" },
     });
   },
+  createProductWithFacebook: (
+    product: { productName: string; price: number; quantity: number; categoryId: number; description: string; batchId?: string; origin?: string },
+    imageFile: File,
+    pageId: string,
+    message?: string
+  ) => {
+    const form = new FormData();
+    form.append("products", new Blob([JSON.stringify(product)], { type: "application/json" }));
+    form.append("file", imageFile);
+    form.append("pageId", pageId);
+    if (message) form.append("message", message);
+    return api.post("/api/user/products/publish-with-facebook", form, {
+      headers: { "Content-Type": "multipart/form-data" },
+    });
+  },
+};
+
+// ─── Seller Facebook Integration ───
+export const facebookApi = {
+  getOAuthUrl: (redirectUri: string) =>
+    api.get(`/api/seller/facebook/oauth-url?redirectUri=${encodeURIComponent(redirectUri)}`),
+  handleOAuthCallback: (code: string, redirectUri: string) =>
+    api.post(`/api/seller/facebook/oauth/callback?code=${encodeURIComponent(code)}&redirectUri=${encodeURIComponent(redirectUri)}`),
+  getPages: () => api.get("/api/seller/facebook/pages"),
+  publishProduct: (productId: number, pageId: string, message?: string) =>
+    api.post(`/api/seller/facebook/publish/product/${productId}?pageId=${encodeURIComponent(pageId)}${message ? `&message=${encodeURIComponent(message)}` : ""}`),
 };
 
 // ─── Semantic Search ───
@@ -163,15 +196,24 @@ export const orderApi = {
   getMyOrders: () => api.get("/api/orders/my-orders"),
   getAll: () => api.get("/api/orders/my-orders"),
   getById: (id: number) => api.get(`/api/orders/${id}`),
-  create: (paymentMethod = 1) =>
-    api.post(`/api/orders/create?paymentMethod=${paymentMethod}`),
+  create: (paymentMethod: number, voucherCode?: string) =>
+    api.post(`/api/orders/create?paymentMethod=${paymentMethod}${voucherCode ? `&voucherCode=${encodeURIComponent(voucherCode)}` : ""}`),
   delete: (id: number) => api.delete(`/api/orders/${id}`),
+  updateStatus: (id: number, status: string) =>
+    api.put(`/api/orders/${id}/status?status=${status}`),
+};
+
+// ─── Categories ───
+export const categoryApi = {
+  getRoots: () => api.get("/api/categories/"),
+  getChildren: (id: number) => api.get(`/api/categories/${id}/children`),
+  getAll: () => api.get("/api/categories/all"),
 };
 
 // ─── User Profile ───
 export const userApi = {
   getProfile: () => api.get("/api/user/profile"),
-  update: (id: number, data: { fullName?: string; phone?: string; address?: string }) =>
+  update: (id: number, data: { fullName?: string; phone?: string; avatar?: string; province?: string; district?: string; ward?: string; streetDetail?: string }) =>
     api.put(`/api/user/updation/${id}`, data),
   refresh: (refreshToken: string) =>
     api.get("/api/user/refresh", { headers: { Authorization: `Bearer ${refreshToken}` } }),
@@ -236,6 +278,112 @@ export const adminApi = {
 export const interactionApi = {
   record: (productId: number) => api.post(`/api/interactions/record?productId=${productId}`),
   getRecommendations: () => api.get("/api/interactions/my-recommendations"),
+};
+
+// ─── Trust Score ───
+export const trustScoreApi = {
+  get: (sellerId: number) => api.get(`/api/trust-score/${sellerId}`),
+  recalculate: () => api.post("/api/trust-score/recalculate"),
+};
+
+// ─── Returns / Refunds ───
+export const returnApi = {
+  create: (data: { orderId: number; reasonCode: string; description: string; evidenceUrls?: string; refundAmount?: number }) =>
+    api.post("/api/returns", data),
+  getMyRequests: () => api.get("/api/returns/my-requests"),
+  getSellerRequests: () => api.get("/api/returns/seller-requests"),
+  getById: (id: number) => api.get(`/api/returns/${id}`),
+  respond: (returnId: number, action: string, response?: string) =>
+    api.post(`/api/returns/${returnId}/respond?action=${action}`, { response }),
+};
+
+// ─── Seller ───
+export const sellerApi = {
+  getDashboard: () => api.get("/api/seller/dashboard"),
+  getProducts: () => api.get("/api/seller/products"),
+  deleteProduct: (id: number) => api.delete(`/api/seller/products/${id}`),
+  updateStock: (id: number, quantity: number) =>
+    api.put(`/api/seller/products/${id}/stock?quantity=${quantity}`),
+  toggleVisibility: (id: number) =>
+    api.put(`/api/seller/products/${id}/visibility`),
+  getOrders: () => api.get("/api/seller/orders"),
+  updateOrderStatus: (orderId: number, status: string) =>
+    api.put(`/api/seller/orders/${orderId}/status?status=${status}`),
+  createProduct: (product: Record<string, unknown>, imageFile?: File) => {
+    const form = new FormData();
+    form.append("products", new Blob([JSON.stringify(product)], { type: "application/json" }));
+    if (imageFile) form.append("file", imageFile);
+    return api.post("/api/user/products", form, { headers: { "Content-Type": "multipart/form-data" } });
+  },
+};
+
+// ─── Notifications ───
+export const notificationApi = {
+  getAll: (page = 0, size = 20) => api.get(`/api/notifications?page=${page}&size=${size}`),
+  getUnreadCount: () => api.get("/api/notifications/unread-count"),
+  markAsRead: (id: number) => api.post(`/api/notifications/${id}/read`),
+  markAllAsRead: () => api.post("/api/notifications/read-all"),
+};
+
+// ─── Vouchers ───
+export const voucherApi = {
+  getAvailable: () => api.get("/api/vouchers/available"),
+  validate: (code: string, orderAmount: number) =>
+    api.post(`/api/vouchers/validate?code=${encodeURIComponent(code)}&orderAmount=${orderAmount}`),
+  create: (data: { code: string; description: string; discountType: string; discountValue: number; minOrderAmount?: number; maxDiscount?: number; usageLimit?: number; startDate?: string; endDate?: string }) =>
+    api.post("/api/vouchers", data),
+  getMyVouchers: () => api.get("/api/vouchers/my-vouchers"),
+  delete: (id: number) => api.delete(`/api/vouchers/${id}`),
+};
+
+// ─── Wishlist ───
+export const wishlistApi = {
+  getAll: () => api.get("/api/wishlist"),
+  add: (productId: number) => api.post(`/api/wishlist/${productId}`),
+  remove: (productId: number) => api.delete(`/api/wishlist/${productId}`),
+  check: (productId: number) => api.get(`/api/wishlist/check/${productId}`),
+};
+
+// ─── Shop (Seller Public Profile) ───
+export const shopApi = {
+  getProfile: (sellerId: number) => api.get(`/api/shop/${sellerId}`),
+};
+
+// ─── Messages ───
+export const messageApi = {
+  getConversations: () => api.get("/api/messages/conversations"),
+  getOrCreateConversation: (otherUserId: number) =>
+    api.post(`/api/messages/conversations/${otherUserId}`),
+  getMessages: (conversationId: number, page = 0, size = 50) =>
+    api.get(`/api/messages/conversations/${conversationId}/messages?page=${page}&size=${size}`),
+  sendMessage: (conversationId: number, content: string) =>
+    api.post(`/api/messages/conversations/${conversationId}/messages`, { content }),
+  deleteConversation: (conversationId: number) =>
+    api.delete(`/api/messages/conversations/${conversationId}`),
+};
+
+// ─── AgriCoin ───
+export const coinApi = {
+  getBalance: () => api.get("/api/coins/balance"),
+  getHistory: (page = 0, size = 20) =>
+    api.get(`/api/coins/history?page=${page}&size=${size}`),
+};
+
+// ─── Stories ───
+export const storyApi = {
+  getAll: (page = 0, size = 20) => api.get(`/api/stories?page=${page}&size=${size}`),
+  getBySeller: (sellerId: number) => api.get(`/api/stories/seller/${sellerId}`),
+  getMyStories: () => api.get("/api/stories/my-stories"),
+  create: (data: { title: string; content: string; imageUrl?: string; videoUrl?: string; batchId?: string; farmingLogId?: string; activityType?: string }) =>
+    api.post("/api/stories", data),
+  delete: (id: number) => api.delete(`/api/stories/${id}`),
+};
+
+// ─── Admin Analytics ───
+export const adminAnalyticsApi = {
+  getOverview: () => api.get("/api/admin/analytics/overview"),
+  getTopProducts: () => api.get("/api/admin/analytics/top-products"),
+  getTopSellers: () => api.get("/api/admin/analytics/top-sellers"),
 };
 
 export default api;

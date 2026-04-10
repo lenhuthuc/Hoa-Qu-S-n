@@ -5,7 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   Leaf, ShoppingCart, Star, Truck, QrCode, Loader2, Minus, Plus,
-  MessageCircle, ChevronLeft, Shield, User,
+  MessageCircle, ChevronLeft, Shield, User, Store,
 } from "lucide-react";
 import { productApi, cartApi, reviewApi, shippingApi, interactionApi } from "@/lib/api";
 import toast from "react-hot-toast";
@@ -15,15 +15,19 @@ interface Product {
   productName: string;
   price: number;
   quantity: number;
-  category: string;
+  categoryName?: string;
   description: string;
   imageUrl?: string;
+  imageUrls?: string[];
   batchId?: string;
+  sellerId?: number;
+  sellerName?: string;
 }
 
 interface Review {
   id: number;
   userId: number;
+  reviewerName?: string;
   rating: number;
   comment: string;
   createdAt: string;
@@ -57,14 +61,14 @@ export default function ProductDetailPage() {
           setProduct(prodRes.value.data?.data || prodRes.value.data);
         }
         if (reviewRes.status === "fulfilled") {
-          setReviews(reviewRes.value.data?.data || []);
+          setReviews(reviewRes.value.data?.data || reviewRes.value.data || []);
         }
         // Record interaction
         try { await interactionApi.record(productId); } catch {}
         // Check shipping
         try {
           const shipRes = await shippingApi.validate(productId);
-          setShippingInfo(shipRes.data?.data?.message || shipRes.data?.message || null);
+          setShippingInfo(shipRes.data?.data || shipRes.data || null);
         } catch {}
       } catch {
         toast.error("Không tìm thấy sản phẩm");
@@ -108,7 +112,7 @@ export default function ProductDetailPage() {
       setComment("");
       setRating(5);
       const res = await reviewApi.getByProduct(productId);
-      setReviews(res.data?.data || []);
+      setReviews(res.data?.data || res.data || []);
     } catch (err: any) {
       toast.error(err.response?.data?.message || "Lỗi gửi đánh giá");
     } finally {
@@ -157,9 +161,9 @@ export default function ProductDetailPage() {
         {/* Info */}
         <div>
           <div className="mb-2">
-            {product.category && (
+            {product.categoryName && (
               <span className="text-xs bg-primary-100 text-primary-700 px-2 py-0.5 rounded-full font-medium">
-                {product.category}
+                {product.categoryName}
               </span>
             )}
           </div>
@@ -179,6 +183,13 @@ export default function ProductDetailPage() {
           <p className="text-3xl font-bold text-primary-600 mb-4">{formatPrice(product.price)}</p>
           <p className="text-gray-600 mb-6 leading-relaxed">{product.description}</p>
 
+          {product.sellerName && (
+            <div className="flex items-center gap-2 text-sm text-gray-600 mb-4 bg-gray-50 p-3 rounded-lg">
+              <Store className="w-4 h-4 text-primary-600" />
+              Người bán: <strong className="text-gray-800">{product.sellerName}</strong>
+            </div>
+          )}
+
           <div className="flex items-center gap-3 text-sm text-gray-500 mb-6">
             <span>Kho: <strong className="text-gray-700">{product.quantity}</strong></span>
             {product.batchId && (
@@ -188,12 +199,46 @@ export default function ProductDetailPage() {
             )}
           </div>
 
-          {shippingInfo && (
-            <div className="flex items-center gap-2 bg-blue-50 text-blue-700 text-sm p-3 rounded-lg mb-6">
-              <Truck className="w-5 h-5 flex-shrink-0" />
-              {shippingInfo}
-            </div>
-          )}
+          {/* Enhanced Shipping Info */}
+          <div className="bg-gray-50 p-4 rounded-xl mb-6 shadow-sm border border-gray-100">
+            <h3 className="text-sm font-semibold text-gray-800 flex items-center gap-2 mb-3">
+              <Truck className="w-4 h-4 text-primary-600" /> Thông tin vận chuyển
+            </h3>
+            
+            {loading ? (
+              <div className="flex items-center gap-2 text-xs text-gray-400">
+                <Loader2 className="w-3 h-3 animate-spin" /> Đang tính toán khoảng cách...
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {/* Available Methods */}
+                {(shippingInfo as any)?.availableMethods?.map((method: any) => (
+                  <div key={method.serviceName} className="flex items-start gap-2 text-sm bg-white p-2.5 rounded-lg border border-green-100">
+                    <div className="w-2 h-2 rounded-full bg-green-500 mt-1.5 shrink-0" />
+                    <div>
+                      <p className="font-medium text-gray-800">{method.serviceName}</p>
+                      <p className="text-xs text-gray-500">Dự kiến: {method.estimatedDays} ngày • Phí: {formatPrice(method.fee)}</p>
+                    </div>
+                  </div>
+                ))}
+
+                {/* Disabled Methods */}
+                {(shippingInfo as any)?.disabledMethods?.map((method: any) => (
+                  <div key={method.serviceName} className="flex items-start gap-2 text-sm bg-gray-100 p-2.5 rounded-lg border border-gray-200 opacity-60">
+                    <div className="w-2 h-2 rounded-full bg-gray-400 mt-1.5 shrink-0" />
+                    <div>
+                      <p className="font-medium text-gray-700">{method.serviceName} (Không hỗ trợ)</p>
+                      <p className="text-xs text-red-500 font-medium">{method.reason}</p>
+                    </div>
+                  </div>
+                ))}
+
+                {!(shippingInfo as any)?.availableMethods?.length && !(shippingInfo as any)?.disabledMethods?.length && (
+                  <p className="text-xs text-gray-400">Đang cập nhật tùy chọn vận chuyển...</p>
+                )}
+              </div>
+            )}
+          </div>
 
           {/* Quantity & Add to Cart */}
           <div className="flex items-center gap-4 mb-4">
@@ -212,14 +257,56 @@ export default function ProductDetailPage() {
                 <Plus className="w-4 h-4" />
               </button>
             </div>
-            <button
-              onClick={handleAddToCart}
-              disabled={addingToCart || product.quantity === 0}
-              className="flex-1 py-3 bg-primary-600 text-white rounded-xl hover:bg-primary-700 disabled:opacity-50 font-medium flex items-center justify-center gap-2 transition"
-            >
-              {addingToCart ? <Loader2 className="w-5 h-5 animate-spin" /> : <ShoppingCart className="w-5 h-5" />}
-              Thêm vào giỏ hàng
-            </button>
+            
+            <div className="flex-1 flex gap-2 flex-wrap">
+              <button
+                onClick={handleAddToCart}
+                disabled={addingToCart || product.quantity === 0}
+                className="flex-1 py-3 border-2 border-primary-600 text-primary-600 rounded-xl hover:bg-primary-50 disabled:opacity-50 font-medium flex items-center justify-center gap-2 transition"
+              >
+                {addingToCart ? <Loader2 className="w-5 h-5 animate-spin" /> : <ShoppingCart className="w-5 h-5" />}
+                Thêm vào giỏ
+              </button>
+              <button
+                onClick={async () => {
+                  if (!localStorage.getItem("hqs_token")) {
+                    toast.error("Vui lòng đăng nhập");
+                    router.push("/login");
+                    return;
+                  }
+                  setAddingToCart(true);
+                  try {
+                    await cartApi.addItem({ productId, quantity: qty });
+                    router.push("/cart");
+                  } catch (err: any) {
+                    toast.error(err.response?.data?.message || "Lỗi thêm giỏ hàng");
+                    setAddingToCart(false);
+                  }
+                }}
+                disabled={addingToCart || product.quantity === 0}
+                className="flex-1 py-3 bg-primary-600 text-white rounded-xl hover:bg-primary-700 disabled:opacity-50 font-medium flex items-center justify-center gap-2 transition"
+              >
+                Mua ngay
+              </button>
+              {product.sellerId ? (
+                <Link
+                  href={`/messages?sellerId=${product.sellerId}`}
+                  className="basis-full py-3 border border-gray-300 rounded-xl text-gray-700 hover:bg-gray-50 hover:border-gray-400 transition text-sm font-medium flex items-center justify-center gap-2"
+                >
+                  <MessageCircle className="w-4 h-4 text-primary-600" />
+                  Chat người bán
+                </Link>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => toast.error("Sản phẩm này chưa có thông tin người bán")}
+                  className="basis-full py-3 border border-gray-200 rounded-xl text-gray-400 bg-gray-50 text-sm font-medium flex items-center justify-center gap-2 cursor-not-allowed"
+                >
+                  <MessageCircle className="w-4 h-4" />
+                  Chat người bán
+                </button>
+              )}
+            </div>
           </div>
 
           <div className="flex items-center gap-2 text-xs text-gray-400">
@@ -282,7 +369,7 @@ export default function ProductDetailPage() {
                     <div className="w-8 h-8 bg-gray-100 rounded-full flex items-center justify-center">
                       <User className="w-4 h-4 text-gray-400" />
                     </div>
-                    <span className="text-sm font-medium text-gray-700">Khách hàng #{r.userId}</span>
+                    <span className="text-sm font-medium text-gray-700">{r.reviewerName || `Khách hàng #${r.userId}`}</span>
                     <div className="flex gap-0.5">
                       {[1, 2, 3, 4, 5].map((s) => (
                         <Star key={s} className={`w-3 h-3 ${s <= r.rating ? "text-yellow-400 fill-yellow-400" : "text-gray-300"}`} />

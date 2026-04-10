@@ -1,16 +1,10 @@
 package com.trash.ecommerce.entity;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
-import jakarta.persistence.Column;
-import jakarta.persistence.Entity;
-import jakarta.persistence.FetchType;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.GenerationType;
-import jakarta.persistence.Id;
-import jakarta.persistence.JoinColumn;
-import jakarta.persistence.ManyToOne;
-import jakarta.persistence.Table;
+import jakarta.persistence.*;
 import lombok.*;
+
+import java.time.LocalDateTime;
 
 @Entity
 @AllArgsConstructor
@@ -28,6 +22,8 @@ public class Review {
     private Integer rating;
     @Column(name = "content", length = 255)
     private String content;
+    @Column(name = "media_urls", length = 2000)
+    private String mediaUrls;
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "user_id")
     @JsonIgnore
@@ -36,4 +32,12 @@ public class Review {
     @JoinColumn(name = "product_id")
     @JsonIgnore
     private Product product;
+
+    @Column(name = "created_at", updatable = false)
+    private LocalDateTime createdAt;
+
+    @PrePersist
+    protected void onCreate() {
+        this.createdAt = LocalDateTime.now();
+    }
 }

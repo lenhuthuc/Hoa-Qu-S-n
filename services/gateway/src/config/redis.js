@@ -8,4 +8,4 @@ const redisPub = new Redis(redisUrl);
 redis.on("error", (err) => console.error("[Redis] Connection error:", err.message));
 redis.on("connect", () => console.log("[Redis] Connected"));
 
-module.exports = { redis, redisSub, redisPub };
+module.exports = { redis, redisClient: redis, redisSub, redisPub };

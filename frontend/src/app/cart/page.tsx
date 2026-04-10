@@ -25,10 +25,14 @@ export default function CartPage() {
   const fetchCart = async () => {
     try {
       const res = await cartApi.getItems();
-      setItems(res.data?.data || []);
-    } catch {
-      toast.error("Vui lòng đăng nhập");
-      router.push("/login");
+      setItems(res.data?.data || res.data || []);
+    } catch (err: any) {
+      if (err.response?.status === 401 || err.response?.status === 403) {
+        toast.error("Vui lòng đăng nhập");
+        router.push("/login");
+      } else {
+        toast.error(err.response?.data?.message || "Lỗi tải giỏ hàng");
+      }
     } finally {
       setLoading(false);
     }

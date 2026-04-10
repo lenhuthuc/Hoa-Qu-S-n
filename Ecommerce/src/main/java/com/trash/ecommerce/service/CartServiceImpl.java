@@ -40,6 +40,7 @@ public class CartServiceImpl implements CartService {
                 cartDetails.setProductName(product.getProductName());
                 cartDetails.setPrice(product.getPrice());
                 cartDetails.setQuantity(item.getQuantity());
+                cartDetails.setImageUrl(product.getPrimaryImagePath() != null ? "/api/products/" + product.getId() + "/img" : null);
                 return cartDetails;
             })
             .toList();

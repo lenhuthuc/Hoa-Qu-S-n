@@ -6,13 +6,15 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.UUID;
 
+import com.trash.ecommerce.entity.*;
 import com.trash.ecommerce.mapper.ProductMapper;
+import com.trash.ecommerce.repository.*;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
@@ -20,20 +22,11 @@ import org.springframework.stereotype.Service;
 import com.trash.ecommerce.dto.ProductDetailsResponseDTO;
 import com.trash.ecommerce.dto.ProductRequestDTO;
 import com.trash.ecommerce.dto.ProductResponseDTO;
-import com.trash.ecommerce.entity.Cart;
-import com.trash.ecommerce.entity.CartItem;
-import com.trash.ecommerce.entity.CartItemId;
-import com.trash.ecommerce.entity.Product;
-import com.trash.ecommerce.entity.Users;
 import com.trash.ecommerce.exception.FindingUserError;
 import com.trash.ecommerce.exception.ProductFingdingException;
-import com.trash.ecommerce.repository.ProductRepository;
-import com.trash.ecommerce.repository.UserRepository;
-import com.trash.ecommerce.repository.CartItemRepository;
 
 import jakarta.transaction.Transactional;
 import org.springframework.web.multipart.MultipartFile;
-import org.springframework.web.reactive.function.client.WebClient;
 
 @Service
 public class ProductServiceImpl implements ProductService {
@@ -49,6 +42,10 @@ public class ProductServiceImpl implements ProductService {
     private ProductMapper productMapper;
     @Autowired
     private CartItemRepository cartItemRepository;
+    @Autowired
+    private CategoryRepository categoryRepository;
+    @Autowired
+    private ProductImageRepository productImageRepository;
     @Override
     public ProductDetailsResponseDTO findProductById(Long id) {
         ProductDetailsResponseDTO productDTO = new ProductDetailsResponseDTO();
@@ -85,7 +82,7 @@ public class ProductServiceImpl implements ProductService {
     }
 
     @Override
-    public ProductResponseDTO createProduct(ProductRequestDTO productRequestDTO, MultipartFile file) throws IOException {
+    public ProductResponseDTO createProduct(ProductRequestDTO productRequestDTO, MultipartFile file, Long sellerId) throws IOException {
         if (file == null || file.isEmpty()) {
             throw new IllegalArgumentException("File is required");
         }
@@ -99,14 +96,42 @@ public class ProductServiceImpl implements ProductService {
         String fileResource = UUID.randomUUID() + "_" + originalFilename;
         Path path = Paths.get("uploads/" + fileResource);
         Files.copy(file.getInputStream(), path);
-        product.setImage(fileResource);
+
         product.setPrice(productRequestDTO.getPrice());
         product.setProductName(productRequestDTO.getProductName());
         product.setQuantity(productRequestDTO.getQuantity());
-        product.setCategory(productRequestDTO.getCategory());
         product.setDescription(productRequestDTO.getDescription());
-        productRepository.save(product);
-        return new ProductResponseDTO("creating product is successful");
+        product.setBatchId(productRequestDTO.getBatchId());
+        product.setOrigin(productRequestDTO.getOrigin());
+
+        // Category
+        if (productRequestDTO.getCategoryId() != null) {
+            Category category = categoryRepository.findById(productRequestDTO.getCategoryId())
+                    .orElseThrow(() -> new ProductFingdingException("Category not found"));
+            product.setCategory(category);
+        }
+
+        // Seller
+        if (sellerId != null) {
+            Users seller = userRepository.findById(sellerId)
+                    .orElseThrow(() -> new FindingUserError("Seller not found"));
+            product.setSeller(seller);
+        }
+
+        product = productRepository.save(product);
+
+        // Save primary image
+        ProductImage primaryImage = new ProductImage();
+        primaryImage.setProduct(product);
+        primaryImage.setImagePath(fileResource);
+        primaryImage.setSortOrder(0);
+        primaryImage.setIsPrimary(true);
+        productImageRepository.save(primaryImage);
+        product.getImages().add(primaryImage);
+
+        ProductResponseDTO response = new ProductResponseDTO("creating product is successful");
+        response.setProductId(product.getId());
+        return response;
     }
 
     @Override
@@ -116,7 +141,8 @@ public class ProductServiceImpl implements ProductService {
             () -> new ProductFingdingException("Product is not found")
         );
         if (file != null && !file.isEmpty()) {
-            String oldImgPath = product.getImage();
+            // Delete old primary image file
+            String oldImgPath = product.getPrimaryImagePath();
             if (oldImgPath != null && !oldImgPath.isEmpty()) {
                 Path oldFilePath = Paths.get("uploads/" + oldImgPath);
                 File oldFile = oldFilePath.toFile();
@@ -131,11 +157,17 @@ public class ProductServiceImpl implements ProductService {
             }
             
             String filename = UUID.randomUUID() + "_" + originalFilename;
-
             Path uploadPath = Paths.get("uploads/" + filename);
             Files.copy(file.getInputStream(), uploadPath, StandardCopyOption.REPLACE_EXISTING);
 
-            product.setImage(filename);
+            // Remove old primary image record and add new one
+            product.getImages().removeIf(img -> Boolean.TRUE.equals(img.getIsPrimary()));
+            ProductImage newImage = new ProductImage();
+            newImage.setProduct(product);
+            newImage.setImagePath(filename);
+            newImage.setSortOrder(0);
+            newImage.setIsPrimary(true);
+            product.getImages().add(newImage);
         }
         if (productRequestDTO.getPrice() != null) {
             product.setPrice(productRequestDTO.getPrice());
@@ -146,8 +178,10 @@ public class ProductServiceImpl implements ProductService {
         if (productRequestDTO.getQuantity() != null) {
             product.setQuantity(productRequestDTO.getQuantity());
         }
-        if (productRequestDTO.getCategory() != null) {
-            product.setCategory(productRequestDTO.getCategory());
+        if (productRequestDTO.getCategoryId() != null) {
+            Category category = categoryRepository.findById(productRequestDTO.getCategoryId())
+                    .orElseThrow(() -> new ProductFingdingException("Category not found"));
+            product.setCategory(category);
         }
         if (productRequestDTO.getDescription() != null) {
             product.setDescription(productRequestDTO.getDescription());
@@ -222,7 +256,7 @@ public class ProductServiceImpl implements ProductService {
     public String getImgProduct(Long productId) {
         Product product = productRepository.findById(productId)
                 .orElseThrow(() -> new ProductFingdingException("Product not found"));
-        String imgData = product.getImage();
+        String imgData = product.getPrimaryImagePath();
         if (imgData == null || imgData.isEmpty()) {
             throw new ProductFingdingException("Product image not found");
         }
@@ -231,16 +265,31 @@ public class ProductServiceImpl implements ProductService {
 
     @Override
     public List<ProductDetailsResponseDTO> getProductsRecommendation(Long productId) {
-        WebClient webClient = WebClient.create();
-        List<Long> result = webClient.get()
-            .uri("http://127.0.0.1:8000/recommend/{product_id}", productId)
-            .retrieve()
-            .bodyToMono(new ParameterizedTypeReference<List<Long>>() {})
-            .block();
-        return result.stream()
-                        .map(id -> productRepository.findById(id)
-                        .orElseThrow(() -> new ProductFingdingException("Product not found")))
-                        .map(productMapper::mapperProduct)
-                        .toList();
+        Product product = productRepository.findById(productId)
+            .orElseThrow(() -> new ProductFingdingException("Product not found"));
+
+        // Recommend products from same category, excluding the current product
+        List<Product> candidates = productRepository.findAll().stream()
+            .filter(p -> !p.getId().equals(productId))
+            .filter(p -> product.getCategory() != null && p.getCategory() != null
+                && p.getCategory().getId().equals(product.getCategory().getId()))
+            .limit(8)
+            .toList();
+
+        // Fallback: if not enough same-category, add other products
+        if (candidates.size() < 4) {
+            List<Long> candidateIds = candidates.stream().map(Product::getId).toList();
+            List<Product> extras = productRepository.findAll().stream()
+                .filter(p -> !p.getId().equals(productId) && !candidateIds.contains(p.getId()))
+                .limit(8 - candidates.size())
+                .toList();
+            List<Product> combined = new ArrayList<>(candidates);
+            combined.addAll(extras);
+            candidates = combined;
+        }
+
+        return candidates.stream()
+            .map(productMapper::mapperProduct)
+            .toList();
     }
 }

@@ -12,7 +12,7 @@ public interface ProductService {
     public ProductDetailsResponseDTO findProductById(Long id);
     public List<ProductDetailsResponseDTO> findAllProduct(int noPage, int sizePage);
     public List<ProductDetailsResponseDTO> findProductByName(String name, int noPage, int sizePage);
-    public ProductResponseDTO createProduct(ProductRequestDTO productRequestDTO, MultipartFile file) throws IOException;
+    public ProductResponseDTO createProduct(ProductRequestDTO productRequestDTO, MultipartFile file, Long sellerId) throws IOException;
     public ProductResponseDTO updateProduct(ProductRequestDTO productRequestDTO, Long id, MultipartFile file) throws IOException;
     public ProductResponseDTO deleteProductById(Long id);
     public ProductResponseDTO addToCart(String token, Long productId, Long quantity);

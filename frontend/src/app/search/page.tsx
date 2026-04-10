@@ -9,7 +9,7 @@ interface SearchResult {
   product_id: number;
   product_name: string;
   description: string;
-  category: string;
+  category?: string;
   price: number;
   image: string;
   score: number;
