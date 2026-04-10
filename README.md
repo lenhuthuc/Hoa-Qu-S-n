@@ -85,7 +85,49 @@ cd frontend
 npm install && npm run dev
 ```
 
------
+---
+
+## 🐳 Vận hành toàn bộ bằng Docker (Khuyên dùng)
+
+Nếu bạn muốn khởi chạy tất cả các dịch vụ (bao gồm cả App) chỉ với một lệnh duy nhất:
+
+```bash
+# Khởi chạy hệ thống ở chế độ background
+docker compose up -d --build
+
+# Xem log của tất cả các dịch vụ để debug
+docker compose logs -f
+```
+
+---
+
+## 🧹 Dọn dẹp & Bảo trì hệ thống
+
+Trong trường hợp hệ thống bị xung đột cache dữ liệu cũ hoặc bạn muốn reset hoàn toàn:
+
+### 1. Dọn dẹp Cache & Container
+```bash
+# Dừng và xóa tất cả container, network
+docker compose down
+
+# Xóa toàn bộ dữ liệu (Volumes) - CẨN THẬN: Mất sạch DB
+docker compose down -v
+```
+
+### 2. Reset Cache Redis (Nếu đang chạy)
+```bash
+docker exec -it hoaquason-redis redis-cli FLUSHALL
+```
+
+### 3. Reset Database MySQL
+Nếu bạn muốn xóa trắng dữ liệu MySQL để seed lại:
+```bash
+docker compose stop mysql
+docker volume rm hoaquason_mysql_data  # Tên volume có thể thay đổi tùy cấu hình
+docker compose start mysql
+```
+
+---
 
 ## 🌟 Tính năng nổi bật
 
