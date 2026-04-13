@@ -30,7 +30,8 @@ interface EditableFields {
   description: string;
   categoryId: number;
   suggested_price_per_kg: number;
-  quantity: number;
+  unitWeightGrams: number;
+  totalStockWeightKg: number;
   batchId: string;
   origin: string;
 }
@@ -63,12 +64,27 @@ export default function CreatePostPage() {
   const [connectingFacebook, setConnectingFacebook] = useState(false);
   const prevPreviewRef = useRef<string | null>(null);
 
+  const loadCategories = useCallback(async (maxRetries = 3) => {
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        const res = await categoryApi.getAll();
+        const cats = res.data?.data || res.data || [];
+        setCategories(Array.isArray(cats) ? cats : []);
+        return;
+      } catch {
+        if (attempt === maxRetries) {
+          toast.error("Không tải được danh mục. Vui lòng tải lại trang.");
+          setCategories([]);
+          return;
+        }
+        await new Promise((resolve) => setTimeout(resolve, attempt * 600));
+      }
+    }
+  }, []);
+
   useEffect(() => {
     if (!isLoggedIn()) { router.push("/login"); }
-    categoryApi.getAll().then((res) => {
-      const cats = res.data?.data || res.data || [];
-      setCategories(Array.isArray(cats) ? cats : []);
-    }).catch(() => {});
+    void loadCategories();
 
     facebookApi.getPages()
       .then((res) => {
@@ -81,7 +97,7 @@ export default function CreatePostPage() {
         }
       })
       .catch(() => {});
-  }, [router]);
+  }, [router, loadCategories]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -161,7 +177,8 @@ export default function CreatePostPage() {
           description: data.description,
           categoryId: matchedCat?.id || (categories[0]?.id ?? 0),
           suggested_price_per_kg: data.suggested_price_per_kg,
-          quantity: 100,
+          unitWeightGrams: 500,
+          totalStockWeightKg: 100,
           batchId: "",
           origin: "",
         });
@@ -176,14 +193,29 @@ export default function CreatePostPage() {
     }
   };
 
+  const calculateInventoryQuantity = (unitWeightGrams: number, totalStockWeightKg: number) => {
+    if (!unitWeightGrams || !totalStockWeightKg || unitWeightGrams <= 0 || totalStockWeightKg <= 0) {
+      return 0;
+    }
+    return Math.floor((totalStockWeightKg * 1000) / unitWeightGrams);
+  };
+
   const handleSubmit = async () => {
     if (!editable || !image) return;
+    const computedQuantity = calculateInventoryQuantity(editable.unitWeightGrams, editable.totalStockWeightKg);
+    if (computedQuantity <= 0) {
+      toast.error("Thông số trọng lượng chưa hợp lệ để tạo tồn kho");
+      return;
+    }
+
     setSubmitting(true);
     try {
       const payload = {
         productName: editable.product_name,
         price: editable.suggested_price_per_kg,
-        quantity: editable.quantity,
+        quantity: computedQuantity,
+        unitWeightGrams: editable.unitWeightGrams,
+        totalStockWeightKg: editable.totalStockWeightKg,
         categoryId: editable.categoryId,
         description: editable.description,
         batchId: editable.batchId || undefined,
@@ -350,6 +382,46 @@ export default function CreatePostPage() {
                 
                 {/* Form Fields */}
                 <div className="space-y-5">
+                  <div className="grid grid-cols-3 gap-5">
+                    <div className="group">
+                      <label className="flex items-center gap-2 text-sm font-medium text-slate-500 mb-1.5 uppercase tracking-wider">
+                         <BarChart3 className="w-4 h-4" /> Trọng lượng / sản phẩm (gram)
+                      </label>
+                      <input
+                        type="number"
+                        min={1}
+                        value={editable?.unitWeightGrams ?? 500}
+                        onChange={(e) => setEditable((prev) => prev ? { ...prev, unitWeightGrams: parseInt(e.target.value) || 0 } : prev)}
+                        className="w-full bg-white/60 border border-slate-200 rounded-xl px-4 py-3 text-slate-800 font-medium focus:ring-2 focus:ring-primary-400 focus:border-transparent outline-none transition-all shadow-sm"
+                      />
+                    </div>
+
+                    <div className="group">
+                      <label className="flex items-center gap-2 text-sm font-medium text-slate-500 mb-1.5 uppercase tracking-wider">
+                         <BarChart3 className="w-4 h-4" /> Tổng trọng lượng hàng có (kg)
+                      </label>
+                      <input
+                        type="number"
+                        min={0.1}
+                        step={0.1}
+                        value={editable?.totalStockWeightKg ?? 100}
+                        onChange={(e) => setEditable((prev) => prev ? { ...prev, totalStockWeightKg: parseFloat(e.target.value) || 0 } : prev)}
+                        className="w-full bg-white/60 border border-slate-200 rounded-xl px-4 py-3 text-slate-800 font-medium focus:ring-2 focus:ring-primary-400 focus:border-transparent outline-none transition-all shadow-sm"
+                      />
+                    </div>
+
+                    <div className="group">
+                      <label className="flex items-center gap-2 text-sm font-medium text-slate-500 mb-1.5 uppercase tracking-wider">
+                         <BarChart3 className="w-4 h-4" /> Tồn kho tự tính (đơn vị)
+                      </label>
+                      <input
+                        readOnly
+                        value={calculateInventoryQuantity(editable?.unitWeightGrams ?? 0, editable?.totalStockWeightKg ?? 0)}
+                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-slate-700 font-semibold outline-none cursor-default"
+                      />
+                    </div>
+                  </div>
+
                   <div className="group">
                     <label className="flex items-center gap-2 text-sm font-medium text-slate-500 mb-1.5 uppercase tracking-wider">
                        <Tag className="w-4 h-4" /> Tên sản phẩm
@@ -360,20 +432,7 @@ export default function CreatePostPage() {
                       className="w-full bg-white/60 border border-slate-200 rounded-xl px-4 py-3 text-slate-800 font-medium focus:ring-2 focus:ring-primary-400 focus:border-transparent outline-none transition-all shadow-sm"
                     />
                   </div>
-                  
-                    <div className="group">
-                      <label className="flex items-center gap-2 text-sm font-medium text-slate-500 mb-1.5 uppercase tracking-wider">
-                         <BarChart3 className="w-4 h-4" /> Số lượng (kg)
-                      </label>
-                      <input 
-                        type="number"
-                        min={1}
-                        value={editable?.quantity ?? 100}
-                        onChange={(e) => setEditable((prev) => prev ? { ...prev, quantity: parseInt(e.target.value) || 0 } : prev)}
-                        className="w-full bg-white/60 border border-slate-200 rounded-xl px-4 py-3 text-slate-800 font-medium focus:ring-2 focus:ring-primary-400 focus:border-transparent outline-none transition-all shadow-sm"
-                      />
-                    </div>
-                  </div>
+                </div>
 
                   <div>
 

@@ -8,8 +8,10 @@ import java.util.concurrent.CompletableFuture;
 import com.trash.ecommerce.dto.*;
 import com.trash.ecommerce.exception.ProductCreatingException;
 import com.trash.ecommerce.exception.UserAuthorizationException;
+import com.trash.ecommerce.service.SellerApplicationService;
 import com.trash.ecommerce.service.JwtService;
 import com.trash.ecommerce.service.ProductService;
+import com.trash.ecommerce.service.StorageService;
 import io.jsonwebtoken.ExpiredJwtException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -37,6 +39,8 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.util.List;
+
 
 
 @RestController
@@ -51,6 +55,10 @@ public class UserController {
     private ProductService productService;
     @Autowired
     private FacebookIntegrationService facebookIntegrationService;
+    @Autowired
+    private SellerApplicationService sellerApplicationService;
+    @Autowired
+    private StorageService storageService;
 
     @PostMapping("auth/register")
     public ResponseEntity<UserRegisterResponseDTO> createUser(
@@ -239,6 +247,7 @@ public class UserController {
             @RequestPart("file") MultipartFile file
     ) {
         try {
+            ensureSellerAccess(token);
             Long sellerId = jwtService.extractId(token);
             ProductResponseDTO productResponseDTO = productService.createProduct(productRequestDTO, file, sellerId);
             return ResponseEntity.ok(productResponseDTO);
@@ -257,7 +266,11 @@ public class UserController {
     ) {
         Long sellerId;
         try {
+            ensureSellerAccess(token);
             sellerId = jwtService.extractId(token);
+        } catch (RuntimeException e) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(Map.of("message", e.getMessage()));
         } catch (Exception e) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(Map.of("message", "Token không hợp lệ"));
@@ -315,16 +328,95 @@ public class UserController {
 
     @PutMapping("/products/{id}")
     public ResponseEntity<ProductResponseDTO> updateProduct(
+            @RequestHeader("Authorization") String token,
             @RequestPart("products") ProductRequestDTO productRequestDTO,
             @PathVariable Long id,
             @RequestPart("file") MultipartFile file
     ) {
         try {
+            ensureSellerAccess(token);
             ProductResponseDTO productResponseDTO = productService.updateProduct(productRequestDTO, id, file);
             return ResponseEntity.ok(productResponseDTO);
         } catch (Exception e) {
             logger.error("Update product error", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
+    @PostMapping("/seller-applications")
+    public ResponseEntity<?> submitSellerApplication(
+            @RequestHeader("Authorization") String token,
+            @Valid @RequestBody SellerApplicationSubmitRequestDTO request,
+            BindingResult result
+    ) {
+        if (result.hasErrors()) {
+            Map<String, String> errors = new HashMap<>();
+            result.getFieldErrors().forEach(error -> errors.put(error.getField(), error.getDefaultMessage()));
+            return ResponseEntity.badRequest().body(Map.of("message", "Dữ liệu không hợp lệ", "errors", errors));
+        }
+        try {
+            Long userId = jwtService.extractId(token);
+            SellerApplicationResponseDTO response = sellerApplicationService.submit(userId, request);
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("message", e.getMessage()));
+        }
+    }
+
+    @GetMapping("/seller-applications/me")
+    public ResponseEntity<?> getMySellerApplication(@RequestHeader("Authorization") String token) {
+        try {
+            Long userId = jwtService.extractId(token);
+            SellerApplicationResponseDTO response = sellerApplicationService.getMine(userId);
+            if (response == null) {
+                return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("message", "Bạn chưa có hồ sơ đăng ký người bán"));
+            }
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("message", e.getMessage()));
+        }
+    }
+
+    @PostMapping(value = "/seller-applications/documents", consumes = "multipart/form-data")
+    public ResponseEntity<?> uploadSellerApplicationDocuments(
+            @RequestHeader("Authorization") String token,
+            @RequestPart(value = "idCardFront", required = false) MultipartFile idCardFront,
+            @RequestPart(value = "idCardBack", required = false) MultipartFile idCardBack,
+            @RequestPart(value = "businessLicense", required = false) MultipartFile businessLicense
+    ) {
+        try {
+            Long userId = jwtService.extractId(token);
+            if (idCardFront == null || idCardFront.isEmpty()) {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("message", "Thiếu ảnh CCCD mặt trước"));
+            }
+            if (idCardBack == null || idCardBack.isEmpty()) {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("message", "Thiếu ảnh CCCD mặt sau"));
+            }
+
+            SellerDocumentUploadResponseDTO response = new SellerDocumentUploadResponseDTO();
+            response.setIdCardFrontUrl(storageService.uploadSellerDocument(userId, idCardFront, "id-front"));
+            response.setIdCardBackUrl(storageService.uploadSellerDocument(userId, idCardBack, "id-back"));
+            if (businessLicense != null && !businessLicense.isEmpty()) {
+                response.setBusinessLicenseUrl(storageService.uploadSellerDocument(userId, businessLicense, "business-license"));
+            }
+
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("message", e.getMessage()));
+        }
+    }
+
+    private void ensureSellerAccess(String token) {
+        Object rolesObj = jwtService.extractClaim(token, claims -> claims.get("roles"));
+        if (!(rolesObj instanceof List<?> roles)) {
+            throw new RuntimeException("Bạn chưa có quyền người bán");
+        }
+        boolean allowed = roles.stream().anyMatch(role -> {
+            String roleValue = String.valueOf(role);
+            return "SELLER".equalsIgnoreCase(roleValue) || "ADMIN".equalsIgnoreCase(roleValue);
+        });
+        if (!allowed) {
+            throw new RuntimeException("Bạn cần được duyệt người bán trước khi đăng sản phẩm");
         }
     }
 }

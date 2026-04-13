@@ -28,6 +28,15 @@ public class Address {
     @Column(name = "street_detail", length = 255)
     private String streetDetail;
 
+    @Column(name = "ghn_province_id")
+    private Integer ghnProvinceId;
+
+    @Column(name = "ghn_district_id")
+    private Integer ghnDistrictId;
+
+    @Column(name = "ghn_ward_code", length = 20)
+    private String ghnWardCode;
+
     @Column(name = "latitude")
     private Double latitude;
 

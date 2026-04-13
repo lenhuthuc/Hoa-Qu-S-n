@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Save, Loader2, Package, Tag, Leaf, QrCode, ImageIcon } from "lucide-react";
 import { sellerApi, categoryApi } from "@/lib/api";
@@ -20,7 +20,8 @@ export default function ManualCreateProductPage() {
   const [formData, setFormData] = useState({
     productName: "",
     price: 0,
-    quantity: 100,
+    unitWeightGrams: 500,
+    totalStockWeightKg: 100,
     categoryId: 0,
     description: "",
     batchId: "",
@@ -28,12 +29,32 @@ export default function ManualCreateProductPage() {
     shelfLifeDays: 30
   });
 
-  useEffect(() => {
-    categoryApi.getAll().then((res) => {
-      const cats = res.data?.data || res.data || [];
-      setCategories(Array.isArray(cats) ? cats : []);
-    }).catch(() => {});
+  const calculatedQuantity =
+    formData.unitWeightGrams > 0 && formData.totalStockWeightKg > 0
+      ? Math.floor((formData.totalStockWeightKg * 1000) / formData.unitWeightGrams)
+      : 0;
+
+  const loadCategories = useCallback(async (maxRetries = 3) => {
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        const res = await categoryApi.getAll();
+        const cats = res.data?.data || res.data || [];
+        setCategories(Array.isArray(cats) ? cats : []);
+        return;
+      } catch {
+        if (attempt === maxRetries) {
+          toast.error("Không tải được danh mục. Vui lòng tải lại trang.");
+          setCategories([]);
+          return;
+        }
+        await new Promise((resolve) => setTimeout(resolve, attempt * 600));
+      }
+    }
   }, []);
+
+  useEffect(() => {
+    void loadCategories();
+  }, [loadCategories]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -41,11 +62,16 @@ export default function ManualCreateProductPage() {
       toast.error("Vui lòng nhập đầy đủ thông tin bắt buộc");
       return;
     }
+    if (formData.unitWeightGrams <= 0 || formData.totalStockWeightKg <= 0 || calculatedQuantity <= 0) {
+      toast.error("Thông tin trọng lượng chưa hợp lệ để tạo tồn kho");
+      return;
+    }
 
     setLoading(true);
     try {
       await sellerApi.createProduct({
         ...formData,
+        quantity: calculatedQuantity,
         batchId: formData.batchId || undefined,
         origin: formData.origin || undefined
       }, image || undefined);
@@ -141,15 +167,41 @@ export default function ManualCreateProductPage() {
 
               <div className="space-y-4">
                 <label className="block text-sm font-semibold text-gray-700 uppercase tracking-wider">
-                  Số lượng (kg) *
+                  Trọng lượng mỗi sản phẩm (gram) *
                 </label>
                 <input
                   required
                   type="number"
                   min={1}
-                  value={formData.quantity}
-                  onChange={(e) => setFormData({...formData, quantity: parseInt(e.target.value) || 0})}
+                  value={formData.unitWeightGrams}
+                  onChange={(e) => setFormData({...formData, unitWeightGrams: parseInt(e.target.value) || 0})}
                   className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-green-500 outline-none transition"
+                />
+              </div>
+
+              <div className="space-y-4">
+                <label className="block text-sm font-semibold text-gray-700 uppercase tracking-wider">
+                  Tổng trọng lượng hàng có (kg) *
+                </label>
+                <input
+                  required
+                  type="number"
+                  min={0.1}
+                  step={0.1}
+                  value={formData.totalStockWeightKg}
+                  onChange={(e) => setFormData({...formData, totalStockWeightKg: parseFloat(e.target.value) || 0})}
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-green-500 outline-none transition"
+                />
+              </div>
+
+              <div className="space-y-4">
+                <label className="block text-sm font-semibold text-gray-700 uppercase tracking-wider">
+                  Tồn kho tự tính (đơn vị)
+                </label>
+                <input
+                  readOnly
+                  value={calculatedQuantity}
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl bg-gray-50 text-gray-700 font-semibold outline-none"
                 />
               </div>
 

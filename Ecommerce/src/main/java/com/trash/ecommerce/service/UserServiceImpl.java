@@ -202,22 +202,59 @@ public class UserServiceImpl implements UserService {
             targetUser.setAvatar(user.getAvatar());
         }
 
-        // Handle structured address
-        if (user.getProvince() != null && !user.getProvince().isEmpty()) {
+        boolean hasAddressPayload =
+                user.getProvince() != null ||
+                user.getDistrict() != null ||
+                user.getWard() != null ||
+                user.getStreetDetail() != null ||
+                user.getGhnProvinceId() != null ||
+                user.getGhnDistrictId() != null ||
+                user.getGhnWardCode() != null;
+
+        // Handle structured address with verified GHN IDs.
+        if (hasAddressPayload) {
+            if (isBlank(user.getProvince()) || isBlank(user.getDistrict()) || isBlank(user.getWard())) {
+                throw new RuntimeException("Địa chỉ phải có đủ Tỉnh/Thành, Quận/Huyện, Phường/Xã");
+            }
+            if (user.getGhnProvinceId() == null || user.getGhnProvinceId() <= 0) {
+                throw new RuntimeException("Thiếu mã tỉnh/thành GHN hợp lệ");
+            }
+            if (user.getGhnDistrictId() == null || user.getGhnDistrictId() <= 0) {
+                throw new RuntimeException("Thiếu mã quận/huyện GHN hợp lệ");
+            }
+            if (isBlank(user.getGhnWardCode())) {
+                throw new RuntimeException("Thiếu mã phường/xã GHN hợp lệ");
+            }
+
             Address address = targetUser.getAddress();
             if (address == null) {
                 address = new Address();
             }
-            address.setProvince(user.getProvince());
-            address.setDistrict(user.getDistrict());
-            address.setWard(user.getWard());
-            address.setStreetDetail(user.getStreetDetail());
+            address.setProvince(user.getProvince().trim());
+            address.setDistrict(user.getDistrict().trim());
+            address.setWard(user.getWard().trim());
+            address.setStreetDetail(trimOrNull(user.getStreetDetail()));
+            address.setGhnProvinceId(user.getGhnProvinceId());
+            address.setGhnDistrictId(user.getGhnDistrictId());
+            address.setGhnWardCode(user.getGhnWardCode().trim());
             targetUser.setAddress(address);
         }
 
 
         userRepository.save(targetUser);
         return new UserResponseDTO("Update thành công");
+    }
+
+    private boolean isBlank(String value) {
+        return value == null || value.trim().isEmpty();
+    }
+
+    private String trimOrNull(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
     }
 
     @Override

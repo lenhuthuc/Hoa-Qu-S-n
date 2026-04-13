@@ -12,10 +12,10 @@ import com.trash.ecommerce.dto.PaymentMethodMessageResponse;
 import com.trash.ecommerce.entity.*;
 import com.trash.ecommerce.exception.OrderExistsException;
 import com.trash.ecommerce.exception.PaymentException;
-import com.trash.ecommerce.exception.ProductQuantityValidation;
 import com.trash.ecommerce.repository.*;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -41,6 +41,10 @@ public class PaymentServiceImpl implements PaymentService {
     private NotificationService notificationService;
     @Autowired
     private EventPublisher eventPublisher;
+
+    @Value("${orders.pending-payment.expiry-minutes:15}")
+    private long pendingPaymentExpiryMinutes;
+
     private Map<String, String> vnpayResponse(String code, String message) {
     return Map.of(
         "RspCode", code,
@@ -205,33 +209,20 @@ public class PaymentServiceImpl implements PaymentService {
                     {
                         if ("00".equals(request.getParameter("vnp_ResponseCode")))
                         {
+                            if (isPaymentExpired(order)) {
+                                releaseReservedStock(order);
+                                order.setStatus(OrderStatus.CANCELLED);
+                                orderRepository.save(order);
+                                return vnpayResponse("10", "Payment expired");
+                            }
+
                             Users user = order.getUser();
                             if (user == null) {
                                 throw new PaymentException("User not found for order");
                             }
                             Long userId = user.getId();
                             order.setStatus(OrderStatus.PAID);
-                            
-                            // Xử lý order items thay vì cart items (vì cart đã bị xóa khi tạo order)
-                            if (order.getOrderItems() == null || order.getOrderItems().isEmpty()) {
-                                throw new PaymentException("Order has no items");
-                            }
-                            
-                            for(OrderItem orderItem : order.getOrderItems()) {
-                                if (orderItem == null || orderItem.getProduct() == null) {
-                                    continue;
-                                }
-                                Product product = orderItem.getProduct();
-                                Long quantity = orderItem.getQuantity();
-                                if (quantity == null || quantity <= 0) {
-                                    continue;
-                                }
-                                // Giảm stock từ order items
-                                int updatedRows = productRepository.decreaseStock(product.getId(), quantity);
-                                if (updatedRows == 0) {
-                                    throw new ProductQuantityValidation("Hết hàng hoặc số lượng không đủ cho sản phẩm: " + product.getProductName());
-                                }
-                            }
+
                             orderRepository.save(order);
                             String subject = "Confirm the order transaction";
                             String body = String.format(
@@ -246,7 +237,7 @@ public class PaymentServiceImpl implements PaymentService {
                                     user.getEmail(), orderId
                             );
                             emailService.sendEmail(user.getEmail(), subject, body);
-                            if (order.getPaymentMethod() != null) {
+                            if (order.getPaymentMethod() != null && order.getInvoice() == null) {
                                 invoiceService.createInvoice(userId, orderId, order.getPaymentMethod().getId());
                             } else {
                                 throw new PaymentException("Payment method not found for order");
@@ -278,7 +269,10 @@ public class PaymentServiceImpl implements PaymentService {
                         }
                         else
                         {
-                            throw new PaymentException("Transaction has not been successful");
+                            releaseReservedStock(order);
+                            order.setStatus(OrderStatus.CANCELLED);
+                            orderRepository.save(order);
+                            return vnpayResponse("24", "Transaction failed");
                         }
                         return vnpayResponse("01","Confirm Success");
                     }
@@ -300,6 +294,26 @@ public class PaymentServiceImpl implements PaymentService {
         else
         {
             return vnpayResponse("97","Invalid Checksum");
+        }
+    }
+
+    private boolean isPaymentExpired(Order order) {
+        if (order == null || order.getCreateAt() == null) {
+            return true;
+        }
+        long ageMs = System.currentTimeMillis() - order.getCreateAt().getTime();
+        return ageMs > (pendingPaymentExpiryMinutes * 60 * 1000);
+    }
+
+    private void releaseReservedStock(Order order) {
+        if (order == null || order.getOrderItems() == null) {
+            return;
+        }
+        for (OrderItem item : order.getOrderItems()) {
+            if (item.getProduct() == null || item.getQuantity() == null || item.getQuantity() <= 0) {
+                continue;
+            }
+            productRepository.increaseStock(item.getProduct().getId(), item.getQuantity());
         }
     }
 }

@@ -34,7 +34,7 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (res) => res,
   (err) => {
-    if (typeof window !== "undefined" && (err.response?.status === 401 || err.response?.status === 403)) {
+    if (typeof window !== "undefined" && err.response?.status === 401) {
       localStorage.removeItem("hqs_token");
       localStorage.removeItem("hqs_refresh_token");
     }
@@ -92,7 +92,17 @@ export const aiApi = {
     });
   },
   createProduct: (
-    product: { productName: string; price: number; quantity: number; categoryId: number; description: string; batchId?: string; origin?: string },
+    product: {
+      productName: string;
+      price: number;
+      quantity?: number;
+      unitWeightGrams: number;
+      totalStockWeightKg: number;
+      categoryId: number;
+      description: string;
+      batchId?: string;
+      origin?: string;
+    },
     imageFile: File
   ) => {
     const form = new FormData();
@@ -103,7 +113,17 @@ export const aiApi = {
     });
   },
   createProductWithFacebook: (
-    product: { productName: string; price: number; quantity: number; categoryId: number; description: string; batchId?: string; origin?: string },
+    product: {
+      productName: string;
+      price: number;
+      quantity?: number;
+      unitWeightGrams: number;
+      totalStockWeightKg: number;
+      categoryId: number;
+      description: string;
+      batchId?: string;
+      origin?: string;
+    },
     imageFile: File,
     pageId: string,
     message?: string
@@ -169,6 +189,9 @@ export const traceApi = {
 
 // ─── Shipping ───
 export const shippingApi = {
+  provinces: () => api.get("/api/shipping/provinces"),
+  districts: (provinceId: number) => api.get(`/api/shipping/districts?provinceId=${provinceId}`),
+  wards: (districtId: number) => api.get(`/api/shipping/wards?districtId=${districtId}`),
   validate: (productId: number, districtId?: string, wardCode?: string) =>
     api.get("/api/shipping/validate", {
       params: { productId, toDistrictId: districtId, toWardCode: wardCode },
@@ -196,8 +219,33 @@ export const orderApi = {
   getMyOrders: () => api.get("/api/orders/my-orders"),
   getAll: () => api.get("/api/orders/my-orders"),
   getById: (id: number) => api.get(`/api/orders/${id}`),
-  create: (paymentMethod: number, voucherCode?: string) =>
-    api.post(`/api/orders/create?paymentMethod=${paymentMethod}${voucherCode ? `&voucherCode=${encodeURIComponent(voucherCode)}` : ""}`),
+  preview: (params?: {
+    discountVoucherCode?: string;
+    shippingVoucherCode?: string;
+    deliveryType?: "STANDARD" | "EXPRESS";
+    toDistrictId?: string;
+    toWardCode?: string;
+  }) =>
+    api.get("/api/orders/preview", { params }),
+  create: (
+    paymentMethod: number,
+    voucherCode?: string,
+    discountVoucherCode?: string,
+    shippingVoucherCode?: string,
+    deliveryType: "STANDARD" | "EXPRESS" = "STANDARD",
+    toDistrictId?: string,
+    toWardCode?: string
+  ) =>
+    api.post(
+      `/api/orders/create?paymentMethod=${paymentMethod}` +
+      `${voucherCode ? `&voucherCode=${encodeURIComponent(voucherCode)}` : ""}` +
+      `${discountVoucherCode ? `&discountVoucherCode=${encodeURIComponent(discountVoucherCode)}` : ""}` +
+      `${shippingVoucherCode ? `&shippingVoucherCode=${encodeURIComponent(shippingVoucherCode)}` : ""}` +
+      `${deliveryType ? `&deliveryType=${encodeURIComponent(deliveryType)}` : ""}` +
+      `${toDistrictId ? `&toDistrictId=${encodeURIComponent(toDistrictId)}` : ""}` +
+      `${toWardCode ? `&toWardCode=${encodeURIComponent(toWardCode)}` : ""}`
+    ),
+  retryPayment: (id: number) => api.post(`/api/orders/${id}/retry-payment`),
   delete: (id: number) => api.delete(`/api/orders/${id}`),
   updateStatus: (id: number, status: string) =>
     api.put(`/api/orders/${id}/status?status=${status}`),
@@ -213,7 +261,18 @@ export const categoryApi = {
 // ─── User Profile ───
 export const userApi = {
   getProfile: () => api.get("/api/user/profile"),
-  update: (id: number, data: { fullName?: string; phone?: string; avatar?: string; province?: string; district?: string; ward?: string; streetDetail?: string }) =>
+  update: (id: number, data: {
+    fullName?: string;
+    phone?: string;
+    avatar?: string;
+    province?: string;
+    district?: string;
+    ward?: string;
+    streetDetail?: string;
+    ghnProvinceId?: number;
+    ghnDistrictId?: number;
+    ghnWardCode?: string;
+  }) =>
     api.put(`/api/user/updation/${id}`, data),
   refresh: (refreshToken: string) =>
     api.get("/api/user/refresh", { headers: { Authorization: `Bearer ${refreshToken}` } }),
@@ -223,6 +282,17 @@ export const userApi = {
     api.post(`/api/user/auth/verify-otp?email=${encodeURIComponent(email)}&otp=${otp}`),
   changePassword: (email: string, newPassword: string, otp: string) =>
     api.post(`/api/user/auth/change-password?email=${encodeURIComponent(email)}&newPassword=${encodeURIComponent(newPassword)}&otp=${otp}`),
+};
+
+// ─── Seller Onboarding ───
+export const sellerOnboardingApi = {
+  submit: (data: Record<string, unknown>) => api.post("/api/user/seller-applications", data),
+  uploadDocuments: (formData: FormData) =>
+    api.post("/api/user/seller-applications/documents", formData, { headers: { "Content-Type": "multipart/form-data" } }),
+  getMine: () => api.get("/api/user/seller-applications/me"),
+  getAll: (status?: string) => api.get(`/api/admin/seller-applications${status ? `?status=${encodeURIComponent(status)}` : ""}`),
+  review: (id: number, action: "APPROVE" | "NEEDS_REVISION" | "REJECT", note?: string) =>
+    api.put(`/api/admin/seller-applications/${id}/review`, { action, note }),
 };
 
 // ─── Reviews ───
@@ -272,6 +342,14 @@ export const adminApi = {
     return api.put(`/api/admin/products/${id}`, form, { headers: { "Content-Type": "multipart/form-data" } });
   },
   deleteProduct: (id: number) => api.delete(`/api/admin/products/${id}`),
+  getSellerApplications: (status?: string) =>
+    api.get(`/api/admin/seller-applications${status ? `?status=${encodeURIComponent(status)}` : ""}`),
+  getSellerApplicationDocument: (id: number, type: "front" | "back" | "license") =>
+    api.get(`/api/admin/seller-applications/${id}/documents/${type}`, { responseType: "blob" }),
+  startReviewSellerApplication: (id: number) =>
+    api.put(`/api/admin/seller-applications/${id}/start-review`),
+  reviewSellerApplication: (id: number, action: "APPROVE" | "NEEDS_REVISION" | "REJECT", note?: string) =>
+    api.put(`/api/admin/seller-applications/${id}/review`, { action, note }),
 };
 
 // ─── User Interactions ───

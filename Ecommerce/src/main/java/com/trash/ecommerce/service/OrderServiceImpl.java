@@ -1,18 +1,24 @@
 package com.trash.ecommerce.service;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.Date;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+import com.trash.ecommerce.dto.OrderPreviewResponseDTO;
 import com.trash.ecommerce.dto.OrderSummaryDTO;
+import com.trash.ecommerce.dto.ShippingValidationResponse;
 import com.trash.ecommerce.entity.*;
 import com.trash.ecommerce.exception.*;
 import com.trash.ecommerce.mapper.OrderMapper;
 import com.trash.ecommerce.repository.*;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -45,20 +51,13 @@ public class OrderServiceImpl implements OrderService {
     private EventPublisher eventPublisher;
     @Autowired
     private EmailService emailService;
-    
-    public OrderServiceImpl(UserRepository userRepository, OrderRepository orderRepository, PaymentService paymentService, InvoiceService invoiceService, PaymentMethodRepository paymentMethodRepository, CartRepository cartRepository, OrderMapper orderMapper, ProductRepository productRepository, NotificationService notificationService, EventPublisher eventPublisher, EmailService emailService) {
-        this.userRepository = userRepository;
-        this.orderRepository = orderRepository;
-        this.paymentMethodRepository = paymentMethodRepository;
-        this.cartRepository = cartRepository;
-        this.paymentService = paymentService;
-        this.invoiceService = invoiceService;
-        this.orderMapper = orderMapper;
-        this.productRepository = productRepository;
-        this.notificationService = notificationService;
-        this.eventPublisher = eventPublisher;
-        this.emailService = emailService;
-    }
+    @Autowired
+    private VoucherRepository voucherRepository;
+    @Autowired
+    private ShippingValidationService shippingValidationService;
+
+    @Value("${orders.pending-payment.expiry-minutes:15}")
+    private long pendingPaymentExpiryMinutes;
 
     @Override
     public List<OrderSummaryDTO> getAllMyOrders(Long userId, String ipAddress) {
@@ -123,19 +122,49 @@ public class OrderServiceImpl implements OrderService {
         return dto;
     }
 
-    @Autowired
-    private VoucherRepository voucherRepository;
+        @Override
+        public OrderPreviewResponseDTO previewMyOrder(Long userId, String discountVoucherCode, String shippingVoucherCode,
+                              String deliveryType, String toDistrictId, String toWardCode) {
+        Users user = userRepository.findById(userId)
+            .orElseThrow(() -> new FindingUserError("User not found"));
+
+        PreviewContext preview = buildPreviewContext(
+            user,
+            discountVoucherCode,
+            shippingVoucherCode,
+            deliveryType,
+            toDistrictId,
+            toWardCode,
+            false
+        );
+
+        return preview.preview;
+        }
 
     @Override
     @Transactional
-    public OrderResponseDTO createMyOrder(Long userId, Long paymentMethodId, String voucherCode, String IpAddress) {
+        public OrderResponseDTO createMyOrder(Long userId, Long paymentMethodId, String discountVoucherCode,
+                          String shippingVoucherCode, String deliveryType,
+                          String toDistrictId, String toWardCode, String IpAddress) {
         Users user = userRepository.findById(userId)
                 .orElseThrow(() -> new FindingUserError("User not found"));
 
-        Cart cart = user.getCart();
-        if (cart == null || cart.getItems() == null || cart.getItems().isEmpty()) {
-            throw new OrderValidException("Cart is empty");
+        PreviewContext previewContext = buildPreviewContext(
+            user,
+            discountVoucherCode,
+            shippingVoucherCode,
+            deliveryType,
+            toDistrictId,
+            toWardCode,
+            true
+        );
+        if (!previewContext.preview.isCanCheckout()) {
+            throw new OrderValidException("Phương thức giao hàng không khả dụng cho giỏ hàng hiện tại");
         }
+
+        Cart cart = previewContext.cart;
+        Set<OrderItem> orderItems = previewContext.orderItems;
+        Set<CartItemDetailsResponseDTO> responseItems = previewContext.responseItems;
 
         PaymentMethod paymentMethod = paymentMethodRepository.findById(paymentMethodId)
                 .orElseThrow(() -> new PaymentException("Payment method not found"));
@@ -145,68 +174,14 @@ public class OrderServiceImpl implements OrderService {
             throw new OrderValidException("User address is required to create an order");
         }
 
-        BigDecimal totalPrice = BigDecimal.ZERO;
-        Set<OrderItem> orderItems = new HashSet<>();
-        Set<CartItemDetailsResponseDTO> responseItems = new HashSet<>();
-
-        // 1. Basic Business Validation: Stock check
-        for (CartItem cartItem : cart.getItems()) {
-            if (cartItem == null) continue;
-            Product product = cartItem.getProduct();
-            Long quantityBuy = cartItem.getQuantity();
-
-            if (product.getQuantity() == null || product.getQuantity() < quantityBuy) {
-                throw new ProductQuantityValidation("Sản phẩm " + product.getProductName() + " đã hết hàng!");
-            }
-            
-            BigDecimal currentPrice = product.getPrice();
-            BigDecimal lineAmount = currentPrice.multiply(BigDecimal.valueOf(quantityBuy));
-            totalPrice = totalPrice.add(lineAmount);
-
-            OrderItem orderItem = new OrderItem();
-            orderItem.setProduct(product);
-            orderItem.setQuantity(quantityBuy);
-            orderItem.setPrice(currentPrice);
-            orderItems.add(orderItem);
-
-            CartItemDetailsResponseDTO dto = new CartItemDetailsResponseDTO();
-            dto.setProductId(product.getId());
-            dto.setProductName(product.getProductName());
-            dto.setPrice(currentPrice);
-            dto.setQuantity(quantityBuy);
-            dto.setImageUrl(product.getPrimaryImagePath() != null ? "/api/products/" + product.getId() + "/img" : null);
-            responseItems.add(dto);
-        }
-
-        // 2 & 3. Pricing Engine: Voucher & Shipping
-        BigDecimal discount = BigDecimal.ZERO;
-        if (voucherCode != null && !voucherCode.isBlank()) {
-            Voucher voucher = voucherRepository.findByCode(voucherCode)
-                    .orElseThrow(() -> new OrderValidException("Mã giảm giá không hợp lệ"));
-            if (!voucher.isValid()) {
-                throw new OrderValidException("Mã giảm giá đã hết hạn hoặc hết lượt sử dụng");
-            }
-            discount = voucher.calculateDiscount(totalPrice);
-            voucher.setUsedCount(voucher.getUsedCount() + 1);
-            voucherRepository.save(voucher);
-        }
-
-        // Calculation: Total = (Price * Qty) + Shipping - Discount
-        BigDecimal shippingFee = totalPrice.compareTo(BigDecimal.valueOf(500000)) >= 0
-                ? BigDecimal.ZERO : BigDecimal.valueOf(30000);
-        
-        BigDecimal finalTotal = totalPrice.add(shippingFee).subtract(discount);
-        if (finalTotal.compareTo(BigDecimal.ZERO) < 0) finalTotal = BigDecimal.ZERO;
-
         // 4 & 5. Payment & Order Initialization
         Order order = new Order();
         order.setCreateAt(new Date());
         order.setUser(user);
         order.setPaymentMethod(paymentMethod);
         order.setAddress(address);
-        order.setTotalPrice(finalTotal);
-        order.setShippingFee(shippingFee);
-        // discount could be stored in a 'discount' field if it existed, but we subtract it from total
+        order.setTotalPrice(previewContext.preview.getTotalAmount());
+        order.setShippingFee(previewContext.preview.getShippingFee().subtract(previewContext.preview.getShippingDiscountAmount()));
         
         if (paymentMethod.getId() == 2L) {
             order.setStatus(OrderStatus.PENDING_PAYMENT);
@@ -223,11 +198,15 @@ public class OrderServiceImpl implements OrderService {
         order.setOrderItems(orderItems);
         orderRepository.save(order);
 
-        // Deduct stock for COD or Instant payments
-        if (paymentMethod.getId() == 1L) {
-            for (OrderItem orderItem : orderItems) {
-                productRepository.decreaseStock(orderItem.getProduct().getId(), orderItem.getQuantity());
+        // Reserve stock for both COD and online payments.
+        for (OrderItem orderItem : orderItems) {
+            int updatedRows = productRepository.decreaseStock(orderItem.getProduct().getId(), orderItem.getQuantity());
+            if (updatedRows == 0) {
+                throw new ProductQuantityValidation("Sản phẩm " + orderItem.getProduct().getProductName() + " đã hết hàng!");
             }
+        }
+
+        if (paymentMethod.getId() == 1L && order.getInvoice() == null) {
             invoiceService.createInvoice(userId, order.getId(), paymentMethodId);
         }
 
@@ -253,7 +232,7 @@ public class OrderServiceImpl implements OrderService {
                 order.getOrderNumber(),
                 responseItems,
                 order.getTotalPrice(),
-                shippingFee,
+            order.getShippingFee(),
                 order.getStatus(),
                 address.getFullAddress(),
                 (paymentMethodId == 1) ? null : paymentService.createPaymentUrl(order.getTotalPrice(), ".", order.getId(), IpAddress),
@@ -276,6 +255,8 @@ public class OrderServiceImpl implements OrderService {
         if (order.getStatus() != OrderStatus.PENDING && order.getStatus() != OrderStatus.PENDING_PAYMENT && order.getStatus() != OrderStatus.PLACED) {
             throw new OrderValidException("You can't delete this order ;-;");
         }
+
+        releaseReservedStock(order);
 
         // Notify sellers about cancellation
         if (order.getOrderItems() != null) {
@@ -350,6 +331,10 @@ public class OrderServiceImpl implements OrderService {
         order.setStatus(newStatus);
         orderRepository.save(order);
 
+        if (newStatus == OrderStatus.CANCELLED) {
+            releaseReservedStock(order);
+        }
+
         Long buyerId = order.getUser().getId();
 
         if (isSeller) {
@@ -410,5 +395,258 @@ public class OrderServiceImpl implements OrderService {
         if (from == OrderStatus.PLACED && to == OrderStatus.CANCELLED) return true;
         if (from == OrderStatus.PREPARING && to == OrderStatus.CANCELLED) return true;
         return false;
+    }
+
+    @Override
+    public String retryPendingPayment(Long userId, Long orderId, String IpAddress) {
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new ResourceNotFoundException("Order not found"));
+        if (order.getUser() == null || !order.getUser().getId().equals(userId)) {
+            throw new AccessDeniedException("You do not have permission to retry this order");
+        }
+        if (order.getStatus() != OrderStatus.PENDING_PAYMENT) {
+            throw new OrderValidException("Order is not waiting for payment");
+        }
+        if (isPaymentExpired(order)) {
+            releaseReservedStock(order);
+            order.setStatus(OrderStatus.CANCELLED);
+            orderRepository.save(order);
+            throw new OrderValidException("Đơn hàng đã hết hạn thanh toán");
+        }
+        return paymentService.createPaymentUrl(order.getTotalPrice(), ".", order.getId(), IpAddress);
+    }
+
+    @Override
+    @Transactional
+    public void expirePendingPayments() {
+        Date cutoff = new Date(System.currentTimeMillis() - (pendingPaymentExpiryMinutes * 60 * 1000));
+        List<Order> expiredOrders = orderRepository.findByStatusAndCreateAtBefore(OrderStatus.PENDING_PAYMENT, cutoff);
+        for (Order order : expiredOrders) {
+            releaseReservedStock(order);
+            order.setStatus(OrderStatus.CANCELLED);
+            orderRepository.save(order);
+
+            if (order.getUser() != null) {
+                notificationService.send(order.getUser().getId(),
+                        "Đơn hàng hết hạn thanh toán",
+                        "Đơn hàng #" + order.getId() + " đã bị hủy do quá hạn thanh toán",
+                        NotificationType.ORDER_CANCELLED,
+                        order.getId());
+                eventPublisher.publishOrderUpdate(order.getUser().getId(), order.getId(),
+                        OrderStatus.CANCELLED.name(), "Đơn hàng hết hạn thanh toán");
+            }
+        }
+    }
+
+    private PreviewContext buildPreviewContext(Users user, String discountVoucherCode, String shippingVoucherCode,
+                                               String deliveryType, String toDistrictId, String toWardCode,
+                                               boolean consumeVoucherUsage) {
+        Cart cart = user.getCart();
+        if (cart == null || cart.getItems() == null || cart.getItems().isEmpty()) {
+            throw new OrderValidException("Cart is empty");
+        }
+
+        String normalizedDistrictId = normalizeDistrictId(toDistrictId);
+        String normalizedWardCode = (toWardCode == null || toWardCode.isBlank()) ? "21012" : toWardCode;
+
+        BigDecimal subtotal = BigDecimal.ZERO;
+        Set<OrderItem> orderItems = new HashSet<>();
+        Set<CartItemDetailsResponseDTO> responseItems = new HashSet<>();
+        List<String> shippingWarnings = new ArrayList<>();
+        boolean canStandard = true;
+        boolean canExpress = true;
+        BigDecimal standardShippingTotal = BigDecimal.ZERO;
+        BigDecimal expressShippingTotal = BigDecimal.ZERO;
+
+        for (CartItem cartItem : cart.getItems()) {
+            if (cartItem == null) continue;
+            Product product = cartItem.getProduct();
+            Long quantityBuy = cartItem.getQuantity();
+            if (product == null || quantityBuy == null || quantityBuy <= 0) {
+                throw new OrderValidException("Giỏ hàng chứa sản phẩm không hợp lệ");
+            }
+            if (product.getQuantity() == null || product.getQuantity() < quantityBuy) {
+                throw new ProductQuantityValidation("Sản phẩm " + product.getProductName() + " đã hết hàng!");
+            }
+
+            BigDecimal currentPrice = product.getPrice();
+            BigDecimal lineAmount = currentPrice.multiply(BigDecimal.valueOf(quantityBuy));
+            subtotal = subtotal.add(lineAmount);
+
+            OrderItem orderItem = new OrderItem();
+            orderItem.setProduct(product);
+            orderItem.setQuantity(quantityBuy);
+            orderItem.setPrice(currentPrice);
+            orderItems.add(orderItem);
+
+            CartItemDetailsResponseDTO dto = new CartItemDetailsResponseDTO();
+            dto.setProductId(product.getId());
+            dto.setProductName(product.getProductName());
+            dto.setPrice(currentPrice);
+            dto.setQuantity(quantityBuy);
+            dto.setImageUrl(product.getPrimaryImagePath() != null ? "/api/products/" + product.getId() + "/img" : null);
+            responseItems.add(dto);
+
+            ShippingValidationResponse shippingValidation = shippingValidationService.validateShipping(
+                    product.getId(), normalizedDistrictId, normalizedWardCode);
+            boolean itemHasStandard = shippingValidation.getAvailableMethods().stream()
+                    .anyMatch(m -> !isExpressServiceName(m.getServiceName()));
+            boolean itemHasExpress = shippingValidation.getAvailableMethods().stream()
+                    .anyMatch(m -> isExpressServiceName(m.getServiceName()));
+
+                Long standardFee = shippingValidation.getAvailableMethods().stream()
+                    .filter(m -> !isExpressServiceName(m.getServiceName()))
+                    .map(ShippingValidationResponse.ShippingOption::getFee)
+                    .filter(Objects::nonNull)
+                    .min(Long::compareTo)
+                    .orElse(null);
+
+                Long expressFee = shippingValidation.getAvailableMethods().stream()
+                    .filter(m -> isExpressServiceName(m.getServiceName()))
+                    .map(ShippingValidationResponse.ShippingOption::getFee)
+                    .filter(Objects::nonNull)
+                    .min(Long::compareTo)
+                    .orElse(null);
+
+            if (!itemHasStandard) {
+                canStandard = false;
+                shippingWarnings.add("" + product.getProductName() + ": không có giao tiêu chuẩn phù hợp");
+                } else if (standardFee != null) {
+                standardShippingTotal = standardShippingTotal.add(BigDecimal.valueOf(standardFee));
+            }
+            if (!itemHasExpress) {
+                canExpress = false;
+                shippingWarnings.add("" + product.getProductName() + ": không có giao hỏa tốc phù hợp");
+                } else if (expressFee != null) {
+                expressShippingTotal = expressShippingTotal.add(BigDecimal.valueOf(expressFee));
+            }
+        }
+
+        List<String> availableDeliveryTypes = new ArrayList<>();
+        if (canStandard) {
+            availableDeliveryTypes.add("STANDARD");
+        }
+        if (canExpress) {
+            availableDeliveryTypes.add("EXPRESS");
+        }
+        if (availableDeliveryTypes.isEmpty()) {
+            throw new OrderValidException("Không có phương thức vận chuyển phù hợp cho giỏ hàng hiện tại");
+        }
+
+        String normalizedDeliveryType = normalizeDeliveryType(deliveryType, availableDeliveryTypes);
+        boolean canCheckout = availableDeliveryTypes.contains(normalizedDeliveryType);
+
+        BigDecimal shippingFee = "EXPRESS".equals(normalizedDeliveryType)
+            ? expressShippingTotal
+            : standardShippingTotal;
+        BigDecimal discountAmount = resolveVoucherDiscount(discountVoucherCode, subtotal,
+                "Mã giảm giá", consumeVoucherUsage);
+        BigDecimal shippingDiscountAmount = resolveVoucherDiscount(shippingVoucherCode, shippingFee,
+                "Mã freeship", consumeVoucherUsage);
+
+        BigDecimal totalAmount = subtotal
+                .add(shippingFee)
+                .subtract(discountAmount)
+                .subtract(shippingDiscountAmount);
+        if (totalAmount.compareTo(BigDecimal.ZERO) < 0) {
+            totalAmount = BigDecimal.ZERO;
+        }
+
+        OrderPreviewResponseDTO preview = new OrderPreviewResponseDTO();
+        preview.setSubtotal(subtotal);
+        preview.setShippingFee(shippingFee);
+        preview.setDiscountAmount(discountAmount);
+        preview.setShippingDiscountAmount(shippingDiscountAmount);
+        preview.setTotalAmount(totalAmount);
+        preview.setDeliveryType(normalizedDeliveryType);
+        preview.setAvailableDeliveryTypes(availableDeliveryTypes);
+        preview.setShippingWarnings(shippingWarnings);
+        preview.setCanCheckout(canCheckout);
+
+        return new PreviewContext(cart, orderItems, responseItems, preview);
+    }
+
+    private BigDecimal resolveVoucherDiscount(String voucherCode, BigDecimal baseAmount, String label,
+                                             boolean consumeVoucherUsage) {
+        if (voucherCode == null || voucherCode.isBlank()) {
+            return BigDecimal.ZERO;
+        }
+        
+        // If voucher doesn't exist, just return 0 discount (don't throw error)
+        Voucher voucher = voucherRepository.findByCode(voucherCode).orElse(null);
+        if (voucher == null) {
+            return BigDecimal.ZERO;
+        }
+        
+        if (!voucher.isValid()) {
+            throw new OrderValidException(label + " đã hết hạn hoặc hết lượt sử dụng");
+        }
+        BigDecimal discount = voucher.calculateDiscount(baseAmount);
+        if (consumeVoucherUsage) {
+            voucher.setUsedCount(voucher.getUsedCount() + 1);
+            voucherRepository.save(voucher);
+        }
+        return discount;
+    }
+
+    private String normalizeDistrictId(String toDistrictId) {
+        if (toDistrictId == null || toDistrictId.isBlank()) {
+            return "1542";
+        }
+        return toDistrictId;
+    }
+
+    private String normalizeDeliveryType(String deliveryType, List<String> availableDeliveryTypes) {
+        String normalized = (deliveryType == null || deliveryType.isBlank())
+                ? "STANDARD"
+                : deliveryType.trim().toUpperCase(Locale.ROOT);
+        if (!availableDeliveryTypes.contains(normalized)) {
+            return availableDeliveryTypes.get(0);
+        }
+        return normalized;
+    }
+
+    private boolean isExpressServiceName(String serviceName) {
+        if (serviceName == null) {
+            return false;
+        }
+        String normalized = serviceName.toLowerCase(Locale.ROOT);
+        return normalized.contains("hỏa tốc") || normalized.contains("hoa toc") || normalized.contains("express");
+    }
+
+    private void releaseReservedStock(Order order) {
+        if (order == null || order.getOrderItems() == null) {
+            return;
+        }
+        for (OrderItem item : order.getOrderItems()) {
+            if (item.getProduct() == null || item.getQuantity() == null || item.getQuantity() <= 0) {
+                continue;
+            }
+            productRepository.increaseStock(item.getProduct().getId(), item.getQuantity());
+        }
+    }
+
+    private boolean isPaymentExpired(Order order) {
+        if (order == null || order.getCreateAt() == null) {
+            return true;
+        }
+        long ageMs = System.currentTimeMillis() - order.getCreateAt().getTime();
+        return ageMs > (pendingPaymentExpiryMinutes * 60 * 1000);
+    }
+
+    private static class PreviewContext {
+        private final Cart cart;
+        private final Set<OrderItem> orderItems;
+        private final Set<CartItemDetailsResponseDTO> responseItems;
+        private final OrderPreviewResponseDTO preview;
+
+        private PreviewContext(Cart cart, Set<OrderItem> orderItems,
+                               Set<CartItemDetailsResponseDTO> responseItems,
+                               OrderPreviewResponseDTO preview) {
+            this.cart = cart;
+            this.orderItems = orderItems;
+            this.responseItems = responseItems;
+            this.preview = preview;
+        }
     }
 }

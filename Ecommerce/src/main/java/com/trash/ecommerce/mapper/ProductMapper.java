@@ -16,6 +16,8 @@ public class ProductMapper {
         productDTO.setId(product.getId());
         productDTO.setProduct_name(product.getProductName());
         productDTO.setQuantity(product.getQuantity());
+        productDTO.setUnitWeightGrams(product.getUnitWeightGrams());
+        productDTO.setTotalStockWeightKg(product.getTotalStockWeightKg());
         productDTO.setPrice(product.getPrice());
         // Category
         if (product.getCategory() != null) {

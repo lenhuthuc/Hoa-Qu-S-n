@@ -18,4 +18,7 @@ public class UserUpdateRequestDTO {
     private String district;
     private String ward;
     private String streetDetail;
+    private Integer ghnProvinceId;
+    private Integer ghnDistrictId;
+    private String ghnWardCode;
 }

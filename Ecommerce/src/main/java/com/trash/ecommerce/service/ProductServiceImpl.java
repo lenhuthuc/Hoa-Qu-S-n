@@ -2,6 +2,8 @@ package com.trash.ecommerce.service;
 
 import java.io.File;
 import java.io.IOException;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -99,7 +101,9 @@ public class ProductServiceImpl implements ProductService {
 
         product.setPrice(productRequestDTO.getPrice());
         product.setProductName(productRequestDTO.getProductName());
-        product.setQuantity(productRequestDTO.getQuantity());
+        product.setUnitWeightGrams(productRequestDTO.getUnitWeightGrams());
+        product.setTotalStockWeightKg(productRequestDTO.getTotalStockWeightKg());
+        product.setQuantity(resolveInventoryQuantity(productRequestDTO, null));
         product.setDescription(productRequestDTO.getDescription());
         product.setBatchId(productRequestDTO.getBatchId());
         product.setOrigin(productRequestDTO.getOrigin());
@@ -178,6 +182,16 @@ public class ProductServiceImpl implements ProductService {
         if (productRequestDTO.getQuantity() != null) {
             product.setQuantity(productRequestDTO.getQuantity());
         }
+        if (productRequestDTO.getUnitWeightGrams() != null) {
+            product.setUnitWeightGrams(productRequestDTO.getUnitWeightGrams());
+        }
+        if (productRequestDTO.getTotalStockWeightKg() != null) {
+            product.setTotalStockWeightKg(productRequestDTO.getTotalStockWeightKg());
+        }
+        if (productRequestDTO.getUnitWeightGrams() != null
+                || productRequestDTO.getTotalStockWeightKg() != null) {
+            product.setQuantity(resolveInventoryQuantity(productRequestDTO, product.getQuantity()));
+        }
         if (productRequestDTO.getCategoryId() != null) {
             Category category = categoryRepository.findById(productRequestDTO.getCategoryId())
                     .orElseThrow(() -> new ProductFingdingException("Category not found"));
@@ -250,6 +264,38 @@ public class ProductServiceImpl implements ProductService {
         cartItemRepository.save(cartItem);
         
         return new ProductResponseDTO("Them san pham vao gio hang thanh cong !");
+    }
+
+    private Long resolveInventoryQuantity(ProductRequestDTO productRequestDTO, Long currentQuantity) {
+        Long unitWeightGrams = productRequestDTO.getUnitWeightGrams();
+        BigDecimal totalStockWeightKg = productRequestDTO.getTotalStockWeightKg();
+
+        if (unitWeightGrams != null || totalStockWeightKg != null) {
+            if (unitWeightGrams == null || unitWeightGrams <= 0) {
+                throw new IllegalArgumentException("Trọng lượng mỗi sản phẩm phải lớn hơn 0 gram");
+            }
+            if (totalStockWeightKg == null || totalStockWeightKg.compareTo(BigDecimal.ZERO) <= 0) {
+                throw new IllegalArgumentException("Tổng trọng lượng hàng phải lớn hơn 0 kg");
+            }
+
+            BigDecimal totalWeightGrams = totalStockWeightKg.multiply(BigDecimal.valueOf(1000));
+            long computedQuantity = totalWeightGrams
+                    .divide(BigDecimal.valueOf(unitWeightGrams), 0, RoundingMode.DOWN)
+                    .longValue();
+            if (computedQuantity <= 0) {
+                throw new IllegalArgumentException("Tổng trọng lượng phải đủ để tạo ít nhất 1 sản phẩm tồn kho");
+            }
+            return computedQuantity;
+        }
+
+        if (productRequestDTO.getQuantity() != null) {
+            return productRequestDTO.getQuantity();
+        }
+        if (currentQuantity != null) {
+            return currentQuantity;
+        }
+
+        throw new IllegalArgumentException("Thiếu số lượng tồn kho hoặc thông tin trọng lượng");
     }
 
     @Override
