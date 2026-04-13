@@ -53,7 +53,7 @@ public class SecurityConfig {
                         .requestMatchers("GET", "/api/trust-score/**").permitAll()
                         .requestMatchers("/api/trust-score/**").authenticated()
                         .requestMatchers("/api/returns/**").authenticated()
-                        .requestMatchers("/api/seller/**").authenticated()
+                        .requestMatchers("/api/seller/**").hasAnyAuthority("SELLER", "ADMIN")
                         .requestMatchers("/api/notifications/**").authenticated()
                         .requestMatchers("GET", "/api/vouchers/available").permitAll()
                         .requestMatchers("POST", "/api/vouchers/validate").permitAll()

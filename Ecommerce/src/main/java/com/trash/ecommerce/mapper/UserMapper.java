@@ -24,7 +24,10 @@ public class UserMapper {
                     addr.getProvince(),
                     addr.getDistrict(),
                     addr.getWard(),
-                    addr.getStreetDetail()
+                    addr.getStreetDetail(),
+                    addr.getGhnProvinceId(),
+                    addr.getGhnDistrictId(),
+                    addr.getGhnWardCode()
             ));
         }
         dto.setRoles(users.getRoles().stream()

@@ -18,7 +18,7 @@ import {
   Star,
   Tag,
 } from "lucide-react";
-import { sellerApi, trustScoreApi, isLoggedIn, parseToken } from "@/lib/api";
+import { sellerApi, trustScoreApi, isLoggedIn, parseToken, hasRole } from "@/lib/api";
 
 interface DashboardData {
   totalProducts: number;
@@ -57,6 +57,7 @@ export default function SellerDashboard() {
 
   useEffect(() => {
     if (!isLoggedIn()) { router.push("/login"); return; }
+    if (!hasRole("SELLER") && !hasRole("ADMIN")) { router.push("/seller/register"); return; }
     (async () => {
       try {
         const [dashRes, trustRes] = await Promise.allSettled([

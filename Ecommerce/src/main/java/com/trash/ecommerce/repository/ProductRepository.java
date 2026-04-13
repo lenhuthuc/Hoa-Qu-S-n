@@ -27,6 +27,11 @@ public interface ProductRepository extends JpaRepository <Product, Long> {
             nativeQuery = true)
     int decreaseStock(@Param("id") Long id, @Param("amount") Long amount);
 
+        @Modifying
+        @Query(value = "UPDATE product p SET p.quantity = p.quantity + :amount WHERE p.id = :id",
+            nativeQuery = true)
+        int increaseStock(@Param("id") Long id, @Param("amount") Long amount);
+
     Page<Product> findByCategoryId(Long categoryId, PageRequest pageRequest);
 
     List<Product> findBySellerId(Long sellerId);

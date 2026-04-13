@@ -15,6 +15,21 @@ public class ShippingController {
 
     private final ShippingValidationService shippingValidationService;
 
+    @GetMapping("/provinces")
+    public ResponseEntity<Map<String, Object>> getProvinces() {
+        return ResponseEntity.ok(Map.of("success", true, "data", shippingValidationService.getProvinces()));
+    }
+
+    @GetMapping("/districts")
+    public ResponseEntity<Map<String, Object>> getDistricts(@RequestParam Integer provinceId) {
+        return ResponseEntity.ok(Map.of("success", true, "data", shippingValidationService.getDistricts(provinceId)));
+    }
+
+    @GetMapping("/wards")
+    public ResponseEntity<Map<String, Object>> getWards(@RequestParam Integer districtId) {
+        return ResponseEntity.ok(Map.of("success", true, "data", shippingValidationService.getWards(districtId)));
+    }
+
     @GetMapping("/validate")
     public ResponseEntity<Map<String, Object>> validateShipping(
             @RequestParam Long productId,

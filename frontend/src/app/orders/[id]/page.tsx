@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { Package, Loader2, ChevronLeft, Leaf, CreditCard, Truck, FileText, CheckCircle, XCircle } from "lucide-react";
-import { orderApi, invoiceApi, paymentApi } from "@/lib/api";
+import { orderApi, invoiceApi } from "@/lib/api";
 import toast from "react-hot-toast";
 
 interface OrderDetail {
@@ -64,8 +64,9 @@ export default function OrderDetailPage() {
     if (!order) return;
     setPayingVnPay(true);
     try {
-      const res = await paymentApi.createVnPayUrl(order.totalAmount, `Thanh toan don hang #${order.id}`, order.id);
-      const url = res.data?.data || res.data;
+      const res = await orderApi.retryPayment(order.id);
+      const payload = res.data?.data || res.data;
+      const url = payload?.paymentUrl || payload;
       if (url && typeof url === "string") {
         window.location.href = url;
       } else {

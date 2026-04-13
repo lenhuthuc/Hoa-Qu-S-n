@@ -13,6 +13,7 @@ export default function Navbar() {
   const pathname = usePathname();
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [isSeller, setIsSeller] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -23,11 +24,13 @@ export default function Navbar() {
     if (token) {
       const parsed = parseToken();
       setIsAdmin(parsed?.roles?.includes("ADMIN") ?? false);
+      setIsSeller((parsed?.roles?.includes("SELLER") ?? false) || (parsed?.roles?.includes("ADMIN") ?? false));
       notificationApi.getUnreadCount().then(res => {
         setUnreadCount(res.data?.count || 0);
       }).catch(() => {});
     } else {
       setIsAdmin(false);
+      setIsSeller(false);
       setUnreadCount(0);
     }
   }, [pathname]);
@@ -120,7 +123,7 @@ export default function Navbar() {
                 <ShoppingCart className="w-5 h-5" />
               </Link>
               <Link
-                href="/seller/dashboard"
+                href={isSeller ? "/seller/dashboard" : "/seller/register"}
                 className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 text-sm font-medium"
               >
                 Bán hàng
@@ -254,7 +257,7 @@ export default function Navbar() {
               <Link href="/profile" onClick={() => setMenuOpen(false)} className="flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm text-gray-700 hover:bg-gray-50">
                 <User className="w-4 h-4" /> Tài khoản
               </Link>
-              <Link href="/seller/dashboard" onClick={() => setMenuOpen(false)} className="flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm text-primary-600 font-medium hover:bg-primary-50">
+              <Link href={isSeller ? "/seller/dashboard" : "/seller/register"} onClick={() => setMenuOpen(false)} className="flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm text-primary-600 font-medium hover:bg-primary-50">
                 <Leaf className="w-4 h-4" /> Bán hàng
               </Link>
               {isAdmin && (

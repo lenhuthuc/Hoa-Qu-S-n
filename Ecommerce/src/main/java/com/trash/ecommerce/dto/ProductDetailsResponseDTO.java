@@ -17,6 +17,8 @@ public class ProductDetailsResponseDTO {
     private String product_name;
     private BigDecimal price;
     private Long quantity;
+    private Long unitWeightGrams;
+    private BigDecimal totalStockWeightKg;
     private Long categoryId;
     private String categoryName;
     private String description;

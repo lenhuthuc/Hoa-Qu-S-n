@@ -6,12 +6,15 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import com.trash.ecommerce.entity.Order;
+import com.trash.ecommerce.entity.OrderStatus;
 
+import java.util.Date;
 import java.util.List;
 
 @Repository
 public interface OrderRepository extends JpaRepository<Order, Long> {
     List<Order> findByUserIdOrderByCreateAtDesc(Long userId);
+    List<Order> findByStatusAndCreateAtBefore(OrderStatus status, Date cutoffTime);
     
     @Query("SELECT COUNT(o) > 0 FROM Order o " +
            "JOIN o.orderItems oi " +

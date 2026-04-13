@@ -15,6 +15,8 @@ interface Product {
   productName: string;
   price: number;
   quantity: number;
+  unitWeightGrams?: number;
+  totalStockWeightKg?: number;
   categoryName?: string;
   description: string;
   imageUrl?: string;
@@ -80,6 +82,13 @@ export default function ProductDetailPage() {
 
   const formatPrice = (price: number) =>
     new Intl.NumberFormat("vi-VN", { style: "currency", currency: "VND" }).format(price);
+
+  const formatWeight = (grams: number) => {
+    if (grams >= 1000) {
+      return `${(grams / 1000).toLocaleString("vi-VN", { maximumFractionDigits: 2 })} kg`;
+    }
+    return `${grams.toLocaleString("vi-VN")} g`;
+  };
 
   const handleAddToCart = async () => {
     if (!localStorage.getItem("hqs_token")) {
@@ -192,6 +201,16 @@ export default function ProductDetailPage() {
 
           <div className="flex items-center gap-3 text-sm text-gray-500 mb-6">
             <span>Kho: <strong className="text-gray-700">{product.quantity}</strong></span>
+            {typeof product.unitWeightGrams === "number" && product.unitWeightGrams > 0 && (
+              <span>
+                Trọng lượng/SP: <strong className="text-gray-700">{formatWeight(product.unitWeightGrams)}</strong>
+              </span>
+            )}
+            {typeof product.totalStockWeightKg === "number" && product.totalStockWeightKg > 0 && (
+              <span>
+                Tổng hàng còn: <strong className="text-gray-700">{product.totalStockWeightKg.toLocaleString("vi-VN", { maximumFractionDigits: 3 })} kg</strong>
+              </span>
+            )}
             {product.batchId && (
               <Link href={`/trace/${product.batchId}`} className="flex items-center gap-1 text-primary-600 hover:underline">
                 <QrCode className="w-4 h-4" /> Truy xuất nguồn gốc

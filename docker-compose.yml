@@ -135,10 +135,15 @@ services:
       JWT_SECRET: ${JWT_SECRET:-hoaquason_jwt_secret_key_2026_stable!}
       GHN_TOKEN: ${GHN_TOKEN:-}
       GHN_SHOP_ID: ${GHN_SHOP_ID:-}
+      GHN_BASE_URL: ${GHN_BASE_URL:-https://dev-online-gateway.ghn.vn/shiip/public-api}
+      GHN_DEFAULT_FROM_DISTRICT_ID: ${GHN_DEFAULT_FROM_DISTRICT_ID:-1542}
+      GHN_DEFAULT_FROM_WARD_CODE: ${GHN_DEFAULT_FROM_WARD_CODE:-21012}
       CLOUDFLARE_R2_ENDPOINT: ${CLOUDFLARE_R2_ENDPOINT:-}
       S3_ACCESS_KEY: ${S3_ACCESS_KEY:-}
       S3_SECRET_KEY: ${S3_SECRET_KEY:-}
       S3_BUCKET: ${S3_BUCKET:-hoaquason}
+      MAIL_USERNAME: ${MAIL_USERNAME:-}
+      MAIL_PASSWORD: ${MAIL_PASSWORD:-}
     depends_on:
       mysql:
         condition: service_healthy

@@ -1,7 +1,7 @@
 FROM node:20-alpine AS builder
 WORKDIR /app
 COPY package*.json ./
-COPY node_modules ./node_modules
+RUN npm ci --only=production > /dev/null 2>&1 && npm ci
 COPY . .
 ARG NEXT_PUBLIC_API_URL=http://localhost:3000
 ARG INTERNAL_API_URL=http://gateway:3000

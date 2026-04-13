@@ -1,6 +1,7 @@
 package com.trash.ecommerce.controller;
 
 import com.trash.ecommerce.dto.OrderMessageResponseDTO;
+import com.trash.ecommerce.dto.OrderPreviewResponseDTO;
 import com.trash.ecommerce.dto.OrderResponseDTO;
 import com.trash.ecommerce.dto.OrderSummaryDTO;
 import com.trash.ecommerce.service.JwtService;
@@ -11,6 +12,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.Map;
 import java.util.List;
 
 @RestController
@@ -50,11 +52,56 @@ public class OrderController {
             @RequestHeader("Authorization") String token,
             @RequestParam(value = "paymentMethod", defaultValue = "1") Long paymentMethodId,
             @RequestParam(value = "voucherCode", required = false) String voucherCode,
+            @RequestParam(value = "discountVoucherCode", required = false) String discountVoucherCode,
+            @RequestParam(value = "shippingVoucherCode", required = false) String shippingVoucherCode,
+            @RequestParam(value = "deliveryType", defaultValue = "STANDARD") String deliveryType,
+            @RequestParam(value = "toDistrictId", required = false) String toDistrictId,
+            @RequestParam(value = "toWardCode", required = false) String toWardCode,
             HttpServletRequest request) {
         Long userId = jwtService.extractId(token);
-        OrderResponseDTO order = orderService.createMyOrder(userId, paymentMethodId, voucherCode, userService.getClientIpAddress(request));
+        String effectiveDiscountVoucher = (discountVoucherCode == null || discountVoucherCode.isBlank())
+            ? voucherCode : discountVoucherCode;
+        OrderResponseDTO order = orderService.createMyOrder(
+            userId,
+            paymentMethodId,
+            effectiveDiscountVoucher,
+            shippingVoucherCode,
+            deliveryType,
+            toDistrictId,
+            toWardCode,
+            userService.getClientIpAddress(request));
         return ResponseEntity.ok(order);
     }
+
+        @GetMapping("/preview")
+        public ResponseEntity<OrderPreviewResponseDTO> previewOrder(
+            @RequestHeader("Authorization") String token,
+            @RequestParam(value = "discountVoucherCode", required = false) String discountVoucherCode,
+            @RequestParam(value = "shippingVoucherCode", required = false) String shippingVoucherCode,
+            @RequestParam(value = "deliveryType", defaultValue = "STANDARD") String deliveryType,
+            @RequestParam(value = "toDistrictId", required = false) String toDistrictId,
+            @RequestParam(value = "toWardCode", required = false) String toWardCode) {
+        Long userId = jwtService.extractId(token);
+        OrderPreviewResponseDTO preview = orderService.previewMyOrder(
+            userId,
+            discountVoucherCode,
+            shippingVoucherCode,
+            deliveryType,
+            toDistrictId,
+            toWardCode
+        );
+        return ResponseEntity.ok(preview);
+        }
+
+        @PostMapping("/{orderId}/retry-payment")
+        public ResponseEntity<Map<String, String>> retryPayment(
+            @RequestHeader("Authorization") String token,
+            @PathVariable Long orderId,
+            HttpServletRequest request) {
+        Long userId = jwtService.extractId(token);
+        String paymentUrl = orderService.retryPendingPayment(userId, orderId, userService.getClientIpAddress(request));
+        return ResponseEntity.ok(Map.of("paymentUrl", paymentUrl));
+        }
 
     @PutMapping("/{orderId}/status")
     public ResponseEntity<OrderMessageResponseDTO> updateOrderStatus(

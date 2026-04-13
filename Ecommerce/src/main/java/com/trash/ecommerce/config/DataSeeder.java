@@ -26,5 +26,10 @@ public class DataSeeder implements CommandLineRunner {
             admin.setRoleName("ADMIN");
             roleRepository.save(admin);
         }
+        if (roleRepository.findByRoleName("SELLER").isEmpty()) {
+            Role seller = new Role();
+            seller.setRoleName("SELLER");
+            roleRepository.save(seller);
+        }
     }
 }

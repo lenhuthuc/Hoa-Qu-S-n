@@ -49,6 +49,12 @@ public class Product {
     @Column(name = "quantity", nullable = false)
     private Long quantity = 100L;
 
+    @Column(name = "unit_weight_grams")
+    private Long unitWeightGrams;
+
+    @Column(name = "total_stock_weight_kg", precision = 12, scale = 3)
+    private BigDecimal totalStockWeightKg;
+
     @Column(name = "shelf_life_days")
     private Integer shelfLifeDays;
 

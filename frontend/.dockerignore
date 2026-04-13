@@ -1,3 +1,13 @@
-.next/
-.git/
+node_modules
+.next
+.git
+.env.local
+.env.*.local
+dist
 *.log
+.DS_Store
+.gitignore
+README.md
+LICENSE
+.eslintrc
+.prettierrc
