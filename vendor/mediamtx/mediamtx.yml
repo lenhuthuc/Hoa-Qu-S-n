@@ -8,6 +8,8 @@
 # ─── Global Settings ───
 logLevel: info
 logDestinations: [stdout]
+authInternalUsers: [] # Cho phép tất cả (v1.x)
+
 
 # ─── HTTP API: Quản lý stream paths (tạo/xóa phòng live) ───
 api: yes
@@ -40,7 +42,7 @@ hlsSegmentCount: 7              # Giữ 7 segments trong playlist
 hlsSegmentDuration: 2s          # Mỗi segment 2 giây (khớp keyframe)
 hlsPartDuration: 200ms          # Low-latency HLS parts
 hlsSegmentMaxSize: 50M
-hlsAllowOrigin: "*"             # Cho phép CDN & frontend truy cập
+hlsAllowOrigins: ["*"]             # Cho phép CDN & frontend truy cập (v1.x)
 hlsVariant: lowLatency          # Low-latency HLS cho gần realtime
 
 # ══════════════════════════════════════════════════════════════
@@ -54,30 +56,29 @@ webrtcAdditionalHosts: [127.0.0.1]
 webrtcICEServers2:
   - url: stun:stun.l.google.com:19302
 
-# Records (tắt — sử dụng CDN cache)
-record: no
-
 # ══════════════════════════════════════════════════════════════
 # PATH DEFAULTS — Cấu hình xác thực & bảo mật
 # ══════════════════════════════════════════════════════════════
 # Stream key bị lộ → Webhook auth khi RTMP connect
 # Kẻ xâm nhập không thể push stream với key không hợp lệ
 pathDefaults:
+  # Records (tắt — sử dụng CDN cache)
+  record: no
+
   # ── Webhook xác thực khi publisher kết nối ──
   # MediaMTX gọi Gateway API để verify stream key
   # Nếu key không tồn tại trong Redis → reject (401)
-  runOnPublish: "curl -s -X POST http://gateway:3000/api/livestream/auth/publish -H 'Content-Type: application/json' -d '{\"path\":\"$MTX_PATH\",\"ip\":\"$MTX_SOURCEIP\"}'"
-  runOnPublishRestart: no
+  # Sử dụng runOnReady thay cho runOnPublish (MediaMTX v1.x)
+  # Sử dụng trap để gọi unpublish khi stream kết thúc
+  runOnReady: >
+    sh -c '
+    curl -s -X POST http://gateway:3000/api/livestream/auth/publish -H "Content-Type: application/json" -d "{\"path\":\"$MTX_PATH\",\"ip\":\"$MTX_SOURCEIP\"}";
+    trap "curl -s -X POST http://gateway:3000/api/livestream/auth/unpublish -H \"Content-Type: application/json\" -d \"{\\\"path\\\":\\\"$MTX_PATH\\\"}\"" EXIT;
+    while true; do sleep 1; done
+    '
+  runOnReadyRestart: no
 
-  # ── Webhook khi publisher ngắt kết nối ──
-  # Phát hiện RTMP disconnect → emit stream:offline cho viewer
-  runOnUnpublish: "curl -s -X POST http://gateway:3000/api/livestream/auth/unpublish -H 'Content-Type: application/json' -d '{\"path\":\"$MTX_PATH\"}'"
 
-  # Đọc: cho phép tất cả (không cần auth để xem)
-  readUser: ""
-  readPass: ""
-  publishUser: ""
-  publishPass: ""
 
 # ══════════════════════════════════════════════════════════════
 # PATHS — Livestream paths được tạo động qua API

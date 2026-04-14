@@ -9,4 +9,6 @@ import java.util.List;
 @Repository
 public interface DistrictRepository extends JpaRepository<District, String> {
     List<District> findByProvinceCode(String provinceCode);
+    java.util.Optional<District> findFirstByNameContainingIgnoreCase(String name);
+    java.util.Optional<District> findByGhnDistrictId(Integer ghnDistrictId);
 }

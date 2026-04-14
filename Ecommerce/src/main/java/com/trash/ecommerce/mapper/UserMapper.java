@@ -21,9 +21,9 @@ public class UserMapper {
             Address addr = users.getAddress();
             dto.setAddress(new UserProfileDTO.AddressDTO(
                     addr.getId(),
-                    addr.getProvince() != null ? addr.getProvince().getName() : null,
-                    addr.getDistrict() != null ? addr.getDistrict().getName() : null,
-                    addr.getWard() != null ? addr.getWard().getName() : null,
+                    addr.getProvinceName() != null ? addr.getProvinceName() : (addr.getProvince() != null ? addr.getProvince().getName() : null),
+                    addr.getDistrictName() != null ? addr.getDistrictName() : (addr.getDistrict() != null ? addr.getDistrict().getName() : null),
+                    addr.getWardName() != null ? addr.getWardName() : (addr.getWard() != null ? addr.getWard().getName() : null),
                     addr.getStreetDetail(),
                     addr.getGhnProvinceId(),
                     addr.getGhnDistrictId(),

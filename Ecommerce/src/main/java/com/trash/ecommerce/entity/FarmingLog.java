@@ -8,7 +8,10 @@ import org.springframework.data.mongodb.core.index.Indexed;
 import java.time.Instant;
 
 @Document(collection = "farming_logs")
-@Data
+@Getter
+@Setter
+@ToString
+@EqualsAndHashCode
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
