@@ -47,9 +47,9 @@ class AIPostResponse(BaseModel):
 
 
 @router.post("/generate-post", response_model=dict)
-async def generate_post(request: Request, image: UploadFile = File(...)):
+async def generate_post(image: UploadFile = File(...)):
     """
-    Upload farm product image → Gemini Flash analyzes → returns post content + price suggestion.
+    Upload farm product image → Llama 4 Scout multimodal (via Groq) analyzes → returns post content + price suggestion.
     Compares against market price DB for validation.
     """
     settings = get_settings()
@@ -69,12 +69,12 @@ async def generate_post(request: Request, image: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail="Image too large (max 20MB)")
 
     # Call Groq vision model
-    client = Groq(api_key=settings.groq_api_key)
+    groq_client = Groq(api_key=settings.groq_api_key)
     image_b64 = base64.b64encode(image_bytes).decode("utf-8")
     mime = image.content_type or "image/jpeg"
 
     try:
-        response = client.chat.completions.create(
+        response = groq_client.chat.completions.create(
             model=VISION_MODEL,
             messages=[
                 {
@@ -108,8 +108,8 @@ async def generate_post(request: Request, image: UploadFile = File(...)):
     # Compare with market prices from Spring service
     market_comparison = None
     try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            resp = await client.get(
+        async with httpx.AsyncClient(timeout=5.0) as http_client:
+            resp = await http_client.get(
                 f"{settings.spring_service_url}/api/market-prices/search",
                 params={"name": ai_result.get("product_name", "")},
             )
@@ -154,11 +154,13 @@ async def generate_post_base64(request: Request):
 
     if len(image_bytes) == 0:
         raise HTTPException(status_code=400, detail="Decoded image is empty (0 bytes)")
+    if len(image_bytes) > 20 * 1024 * 1024:                                          # ← thêm
+        raise HTTPException(status_code=400, detail="Image too large (max 20MB)")    # ← thêm
 
-    client = Groq(api_key=settings.groq_api_key)
+    groq_client = Groq(api_key=settings.groq_api_key)
 
     try:
-        response = client.chat.completions.create(
+        response = groq_client.chat.completions.create(
             model=VISION_MODEL,
             messages=[
                 {
@@ -186,8 +188,8 @@ async def generate_post_base64(request: Request):
     # Compare with market prices from Spring service
     market_comparison = None
     try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            resp = await client.get(
+        async with httpx.AsyncClient(timeout=5.0) as http_client:
+            resp = await http_client.get(
                 f"{settings.spring_service_url}/api/market-prices/search",
                 params={"name": ai_result.get("product_name", "")},
             )
