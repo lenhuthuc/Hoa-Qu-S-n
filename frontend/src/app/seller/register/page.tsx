@@ -372,7 +372,11 @@ export default function SellerRegisterPage() {
       setBusinessLicenseFile(null);
       toast.success("Đã gửi hồ sơ đăng ký bán hàng, vui lòng chờ xét duyệt");
     } catch (err: any) {
-      const message = err?.response?.data?.message || "Không thể gửi hồ sơ";
+      const respData = err?.response?.data;
+      let message = respData?.message || "Không thể gửi hồ sơ";
+      if (respData?.errors) {
+        message += ": " + Object.values(respData.errors).join(", ");
+      }
       toast.error(message);
     } finally {
       setSubmitting(false);

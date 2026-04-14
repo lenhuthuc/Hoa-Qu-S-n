@@ -2,7 +2,7 @@
 services:
   # ─────────── INFRASTRUCTURE ───────────
   postgres:
-    image: postgres:16-alpine
+    image: pgvector/pgvector:pg16
     container_name: hqs-postgres
     environment:
       POSTGRES_DB: hoaquason
@@ -12,7 +12,7 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./db/migration/postgres:/docker-entrypoint-initdb.d
     networks:
       - hoaquason_network
     healthcheck:
@@ -21,23 +21,7 @@ services:
       timeout: 3s
       retries: 5
 
-  mysql:
-    image: mysql:8.0
-    container_name: hqs-mysql
-    environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_PASSWORD:-27022006Kk!}
-      MYSQL_DATABASE: ecommerce
-    ports:
-      - "3306:3306"
-    volumes:
-      - mysql_data:/var/lib/mysql
-    networks:
-      - hoaquason_network
-    healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+
 
   mongodb:
     image: mongo:7
@@ -124,9 +108,9 @@ services:
     ports:
       - "8080:8080"
     environment:
-      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/ecommerce?allowPublicKeyRetrieval=true&useSSL=false
-      SPRING_DATASOURCE_USERNAME: root
-      SPRING_DATASOURCE_PASSWORD: ${MYSQL_PASSWORD:-27022006Kk!}
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/hoaquason
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
       SPRING_DATA_MONGODB_URI: mongodb://mongodb:27017/hoaquason
       SPRING_DATA_REDIS_HOST: redis
       SPRING_DATA_REDIS_PORT: 6379
@@ -145,7 +129,7 @@ services:
       MAIL_USERNAME: ${MAIL_USERNAME:-}
       MAIL_PASSWORD: ${MAIL_PASSWORD:-}
     depends_on:
-      mysql:
+      postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
@@ -198,7 +182,7 @@ services:
 
 volumes:
   postgres_data:
-  mysql_data:
+
   mongo_data:
   redis_data:
   qdrant_data:

@@ -105,10 +105,35 @@ app.use(express.urlencoded({ extended: true }));
 
 // ─── Gateway-owned routes ───
 const { optionalAuth } = require("./middleware/auth");
+
+// ── Livestream auth webhook (MediaMTX gọi — KHÔNG cần JWT) ──
+// MediaMTX gọi khi publisher kết nối/ngắt để xác thực stream key
+app.post("/api/livestream/auth/publish", (req, res, next) => {
+  req.url = "/auth/publish";
+  livestreamRoutes(req, res, next);
+});
+app.post("/api/livestream/auth/unpublish", (req, res, next) => {
+  req.url = "/auth/unpublish";
+  livestreamRoutes(req, res, next);
+});
+
+// ── Livestream public routes (không cần auth) ──
 app.get("/api/livestream/active", optionalAuth, (req, res, next) => {
   req.url = "/active";
   livestreamRoutes(req, res, next);
 });
+// Xem chi tiết phòng live (public)
+app.get("/api/livestream/:streamKey", optionalAuth, (req, res, next) => {
+  req.url = `/${req.params.streamKey}`;
+  livestreamRoutes(req, res, next);
+});
+// Lấy lịch sử chat (public)
+app.get("/api/livestream/:streamKey/chat-history", optionalAuth, (req, res, next) => {
+  req.url = `/${req.params.streamKey}/chat-history`;
+  livestreamRoutes(req, res, next);
+});
+
+// ── Livestream protected routes (cần JWT) ──
 app.use("/api/livestream", authMiddleware, livestreamRoutes);
 app.use("/api/upload", authMiddleware, uploadRoutes);
 

@@ -203,6 +203,13 @@ export const livestreamApi = {
   start: (title: string) => api.post("/api/livestream/start", { title }),
   stop: (streamKey: string) => api.post("/api/livestream/stop", { streamKey }),
   getActive: () => api.get("/api/livestream/active"),
+  /** Lấy thông tin phiên live (title, seller, products, status) */
+  getStream: (streamKey: string) => api.get(`/api/livestream/${streamKey}`),
+  /** Cập nhật danh sách sản phẩm đang bán trong phiên */
+  updateProducts: (streamKey: string, products: Array<{ id: number; name: string; price: number }>) =>
+    api.put(`/api/livestream/${streamKey}/products`, { products }),
+  /** Lấy lịch sử chat (50 tin gần nhất) */
+  getChatHistory: (streamKey: string) => api.get(`/api/livestream/${streamKey}/chat-history`),
 };
 
 // ─── Cart & Orders ───
