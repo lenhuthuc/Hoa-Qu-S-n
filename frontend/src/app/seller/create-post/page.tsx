@@ -32,6 +32,7 @@ interface EditableFields {
   suggested_price_per_kg: number;
   unitWeightGrams: number;
   totalStockWeightKg: number;
+  shelfLifeDays: number;
   batchId: string;
   origin: string;
 }
@@ -179,6 +180,7 @@ export default function CreatePostPage() {
           suggested_price_per_kg: data.suggested_price_per_kg,
           unitWeightGrams: 500,
           totalStockWeightKg: 100,
+          shelfLifeDays: 30,
           batchId: "",
           origin: "",
         });
@@ -216,6 +218,7 @@ export default function CreatePostPage() {
         quantity: computedQuantity,
         unitWeightGrams: editable.unitWeightGrams,
         totalStockWeightKg: editable.totalStockWeightKg,
+        shelfLifeDays: editable.shelfLifeDays,
         categoryId: editable.categoryId,
         description: editable.description,
         batchId: editable.batchId || undefined,
@@ -382,7 +385,7 @@ export default function CreatePostPage() {
                 
                 {/* Form Fields */}
                 <div className="space-y-5">
-                  <div className="grid grid-cols-3 gap-5">
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-5">
                     <div className="group">
                       <label className="flex items-center gap-2 text-sm font-medium text-slate-500 mb-1.5 uppercase tracking-wider">
                          <BarChart3 className="w-4 h-4" /> Trọng lượng / sản phẩm (gram)
@@ -418,6 +421,19 @@ export default function CreatePostPage() {
                         readOnly
                         value={calculateInventoryQuantity(editable?.unitWeightGrams ?? 0, editable?.totalStockWeightKg ?? 0)}
                         className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-slate-700 font-semibold outline-none cursor-default"
+                      />
+                    </div>
+
+                    <div className="group">
+                      <label className="flex items-center gap-2 text-sm font-medium text-slate-500 mb-1.5 uppercase tracking-wider">
+                        <Leaf className="w-4 h-4" /> Hạn sử dụng (ngày)
+                      </label>
+                      <input
+                        type="number"
+                        min={1}
+                        value={editable?.shelfLifeDays ?? 30}
+                        onChange={(e) => setEditable((prev) => prev ? { ...prev, shelfLifeDays: parseInt(e.target.value) || 30 } : prev)}
+                        className="w-full bg-white/60 border border-slate-200 rounded-xl px-4 py-3 text-slate-800 font-medium focus:ring-2 focus:ring-primary-400 focus:border-transparent outline-none transition-all shadow-sm"
                       />
                     </div>
                   </div>

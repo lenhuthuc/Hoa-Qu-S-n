@@ -382,22 +382,32 @@ public class UserController {
             @RequestHeader("Authorization") String token,
             @RequestPart(value = "idCardFront", required = false) MultipartFile idCardFront,
             @RequestPart(value = "idCardBack", required = false) MultipartFile idCardBack,
-            @RequestPart(value = "businessLicense", required = false) MultipartFile businessLicense
+            @RequestPart(value = "businessLicense", required = false) MultipartFile businessLicense,
+            @RequestPart(value = "foodSafetyDocument", required = false) MultipartFile foodSafetyDocument
     ) {
         try {
             Long userId = jwtService.extractId(token);
-            if (idCardFront == null || idCardFront.isEmpty()) {
-                return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("message", "Thiếu ảnh CCCD mặt trước"));
-            }
-            if (idCardBack == null || idCardBack.isEmpty()) {
-                return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("message", "Thiếu ảnh CCCD mặt sau"));
+            boolean hasAnyFile = (idCardFront != null && !idCardFront.isEmpty())
+                    || (idCardBack != null && !idCardBack.isEmpty())
+                    || (businessLicense != null && !businessLicense.isEmpty())
+                    || (foodSafetyDocument != null && !foodSafetyDocument.isEmpty());
+            if (!hasAnyFile) {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                        .body(Map.of("message", "Vui lòng chọn ít nhất 1 tài liệu để tải lên"));
             }
 
             SellerDocumentUploadResponseDTO response = new SellerDocumentUploadResponseDTO();
-            response.setIdCardFrontUrl(storageService.uploadSellerDocument(userId, idCardFront, "id-front"));
-            response.setIdCardBackUrl(storageService.uploadSellerDocument(userId, idCardBack, "id-back"));
+            if (idCardFront != null && !idCardFront.isEmpty()) {
+                response.setIdCardFrontUrl(storageService.uploadSellerDocument(userId, idCardFront, "id-front"));
+            }
+            if (idCardBack != null && !idCardBack.isEmpty()) {
+                response.setIdCardBackUrl(storageService.uploadSellerDocument(userId, idCardBack, "id-back"));
+            }
             if (businessLicense != null && !businessLicense.isEmpty()) {
                 response.setBusinessLicenseUrl(storageService.uploadSellerDocument(userId, businessLicense, "business-license"));
+            }
+            if (foodSafetyDocument != null && !foodSafetyDocument.isEmpty()) {
+                response.setFoodSafetyDocumentUrl(storageService.uploadSellerDocument(userId, foodSafetyDocument, "food-safety"));
             }
 
             return ResponseEntity.ok(response);
