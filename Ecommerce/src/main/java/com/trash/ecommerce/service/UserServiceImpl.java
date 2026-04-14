@@ -230,9 +230,9 @@ public class UserServiceImpl implements UserService {
             if (address == null) {
                 address = new Address();
             }
-            address.setProvince(user.getProvince().trim());
-            address.setDistrict(user.getDistrict().trim());
-            address.setWard(user.getWard().trim());
+            address.setProvince(new com.trash.ecommerce.entity.Province(user.getProvince().trim(), user.getProvince().trim(), null));
+            address.setDistrict(new com.trash.ecommerce.entity.District(user.getDistrict().trim(), user.getDistrict().trim(), null, null));
+            address.setWard(new com.trash.ecommerce.entity.Ward(user.getWard().trim(), user.getWard().trim(), null, null));
             address.setStreetDetail(trimOrNull(user.getStreetDetail()));
             address.setGhnProvinceId(user.getGhnProvinceId());
             address.setGhnDistrictId(user.getGhnDistrictId());

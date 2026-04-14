@@ -58,9 +58,9 @@ public class SellerApplicationServiceImpl implements SellerApplicationService {
         if (pickupAddress == null) {
             pickupAddress = new Address();
         }
-        pickupAddress.setProvince(request.getPickupProvince().trim());
-        pickupAddress.setDistrict(request.getPickupDistrict().trim());
-        pickupAddress.setWard(request.getPickupWard().trim());
+        pickupAddress.setProvince(new com.trash.ecommerce.entity.Province(request.getPickupProvince().trim(), request.getPickupProvince().trim(), null));
+        pickupAddress.setDistrict(new com.trash.ecommerce.entity.District(request.getPickupDistrict().trim(), request.getPickupDistrict().trim(), null, null));
+        pickupAddress.setWard(new com.trash.ecommerce.entity.Ward(request.getPickupWard().trim(), request.getPickupWard().trim(), null, null));
         pickupAddress.setStreetDetail(trimOrNull(request.getPickupStreetDetail()));
         pickupAddress.setGhnProvinceId(request.getPickupGhnProvinceId());
         pickupAddress.setGhnDistrictId(request.getPickupGhnDistrictId());
@@ -311,9 +311,9 @@ public class SellerApplicationServiceImpl implements SellerApplicationService {
         dto.setPickupAddress(app.getPickupAddress());
         if (app.getUser() != null && app.getUser().getAddress() != null) {
             Address address = app.getUser().getAddress();
-            dto.setPickupProvince(address.getProvince());
-            dto.setPickupDistrict(address.getDistrict());
-            dto.setPickupWard(address.getWard());
+            dto.setPickupProvince(address.getProvince() != null ? address.getProvince().getName() : null);
+            dto.setPickupDistrict(address.getDistrict() != null ? address.getDistrict().getName() : null);
+            dto.setPickupWard(address.getWard() != null ? address.getWard().getName() : null);
             dto.setPickupStreetDetail(address.getStreetDetail());
             dto.setPickupGhnProvinceId(address.getGhnProvinceId());
             dto.setPickupGhnDistrictId(address.getGhnDistrictId());

@@ -5,6 +5,9 @@ import com.trash.ecommerce.dto.ShippingValidationResponse.ShippingOption;
 import com.trash.ecommerce.entity.Address;
 import com.trash.ecommerce.entity.Product;
 import com.trash.ecommerce.repository.ProductRepository;
+import com.trash.ecommerce.repository.ProvinceRepository;
+import com.trash.ecommerce.repository.DistrictRepository;
+import com.trash.ecommerce.repository.WardRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
@@ -23,6 +26,9 @@ import java.util.Objects;
 public class ShippingValidationService {
 
     private final ProductRepository productRepository;
+    private final ProvinceRepository provinceRepository;
+    private final DistrictRepository districtRepository;
+    private final WardRepository wardRepository;
 
     @Value("${ghn.token:}")
     private String ghnToken;
@@ -74,54 +80,78 @@ public class ShippingValidationService {
 
     public List<Map<String, Object>> getProvinces() {
         if (!isGhnConfigured()) {
-            return List.of(
-                    Map.of("id", 202, "name", "Hồ Chí Minh"),
-                    Map.of("id", 201, "name", "Hà Nội")
-            );
+            return getLocalProvinces();
         }
 
-        Map<String, Object> response = ghnClient().get()
-                .uri("/master-data/province")
-                .retrieve()
-                .bodyToMono(Map.class)
-                .block();
-        return mapProvinceList(response);
+        try {
+            Map<String, Object> response = ghnClient().get()
+                    .uri("/master-data/province")
+                    .retrieve()
+                    .bodyToMono(Map.class)
+                    .block();
+            return mapProvinceList(response);
+        } catch (Exception e) {
+            // Fallback to local DB if GHN is down or returns 400
+            return getLocalProvinces();
+        }
+    }
+
+    private List<Map<String, Object>> getLocalProvinces() {
+        return provinceRepository.findAll().stream()
+                .map(p -> Map.<String, Object>of("id", Integer.parseInt(p.getCode()), "name", p.getName(), "code", p.getCode()))
+                .toList();
     }
 
     public List<Map<String, Object>> getDistricts(Integer provinceId) {
         if (!isGhnConfigured()) {
-            return List.of(
-                    Map.of("id", 1542, "name", "Quận Hà Đông", "provinceId", provinceId),
-                    Map.of("id", 1442, "name", "Quận 1", "provinceId", provinceId)
-            );
+            return getLocalDistricts(provinceId);
         }
 
-        Map<String, Object> response = ghnClient().post()
-                .uri("/master-data/district")
-                .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(Map.of("province_id", provinceId))
-                .retrieve()
-                .bodyToMono(Map.class)
-                .block();
-        return mapDistrictList(response);
+        try {
+            Map<String, Object> response = ghnClient().post()
+                    .uri("/master-data/district")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .bodyValue(Map.of("province_id", provinceId))
+                    .retrieve()
+                    .bodyToMono(Map.class)
+                    .block();
+            return mapDistrictList(response);
+        } catch (Exception e) {
+            return getLocalDistricts(provinceId);
+        }
+    }
+
+    private List<Map<String, Object>> getLocalDistricts(Integer provinceId) {
+        String pCode = String.format("%02d", provinceId);
+        return districtRepository.findByProvinceCode(pCode).stream()
+                .map(d -> Map.<String, Object>of("id", Integer.parseInt(d.getCode()), "name", d.getName(), "provinceId", provinceId, "code", d.getCode()))
+                .toList();
     }
 
     public List<Map<String, Object>> getWards(Integer districtId) {
         if (!isGhnConfigured()) {
-            return List.of(
-                    Map.of("code", "21012", "name", "Phường Mộ Lao", "districtId", districtId),
-                    Map.of("code", "20314", "name", "Phường Bến Nghé", "districtId", districtId)
-            );
+            return getLocalWards(districtId);
         }
 
-        Map<String, Object> response = ghnClient().post()
-                .uri("/master-data/ward")
-                .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(Map.of("district_id", districtId))
-                .retrieve()
-                .bodyToMono(Map.class)
-                .block();
-        return mapWardList(response);
+        try {
+            Map<String, Object> response = ghnClient().post()
+                    .uri("/master-data/ward")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .bodyValue(Map.of("district_id", districtId))
+                    .retrieve()
+                    .bodyToMono(Map.class)
+                    .block();
+            return mapWardList(response);
+        } catch (Exception e) {
+            return getLocalWards(districtId);
+        }
+    }
+
+    private List<Map<String, Object>> getLocalWards(Integer districtId) {
+        String dCode = String.format("%03d", districtId);
+        return wardRepository.findByDistrictCode(dCode).stream()
+                .map(w -> Map.<String, Object>of("code", w.getCode(), "name", w.getName(), "districtId", districtId))
+                .toList();
     }
 
     @SuppressWarnings("unchecked")

@@ -16,14 +16,17 @@ public class Address {
     @EqualsAndHashCode.Include
     private Long id;
 
-    @Column(name = "province", nullable = false, length = 100)
-    private String province;
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "province_code")
+    private Province province;
 
-    @Column(name = "district", nullable = false, length = 100)
-    private String district;
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "district_code")
+    private District district;
 
-    @Column(name = "ward", nullable = false, length = 100)
-    private String ward;
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "ward_code")
+    private Ward ward;
 
     @Column(name = "street_detail", length = 255)
     private String streetDetail;
@@ -46,7 +49,9 @@ public class Address {
     public String getFullAddress() {
         StringBuilder sb = new StringBuilder();
         if (streetDetail != null && !streetDetail.isBlank()) sb.append(streetDetail).append(", ");
-        sb.append(ward).append(", ").append(district).append(", ").append(province);
+        if (ward != null) sb.append(ward.getName()).append(", ");
+        if (district != null) sb.append(district.getName()).append(", ");
+        if (province != null) sb.append(province.getName());
         return sb.toString();
     }
 }

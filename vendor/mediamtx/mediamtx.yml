@@ -1,51 +1,87 @@
-# ─── MediaMTX Configuration for Hoa Quả Sơn Livestream ───
+# ══════════════════════════════════════════════════════════════
+# MediaMTX Configuration — Hoa Quả Sơn Livestream Platform
+# ══════════════════════════════════════════════════════════════
+# Stack: RTMP Ingest → MediaMTX Transcode → HLS/WebRTC Delivery
+# Farmer push stream qua RTMP/WebRTC → MediaMTX xử lý →
+# CDN cache HLS segments → Viewer xem qua HLS.js hoặc WebRTC
 
-# Global settings
+# ─── Global Settings ───
 logLevel: info
 logDestinations: [stdout]
 
-# API for programmatic stream management
+# ─── HTTP API: Quản lý stream paths (tạo/xóa phòng live) ───
 api: yes
 apiAddress: :9997
 
-# RTMP server (receives stream from FFmpeg or OBS)
+# ══════════════════════════════════════════════════════════════
+# BƯỚC 2 — RTMP INGEST (Nhận stream video từ farmer)
+# ══════════════════════════════════════════════════════════════
+# | Thông số    | Giá trị                     |
+# |-------------|------------------------------|
+# | Protocol    | RTMP — port 1935             |
+# | Video Codec | H.264 (libx264)              |
+# | Audio Codec | AAC                          |
+# | Bitrate     | 2500–4000 kbps               |
+# | Keyframe    | 2 giây (cho HLS alignment)   |
 rtmp: yes
 rtmpAddress: :1935
 
-# HLS server (serves adaptive bitrate to viewers)
+# ══════════════════════════════════════════════════════════════
+# BƯỚC 3 & 4 — HLS DELIVERY (Phân phối video qua CDN)
+# ══════════════════════════════════════════════════════════════
+# HLS server tự động remux từ RTMP/WebRTC sang LL-HLS
+# CDN Cloudflare cache các .ts segments → giảm tải origin ~99%
+# | Không CDN: 1000 req/s đến origin                         |
+# | Có CDN:    ~10 req/s (cache hit ~99%)                     |
 hls: yes
 hlsAddress: :8888
 hlsAlwaysRemux: no
-hlsSegmentCount: 7
-hlsSegmentDuration: 1s
-hlsPartDuration: 200ms
+hlsSegmentCount: 7              # Giữ 7 segments trong playlist
+hlsSegmentDuration: 2s          # Mỗi segment 2 giây (khớp keyframe)
+hlsPartDuration: 200ms          # Low-latency HLS parts
 hlsSegmentMaxSize: 50M
-hlsAllowOrigin: "*"
-hlsVariant: lowLatency
+hlsAllowOrigin: "*"             # Cho phép CDN & frontend truy cập
+hlsVariant: lowLatency          # Low-latency HLS cho gần realtime
 
-# WebRTC server (browser ingest from seller)
+# ══════════════════════════════════════════════════════════════
+# WebRTC — Browser ingest (Farmer) & playback (Viewer)
+# ══════════════════════════════════════════════════════════════
+# Farmer publish qua WHIP, Viewer xem qua WHEP
+# Ưu điểm: latency cực thấp (~0.5s) so với HLS (~4-8s)
 webrtc: yes
 webrtcAddress: :8889
 webrtcAdditionalHosts: [127.0.0.1]
 webrtcICEServers2:
   - url: stun:stun.l.google.com:19302
 
-# Record settings (disabled - we use CDN)
+# Records (tắt — sử dụng CDN cache)
 record: no
 
-# Path defaults
+# ══════════════════════════════════════════════════════════════
+# PATH DEFAULTS — Cấu hình xác thực & bảo mật
+# ══════════════════════════════════════════════════════════════
+# Stream key bị lộ → Webhook auth khi RTMP connect
+# Kẻ xâm nhập không thể push stream với key không hợp lệ
 pathDefaults:
-  # Authentication for publishing
-  publishUser: ""
-  publishPass: ""
-  # Allow reading without auth
+  # ── Webhook xác thực khi publisher kết nối ──
+  # MediaMTX gọi Gateway API để verify stream key
+  # Nếu key không tồn tại trong Redis → reject (401)
+  runOnPublish: "curl -s -X POST http://gateway:3000/api/livestream/auth/publish -H 'Content-Type: application/json' -d '{\"path\":\"$MTX_PATH\",\"ip\":\"$MTX_SOURCEIP\"}'"
+  runOnPublishRestart: no
+
+  # ── Webhook khi publisher ngắt kết nối ──
+  # Phát hiện RTMP disconnect → emit stream:offline cho viewer
+  runOnUnpublish: "curl -s -X POST http://gateway:3000/api/livestream/auth/unpublish -H 'Content-Type: application/json' -d '{\"path\":\"$MTX_PATH\"}'"
+
+  # Đọc: cho phép tất cả (không cần auth để xem)
   readUser: ""
   readPass: ""
-  # Note: Sellers publish via WebRTC (WHIP). MediaMTX built-in HLS server
-  # automatically remuxes the WebRTC stream to LL-HLS for viewers.
-  # No external FFmpeg transcode is needed.
+  publishUser: ""
+  publishPass: ""
 
-# Paths configuration
+# ══════════════════════════════════════════════════════════════
+# PATHS — Livestream paths được tạo động qua API
+# ══════════════════════════════════════════════════════════════
 paths:
-  # Livestream paths are created dynamically via API
+  # Mọi path đều chấp nhận (tạo động qua Gateway API)
   all_others:

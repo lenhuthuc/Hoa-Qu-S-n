@@ -12,6 +12,11 @@ import software.amazon.awssdk.core.ResponseBytes;
 
 import java.io.IOException;
 import java.net.URI;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
+import java.util.Set;
 import java.util.Set;
 import java.util.UUID;
 
@@ -53,8 +58,15 @@ public class R2StorageServiceImpl implements StorageService {
                 .contentType(file.getContentType())
                 .build();
 
-        s3Client.putObject(request, RequestBody.fromBytes(file.getBytes()));
-        return buildPublicUrl(objectKey);
+        try {
+            s3Client.putObject(request, RequestBody.fromBytes(file.getBytes()));
+            return buildPublicUrl(objectKey);
+        } catch (Exception e) {
+            Path path = Paths.get("uploads/" + objectKey);
+            Files.createDirectories(path.getParent());
+            Files.copy(file.getInputStream(), path, StandardCopyOption.REPLACE_EXISTING);
+            return "local:" + objectKey;
+        }
     }
 
     @Override
@@ -63,23 +75,40 @@ public class R2StorageServiceImpl implements StorageService {
             throw new RuntimeException("Thiếu URL tài liệu");
         }
 
-        String objectKey = extractObjectKey(documentUrl);
-        GetObjectRequest request = GetObjectRequest.builder()
-                .bucket(bucket)
-                .key(objectKey)
-                .build();
-        ResponseBytes<GetObjectResponse> response = s3Client.getObjectAsBytes(request);
-        String contentType = response.response().contentType();
-        if (contentType == null || contentType.isBlank()) {
-            contentType = guessContentType(objectKey);
+        if (documentUrl.startsWith("local:")) {
+            String objKey = documentUrl.substring("local:".length());
+            try {
+                Path path = Paths.get("uploads/" + objKey);
+                byte[] content = Files.readAllBytes(path);
+                String contentType = guessContentType(objKey);
+                String fileName = objKey.contains("/") ? objKey.substring(objKey.lastIndexOf('/') + 1) : objKey;
+                return new DocumentFile(content, contentType, fileName);
+            } catch (IOException e) {
+                throw new RuntimeException("Không thể đọc file local: " + e.getMessage());
+            }
         }
 
-        String fileName = objectKey;
-        int idx = objectKey.lastIndexOf('/');
-        if (idx >= 0 && idx + 1 < objectKey.length()) {
-            fileName = objectKey.substring(idx + 1);
+        String objectKey = extractObjectKey(documentUrl);
+        try {
+            GetObjectRequest request = GetObjectRequest.builder()
+                    .bucket(bucket)
+                    .key(objectKey)
+                    .build();
+            ResponseBytes<GetObjectResponse> response = s3Client.getObjectAsBytes(request);
+            String contentType = response.response().contentType();
+            if (contentType == null || contentType.isBlank()) {
+                contentType = guessContentType(objectKey);
+            }
+
+            String fileName = objectKey;
+            int idx = objectKey.lastIndexOf('/');
+            if (idx >= 0 && idx + 1 < objectKey.length()) {
+                fileName = objectKey.substring(idx + 1);
+            }
+            return new DocumentFile(response.asByteArray(), contentType, fileName);
+        } catch (Exception e) {
+            throw new RuntimeException("Không tải được tài liệu từ R2: " + e.getMessage());
         }
-        return new DocumentFile(response.asByteArray(), contentType, fileName);
     }
 
     private void validate(MultipartFile file) {

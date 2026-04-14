@@ -10,7 +10,7 @@ CREATE EXTENSION IF NOT EXISTS "vector";   -- pgvector for semantic search
 -- ─── Product Catalog Mirror (for pgvector search) ───
 CREATE TABLE IF NOT EXISTS product_embeddings (
     id              BIGSERIAL PRIMARY KEY,
-    product_id      BIGINT NOT NULL UNIQUE,           -- FK to MySQL product.id
+    product_id      BIGINT NOT NULL UNIQUE REFERENCES product(id) ON DELETE CASCADE,
     product_name    TEXT NOT NULL,
     description     TEXT,
     category        TEXT,
@@ -41,7 +41,7 @@ CREATE TABLE IF NOT EXISTS farming_batches (
 -- ─── Shipping Validation Cache ───
 CREATE TABLE IF NOT EXISTS shipping_rules (
     id              BIGSERIAL PRIMARY KEY,
-    product_id      BIGINT NOT NULL,
+    product_id      BIGINT NOT NULL REFERENCES product(id) ON DELETE CASCADE,
     shelf_life_days INT NOT NULL DEFAULT 7,            -- shelf life in days
     max_etd_days    INT NOT NULL DEFAULT 5,            -- max delivery days allowed
     fragile         BOOLEAN DEFAULT FALSE,
@@ -57,10 +57,25 @@ CREATE TABLE IF NOT EXISTS livestream_sessions (
     seller_id       BIGINT NOT NULL,
     stream_key      VARCHAR(100) NOT NULL UNIQUE,
     title           VARCHAR(255),
-    status          VARCHAR(20) DEFAULT 'CREATED',    -- CREATED, LIVE, ENDED
+    seller_name     VARCHAR(255),                     -- Tên seller hiển thị
+    status          VARCHAR(20) DEFAULT 'CREATED',    -- CREATED, LIVE, OFFLINE, ENDED
     viewer_count    INT DEFAULT 0,
+    peak_viewers    INT DEFAULT 0,                    -- Số viewer cao nhất
+    total_orders    INT DEFAULT 0,                    -- Tổng đơn trong phiên
     started_at      TIMESTAMPTZ,
     ended_at        TIMESTAMPTZ,
+    created_at      TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- ─── Live Orders (đơn hàng đặt qua livestream) ───
+CREATE TABLE IF NOT EXISTS live_orders (
+    id              BIGSERIAL PRIMARY KEY,
+    stream_key      VARCHAR(100) NOT NULL,
+    buyer_id        BIGINT NOT NULL,
+    buyer_name      VARCHAR(255),
+    product_id      BIGINT NOT NULL REFERENCES product(id) ON DELETE CASCADE,
+    quantity        INT NOT NULL DEFAULT 1,
+    status          VARCHAR(20) DEFAULT 'PENDING',    -- PENDING, CONFIRMED, CANCELLED
     created_at      TIMESTAMPTZ DEFAULT NOW()
 );
 
