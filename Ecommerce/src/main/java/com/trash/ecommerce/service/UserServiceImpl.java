@@ -241,11 +241,11 @@ public class UserServiceImpl implements UserService {
             }
             
             com.trash.ecommerce.entity.Province prov = provinceRepository.findByGhnProvinceId(user.getGhnProvinceId())
-                .orElseThrow(() -> new RuntimeException("Tỉnh không hợp lệ"));
+                .orElseGet(() -> provinceRepository.findFirstByNameContainingIgnoreCase(user.getProvince().trim()).orElse(null));
             com.trash.ecommerce.entity.District dist = districtRepository.findByGhnDistrictId(user.getGhnDistrictId())
-                .orElseThrow(() -> new RuntimeException("Quận/Huyện không hợp lệ"));
+                .orElseGet(() -> districtRepository.findFirstByNameContainingIgnoreCase(user.getDistrict().trim()).orElse(null));
             com.trash.ecommerce.entity.Ward w = wardRepository.findByGhnWardCode(user.getGhnWardCode().trim())
-                .orElseThrow(() -> new RuntimeException("Phường/Xã không hợp lệ"));
+                .orElseGet(() -> wardRepository.findFirstByNameContainingIgnoreCase(user.getWard().trim()).orElse(null));
 
             address.setProvince(prov);
             address.setDistrict(dist);

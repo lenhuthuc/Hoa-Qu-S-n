@@ -71,15 +71,15 @@ public class SellerApplicationServiceImpl implements SellerApplicationService {
             pickupAddress = new Address();
         }
         
-        // Xóa 3 dòng findFirstByNameContaining cũ, thay bằng:
+        // Thử tìm theo GHN ID, nếu không thấy thì tìm theo tên
         Province prov = provinceRepository.findByGhnProvinceId(request.getPickupGhnProvinceId())
-            .orElseThrow(() -> new RuntimeException("Tỉnh không hợp lệ"));
+            .orElseGet(() -> provinceRepository.findFirstByNameContainingIgnoreCase(request.getPickupProvince().trim()).orElse(null));
 
         District dist = districtRepository.findByGhnDistrictId(request.getPickupGhnDistrictId())
-            .orElseThrow(() -> new RuntimeException("Quận/Huyện không hợp lệ"));
+            .orElseGet(() -> districtRepository.findFirstByNameContainingIgnoreCase(request.getPickupDistrict().trim()).orElse(null));
 
         Ward w = wardRepository.findByGhnWardCode(request.getPickupGhnWardCode().trim())
-            .orElseThrow(() -> new RuntimeException("Phường/Xã không hợp lệ"));
+            .orElseGet(() -> wardRepository.findFirstByNameContainingIgnoreCase(request.getPickupWard().trim()).orElse(null));
 
         pickupAddress.setProvince(prov);
         pickupAddress.setDistrict(dist);

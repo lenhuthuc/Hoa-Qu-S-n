@@ -183,9 +183,52 @@ export default function SellerDashboard() {
         </div>
       </div>
 
+      {/* Quick Actions - Product Creation Options */}
+      <h2 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
+        <Package className="w-5 h-5 text-green-600" />
+        Đăng bán nông sản mới
+      </h2>
+      <div className="grid md:grid-cols-2 gap-6 mb-8">
+        <Link
+          href="/seller/products/create"
+          className="group relative bg-white rounded-2xl border-2 border-dashed border-gray-200 p-6 hover:border-green-500 transition-all hover:shadow-lg overflow-hidden"
+        >
+          <div className="absolute top-0 right-0 p-3 opacity-10 group-hover:opacity-20 transition-opacity">
+            <Package className="w-24 h-24 rotate-12" />
+          </div>
+          <div className="flex items-center gap-4">
+            <div className="w-14 h-14 rounded-xl bg-green-50 text-green-600 flex items-center justify-center group-hover:bg-green-600 group-hover:text-white transition-colors">
+              <Package className="w-7 h-7" />
+            </div>
+            <div>
+              <h3 className="text-xl font-bold text-gray-800">Tạo thủ công</h3>
+              <p className="text-sm text-gray-500">Tự nhập thông tin chi tiết sản phẩm</p>
+            </div>
+          </div>
+        </Link>
+
+        <Link
+          href="/seller/create-post"
+          className="group relative bg-gradient-to-br from-purple-600 to-indigo-700 rounded-2xl p-6 hover:shadow-xl transition-all hover:-translate-y-1 overflow-hidden text-white"
+        >
+          <div className="absolute top-0 right-0 p-3 opacity-20">
+            <Sparkles className="w-24 h-24 rotate-12" />
+          </div>
+          <div className="flex items-center gap-4">
+            <div className="w-14 h-14 rounded-xl bg-white/20 backdrop-blur-md flex items-center justify-center">
+              <Sparkles className="w-7 h-7" />
+            </div>
+            <div>
+              <h3 className="text-xl font-bold">Tạo bằng AI (Gemini)</h3>
+              <p className="text-purple-100 text-sm">Chỉ cần ảnh, AI lo phần còn lại</p>
+            </div>
+          </div>
+        </Link>
+      </div>
+
       {/* Quick Links */}
-      <h2 className="text-lg font-semibold text-gray-800 mb-3">Truy cập nhanh</h2>
-      <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
+      <h2 className="text-lg font-semibold text-gray-800 mb-3 uppercase tracking-wider text-sm opacity-60">Các chức năng khác</h2>
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
         {quickLinks.map((l) => (
           <Link
             key={l.href}
@@ -195,7 +238,7 @@ export default function SellerDashboard() {
             <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${l.color}`}>
               <l.icon className="w-5 h-5" />
             </div>
-            <span className="font-medium text-gray-700 text-sm group-hover:text-green-700 transition">
+            <span className="font-medium text-gray-700 text-xs group-hover:text-green-700 transition">
               {l.label}
             </span>
           </Link>
