@@ -20,4 +20,7 @@ public class Province {
 
     @Column(name = "type", length = 100)
     private String type;
+
+    @Column(name = "ghn_province_id")
+    private Integer ghnProvinceId;
 }

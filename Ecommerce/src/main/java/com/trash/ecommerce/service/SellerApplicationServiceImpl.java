@@ -7,6 +7,9 @@ import com.trash.ecommerce.entity.*;
 import com.trash.ecommerce.repository.RoleRepository;
 import com.trash.ecommerce.repository.SellerApplicationRepository;
 import com.trash.ecommerce.repository.UserRepository;
+import com.trash.ecommerce.repository.ProvinceRepository;
+import com.trash.ecommerce.repository.DistrictRepository;
+import com.trash.ecommerce.repository.WardRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -24,19 +27,28 @@ public class SellerApplicationServiceImpl implements SellerApplicationService {
     private final RoleRepository roleRepository;
     private final NotificationService notificationService;
     private final EmailService emailService;
+    private final ProvinceRepository provinceRepository;
+    private final DistrictRepository districtRepository;
+    private final WardRepository wardRepository;
 
     public SellerApplicationServiceImpl(
             SellerApplicationRepository sellerApplicationRepository,
             UserRepository userRepository,
             RoleRepository roleRepository,
             NotificationService notificationService,
-            EmailService emailService
+            EmailService emailService,
+            ProvinceRepository provinceRepository,
+            DistrictRepository districtRepository,
+            WardRepository wardRepository
     ) {
         this.sellerApplicationRepository = sellerApplicationRepository;
         this.userRepository = userRepository;
         this.roleRepository = roleRepository;
         this.notificationService = notificationService;
         this.emailService = emailService;
+        this.provinceRepository = provinceRepository;
+        this.districtRepository = districtRepository;
+        this.wardRepository = wardRepository;
     }
 
     @Override
@@ -58,9 +70,23 @@ public class SellerApplicationServiceImpl implements SellerApplicationService {
         if (pickupAddress == null) {
             pickupAddress = new Address();
         }
-        pickupAddress.setProvince(new com.trash.ecommerce.entity.Province(request.getPickupProvince().trim(), request.getPickupProvince().trim(), null));
-        pickupAddress.setDistrict(new com.trash.ecommerce.entity.District(request.getPickupDistrict().trim(), request.getPickupDistrict().trim(), null, null));
-        pickupAddress.setWard(new com.trash.ecommerce.entity.Ward(request.getPickupWard().trim(), request.getPickupWard().trim(), null, null));
+        
+        // Xóa 3 dòng findFirstByNameContaining cũ, thay bằng:
+        Province prov = provinceRepository.findByGhnProvinceId(request.getPickupGhnProvinceId())
+            .orElseThrow(() -> new RuntimeException("Tỉnh không hợp lệ"));
+
+        District dist = districtRepository.findByGhnDistrictId(request.getPickupGhnDistrictId())
+            .orElseThrow(() -> new RuntimeException("Quận/Huyện không hợp lệ"));
+
+        Ward w = wardRepository.findByGhnWardCode(request.getPickupGhnWardCode().trim())
+            .orElseThrow(() -> new RuntimeException("Phường/Xã không hợp lệ"));
+
+        pickupAddress.setProvince(prov);
+        pickupAddress.setDistrict(dist);
+        pickupAddress.setWard(w);
+        pickupAddress.setProvinceName(request.getPickupProvince().trim());
+        pickupAddress.setDistrictName(request.getPickupDistrict().trim());
+        pickupAddress.setWardName(request.getPickupWard().trim());
         pickupAddress.setStreetDetail(trimOrNull(request.getPickupStreetDetail()));
         pickupAddress.setGhnProvinceId(request.getPickupGhnProvinceId());
         pickupAddress.setGhnDistrictId(request.getPickupGhnDistrictId());

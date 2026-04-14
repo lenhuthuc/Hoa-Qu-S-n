@@ -6,4 +6,6 @@ import org.springframework.stereotype.Repository;
 
 @Repository
 public interface ProvinceRepository extends JpaRepository<Province, String> {
+    java.util.Optional<Province> findFirstByNameContainingIgnoreCase(String name);
+    java.util.Optional<Province> findByGhnProvinceId(Integer ghnProvinceId);
 }

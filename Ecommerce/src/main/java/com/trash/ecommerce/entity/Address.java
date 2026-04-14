@@ -17,15 +17,15 @@ public class Address {
     private Long id;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "province_code")
+    @JoinColumn(name = "province_code", foreignKey = @ForeignKey(ConstraintMode.NO_CONSTRAINT))
     private Province province;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "district_code")
+    @JoinColumn(name = "district_code", foreignKey = @ForeignKey(ConstraintMode.NO_CONSTRAINT))
     private District district;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "ward_code")
+    @JoinColumn(name = "ward_code", foreignKey = @ForeignKey(ConstraintMode.NO_CONSTRAINT))
     private Ward ward;
 
     @Column(name = "street_detail", length = 255)
@@ -40,18 +40,30 @@ public class Address {
     @Column(name = "ghn_ward_code", length = 20)
     private String ghnWardCode;
 
-    @Column(name = "latitude")
-    private Double latitude;
-
     @Column(name = "longitude")
     private Double longitude;
+
+    @Column(name = "province_name")
+    private String provinceName;
+
+    @Column(name = "district_name")
+    private String districtName;
+
+    @Column(name = "ward_name")
+    private String wardName;
 
     public String getFullAddress() {
         StringBuilder sb = new StringBuilder();
         if (streetDetail != null && !streetDetail.isBlank()) sb.append(streetDetail).append(", ");
-        if (ward != null) sb.append(ward.getName()).append(", ");
-        if (district != null) sb.append(district.getName()).append(", ");
-        if (province != null) sb.append(province.getName());
+        
+        String w = wardName != null ? wardName : (ward != null ? ward.getName() : null);
+        String d = districtName != null ? districtName : (district != null ? district.getName() : null);
+        String p = provinceName != null ? provinceName : (province != null ? province.getName() : null);
+
+        if (w != null) sb.append(w).append(", ");
+        if (d != null) sb.append(d).append(", ");
+        if (p != null) sb.append(p);
+        
         return sb.toString();
     }
 }

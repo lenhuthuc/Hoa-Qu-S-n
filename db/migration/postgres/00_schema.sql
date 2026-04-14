@@ -1,28 +1,34 @@
 CREATE TABLE provinces (
   code VARCHAR(20) PRIMARY KEY,
   name VARCHAR(255) NOT NULL,
-  type VARCHAR(100)
+  type VARCHAR(100),
+  ghn_province_id INTEGER
 );
 
 CREATE TABLE districts (
   code VARCHAR(20) PRIMARY KEY,
   name VARCHAR(255) NOT NULL,
   type VARCHAR(100),
-  province_code VARCHAR(20) REFERENCES provinces(code)
+  province_code VARCHAR(20) REFERENCES provinces(code),
+  ghn_district_id INTEGER
 );
 
 CREATE TABLE wards (
   code VARCHAR(20) PRIMARY KEY,
   name VARCHAR(255) NOT NULL,
   type VARCHAR(100),
-  district_code VARCHAR(20) REFERENCES districts(code)
+  district_code VARCHAR(20) REFERENCES districts(code),
+  ghn_ward_code VARCHAR(20)
 );
 
 CREATE TABLE addresses (
   id BIGSERIAL PRIMARY KEY,
-  province_code VARCHAR(20) REFERENCES provinces(code),
-  district_code VARCHAR(20) REFERENCES districts(code),
-  ward_code VARCHAR(20) REFERENCES wards(code),
+  province_code VARCHAR(20), -- FK dropped for pragmatic reasons
+  district_code VARCHAR(20), -- FK dropped for pragmatic reasons
+  ward_code VARCHAR(20),     -- FK dropped for pragmatic reasons
+  province_name VARCHAR(255),
+  district_name VARCHAR(255),
+  ward_name VARCHAR(255),
   street_detail VARCHAR(255),
   ghn_province_id INT,
   ghn_district_id INT,

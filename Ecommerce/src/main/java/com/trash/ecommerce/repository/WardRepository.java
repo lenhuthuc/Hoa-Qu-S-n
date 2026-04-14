@@ -9,4 +9,6 @@ import java.util.List;
 @Repository
 public interface WardRepository extends JpaRepository<Ward, String> {
     List<Ward> findByDistrictCode(String districtCode);
+    java.util.Optional<Ward> findFirstByNameContainingIgnoreCase(String name);
+    java.util.Optional<Ward> findByGhnWardCode(String ghnWardCode);
 }

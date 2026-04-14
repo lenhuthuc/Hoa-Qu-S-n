@@ -24,4 +24,7 @@ public class District {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "province_code")
     private Province province;
+
+    @Column(name = "ghn_district_id")
+    private Integer ghnDistrictId;
 }

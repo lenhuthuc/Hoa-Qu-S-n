@@ -37,6 +37,9 @@ import com.trash.ecommerce.entity.Users;
 import com.trash.ecommerce.repository.CartRepository;
 import com.trash.ecommerce.repository.ProductRepository;
 import com.trash.ecommerce.repository.UserRepository;
+import com.trash.ecommerce.repository.ProvinceRepository;
+import com.trash.ecommerce.repository.DistrictRepository;
+import com.trash.ecommerce.repository.WardRepository;
 
 @Service
 public class UserServiceImpl implements UserService {
@@ -61,6 +64,12 @@ public class UserServiceImpl implements UserService {
     private EmailService emailService;
     @Autowired
     private UserMapper userMapper;
+    @Autowired
+    private ProvinceRepository provinceRepository;
+    @Autowired
+    private DistrictRepository districtRepository;
+    @Autowired
+    private WardRepository wardRepository;
 
     @Value("${admin.emails:}")
     private String adminEmailsConfig;
@@ -230,9 +239,20 @@ public class UserServiceImpl implements UserService {
             if (address == null) {
                 address = new Address();
             }
-            address.setProvince(new com.trash.ecommerce.entity.Province(user.getProvince().trim(), user.getProvince().trim(), null));
-            address.setDistrict(new com.trash.ecommerce.entity.District(user.getDistrict().trim(), user.getDistrict().trim(), null, null));
-            address.setWard(new com.trash.ecommerce.entity.Ward(user.getWard().trim(), user.getWard().trim(), null, null));
+            
+            com.trash.ecommerce.entity.Province prov = provinceRepository.findByGhnProvinceId(user.getGhnProvinceId())
+                .orElseThrow(() -> new RuntimeException("Tỉnh không hợp lệ"));
+            com.trash.ecommerce.entity.District dist = districtRepository.findByGhnDistrictId(user.getGhnDistrictId())
+                .orElseThrow(() -> new RuntimeException("Quận/Huyện không hợp lệ"));
+            com.trash.ecommerce.entity.Ward w = wardRepository.findByGhnWardCode(user.getGhnWardCode().trim())
+                .orElseThrow(() -> new RuntimeException("Phường/Xã không hợp lệ"));
+
+            address.setProvince(prov);
+            address.setDistrict(dist);
+            address.setWard(w);
+            address.setProvinceName(user.getProvince().trim());
+            address.setDistrictName(user.getDistrict().trim());
+            address.setWardName(user.getWard().trim());
             address.setStreetDetail(trimOrNull(user.getStreetDetail()));
             address.setGhnProvinceId(user.getGhnProvinceId());
             address.setGhnDistrictId(user.getGhnDistrictId());

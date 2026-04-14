@@ -24,4 +24,7 @@ public class Ward {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "district_code")
     private District district;
+
+    @Column(name = "ghn_ward_code", length = 20)
+    private String ghnWardCode;
 }
