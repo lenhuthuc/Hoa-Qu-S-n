@@ -51,6 +51,7 @@ export default function GoLivePage() {
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
 
+
   // ── Trạng thái phát sóng ──
   const [isLive, setIsLive] = useState(false);
   const [isPreviewing, setIsPreviewing] = useState(false);
@@ -112,15 +113,28 @@ export default function GoLivePage() {
   const startPreview = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { width: 1280, height: 720, facingMode: "environment" },
-        audio: true,
+        video: {
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+          frameRate: { ideal: 30 },
+          facingMode: "environment"
+        },
+        audio: {
+          echoCancellation: { exact: false },
+          noiseSuppression: { exact: false },
+          autoGainControl: { exact: false },
+          channelCount: 2,
+          sampleRate: 48000,
+        },
       });
+
       streamRef.current = stream;
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
       }
       setIsPreviewing(true);
-    } catch {
+    } catch (err) {
+      console.error("Preview error:", err);
       toast.error("Không thể truy cập camera/mic");
     }
   };
@@ -128,6 +142,64 @@ export default function GoLivePage() {
   // ══════════════════════════════════════════════════════════════
   // GO LIVE — Kết nối WebRTC WHIP đến MediaMTX
   // ══════════════════════════════════════════════════════════════
+  const preferH264 = (sdp: string): string => {
+    const sections = sdp.split("\r\nm=");
+    for (let i = 1; i < sections.length; i++) {
+      if (!sections[i].startsWith("video")) continue;
+      const lines = sections[i].split("\r\n");
+
+      // Ưu tiên High profile (64xxxx) hoặc Main (4dxxxx), fallback Baseline (42xxxx)
+      const profilePriority = ["64", "4d", "42"];
+      let chosenPayload: string | null = null;
+
+      for (const prefix of profilePriority) {
+        const fmtpLine = lines.find(l =>
+          /a=fmtp:\d+/.test(l) &&
+          new RegExp(`profile-level-id=${prefix}`, "i").test(l)
+        );
+        if (fmtpLine) {
+          chosenPayload = fmtpLine.match(/a=fmtp:(\d+)/)?.[1] ?? null;
+          if (chosenPayload) break;
+        }
+      }
+
+      // Fallback: lấy H264 payload đầu tiên nếu không tìm được theo profile
+      if (!chosenPayload) {
+        const rtpmapLine = lines.find(l => /a=rtpmap:\d+ H264\/90000/i.test(l));
+        chosenPayload = rtpmapLine?.match(/a=rtpmap:(\d+)/)?.[1] ?? null;
+      }
+
+      if (!chosenPayload) continue;
+
+      // Tìm rtx payload tương ứng
+      const rtxLine = lines.find(l =>
+        new RegExp(`a=fmtp:\\d+ apt=${chosenPayload}`).test(l)
+      );
+      const rtxPayload = rtxLine?.match(/a=fmtp:(\d+)/)?.[1];
+
+      const keepPayloads = new Set([chosenPayload, rtxPayload].filter(Boolean) as string[]);
+
+      // Rewrite m= line
+      if (lines.length > 0 && lines[0]) {
+        const mLineParts = lines[0].split(" ");
+        if (mLineParts.length >= 3) {
+          lines[0] = [
+            ...mLineParts.slice(0, 3),
+            ...mLineParts.slice(3).filter(p => keepPayloads.has(p))
+          ].join(" ");
+        }
+      }
+
+      sections[i] = lines
+        .filter(l => {
+          const match = l.match(/^a=(?:rtpmap|fmtp|rtcp-fb):(\d+)/);
+          return !match || keepPayloads.has(match[1]);
+        })
+        .join("\r\n");
+    }
+    return sections.join("\r\nm=");
+  };
+
   const goLive = async () => {
     if (!title.trim()) {
       toast.error("Vui lòng nhập tiêu đề phiên live");
@@ -135,57 +207,85 @@ export default function GoLivePage() {
     }
     setStarting(true);
     try {
-      // Bước 1: Tạo session trên server → nhận stream key
       const res = await livestreamApi.start(title);
       const key = res.data?.data?.streamKey;
       if (!key) throw new Error("Không nhận được stream key");
       setStreamKey(key);
 
-      // Bước 2: WebRTC WHIP handshake
+      // ✅ Truyền audio raw — không qua bất kỳ bộ lọc nào.
+      // getUserMedia constraints đã tắt echoCancellation, noiseSuppression, autoGainControl.
       const pc = new RTCPeerConnection({
         iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
       });
-      const stream = streamRef.current;
-      if (!stream) throw new Error("No media stream");
+      const videoTrack = streamRef.current?.getVideoTracks()[0];
+      const audioTrack = streamRef.current?.getAudioTracks()[0];
 
-      stream.getTracks().forEach((track) => pc.addTrack(track, stream));
+      // Đặt sendEncodings ngay khi tạo transceiver — đáng tin cậy hơn setParameters sau khi connected
+      if (videoTrack) pc.addTransceiver(videoTrack, {
+        direction: "sendonly",
+        sendEncodings: [{ maxBitrate: 2_500_000, maxFramerate: 30 }],
+      });
+      if (audioTrack) pc.addTransceiver(audioTrack, { direction: "sendonly" });
 
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
 
-      // Đợi ICE gathering hoàn tất trước khi gửi SDP
-      await new Promise<void>((resolve) => {
-        if (pc.iceGatheringState === "complete") {
-          resolve();
-        } else {
-          pc.onicegatheringstatechange = () => {
+      // Chờ ICE gathering (Timeout 5s)
+      await Promise.race([
+        new Promise<void>((resolve) => {
+          if (pc.iceGatheringState === "complete") resolve();
+          else pc.onicegatheringstatechange = () => {
             if (pc.iceGatheringState === "complete") resolve();
           };
-        }
-      });
+        }),
+        new Promise<void>((resolve) => setTimeout(resolve, 5000))
+      ]);
 
-      // Bước 3: Gửi SDP Offer → MediaMTX WHIP endpoint
+      // ── Munge SDP: H.264 profile cao + Opus high-quality (CELT music mode) ──
+      const { sdp: rawSdp } = pc.localDescription!;
+      let sdp = rawSdp;
+      sdp = preferH264(sdp);
+
+      // Tìm Opus payload type qua rtpmap, rồi override toàn bộ fmtp:
+      // maxaveragebitrate=510000 → Opus dùng CELT mode (music, không phải voice)
+      // usedtx=0 → không cắt audio khi im lặng
+      // stereo=1 → stereo
+      const opusMatch = sdp.match(/a=rtpmap:(\d+) opus\/48000\/2/i);
+      if (opusMatch) {
+        const pt = opusMatch[1];
+        const opusParams = `minptime=10;useinbandfec=1;usedtx=0;stereo=1;sprop-stereo=1;maxaveragebitrate=510000`;
+        const fmtpRe = new RegExp(`a=fmtp:${pt} [^\r\n]*`);
+        if (fmtpRe.test(sdp)) {
+          sdp = sdp.replace(fmtpRe, `a=fmtp:${pt} ${opusParams}`);
+        } else {
+          sdp = sdp.replace(
+            new RegExp(`(a=rtpmap:${pt} opus/48000/2)`, "i"),
+            `$1\r\na=fmtp:${pt} ${opusParams}`
+          );
+        }
+      }
+
       const whipBase = process.env.NEXT_PUBLIC_WHIP_URL || "http://localhost:8889";
       const whipUrl = `${whipBase}/${key}/whip`;
       const resp = await fetch(whipUrl, {
         method: "POST",
         headers: { "Content-Type": "application/sdp" },
-        body: pc.localDescription!.sdp,
+        body: sdp,
       });
 
       if (!resp.ok) throw new Error("WHIP handshake failed");
 
-      // Bước 4: Nhận SDP Answer → kết nối hoàn tất
       const answerSdp = await resp.text();
       await pc.setRemoteDescription({ type: "answer", sdp: answerSdp });
 
+      // ✅ 3. Chỉ lưu ref khi mọi thứ đã hoàn tất
       pcRef.current = pc;
       setIsLive(true);
       setLiveDuration(0);
-      toast.success("Bạn đang phát sóng trực tiếp!");
+      toast.success("Hệ thống đã sẵn sàng và đang phát sóng HD!");
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Lỗi khi bắt đầu livestream";
-      toast.error(msg);
+
+      toast.error(err instanceof Error ? err.message : "Lỗi livestream");
     } finally {
       setStarting(false);
     }
@@ -202,6 +302,7 @@ export default function GoLivePage() {
     } catch { /* ignore */ }
 
     streamRef.current?.getTracks().forEach((t) => t.stop());
+
     pcRef.current?.close();
     pcRef.current = null;
 
@@ -323,20 +424,18 @@ export default function GoLivePage() {
           <div className="lg:col-span-8 flex flex-col gap-6">
             {/* ── Camera Preview / Live Feed ── */}
             <div
-              className={`relative flex-1 rounded-3xl overflow-hidden bg-black/50 border transition-all duration-500 ${
-                isLive
-                  ? "border-red-500/50 shadow-[0_0_40px_rgba(239,68,68,0.15)]"
-                  : "border-white/10"
-              }`}
+              className={`relative flex-1 rounded-3xl overflow-hidden bg-black/50 border transition-all duration-500 ${isLive
+                ? "border-red-500/50 shadow-[0_0_40px_rgba(239,68,68,0.15)]"
+                : "border-white/10"
+                }`}
             >
               <video
                 ref={videoRef}
                 autoPlay
                 playsInline
                 muted
-                className={`w-full h-full object-cover transition-opacity duration-700 ${
-                  isPreviewing ? "opacity-100" : "opacity-0"
-                }`}
+                className={`w-full h-full object-cover transition-opacity duration-700 ${isPreviewing ? "opacity-100" : "opacity-0"
+                  }`}
               />
 
               {/* Màn hình chờ — Camera tắt */}
@@ -392,26 +491,24 @@ export default function GoLivePage() {
                     <button
                       onClick={toggleCamera}
                       disabled={!isPreviewing}
-                      className={`w-14 h-14 rounded-full flex items-center justify-center transition-all ${
-                        !isPreviewing
-                          ? "opacity-50 cursor-not-allowed"
-                          : cameraOn
+                      className={`w-14 h-14 rounded-full flex items-center justify-center transition-all ${!isPreviewing
+                        ? "opacity-50 cursor-not-allowed"
+                        : cameraOn
                           ? "bg-white/10 hover:bg-white/20 text-white"
                           : "bg-red-500/20 text-red-500 border border-red-500/50"
-                      }`}
+                        }`}
                     >
                       {cameraOn ? <Video className="w-6 h-6" /> : <VideoOff className="w-6 h-6" />}
                     </button>
                     <button
                       onClick={toggleMic}
                       disabled={!isPreviewing}
-                      className={`w-14 h-14 rounded-full flex items-center justify-center transition-all ${
-                        !isPreviewing
-                          ? "opacity-50 cursor-not-allowed"
-                          : micOn
+                      className={`w-14 h-14 rounded-full flex items-center justify-center transition-all ${!isPreviewing
+                        ? "opacity-50 cursor-not-allowed"
+                        : micOn
                           ? "bg-white/10 hover:bg-white/20 text-white"
                           : "bg-red-500/20 text-red-500 border border-red-500/50"
-                      }`}
+                        }`}
                     >
                       {micOn ? <Mic className="w-6 h-6" /> : <MicOff className="w-6 h-6" />}
                     </button>
@@ -419,11 +516,10 @@ export default function GoLivePage() {
                     <button
                       onClick={goLive}
                       disabled={!isPreviewing || starting}
-                      className={`ml-4 px-8 h-14 rounded-xl font-bold flex items-center gap-2 transition-all ${
-                        !isPreviewing
-                          ? "bg-white/5 text-white/30 cursor-not-allowed"
-                          : "bg-gradient-to-r from-red-600 to-red-500 hover:from-red-500 hover:to-red-400 text-white shadow-lg shadow-red-500/30"
-                      }`}
+                      className={`ml-4 px-8 h-14 rounded-xl font-bold flex items-center gap-2 transition-all ${!isPreviewing
+                        ? "bg-white/5 text-white/30 cursor-not-allowed"
+                        : "bg-gradient-to-r from-red-600 to-red-500 hover:from-red-500 hover:to-red-400 text-white shadow-lg shadow-red-500/30"
+                        }`}
                     >
                       {starting ? (
                         <Activity className="w-5 h-5 animate-spin" />
@@ -460,21 +556,19 @@ export default function GoLivePage() {
                   <div className="flex items-center gap-4">
                     <button
                       onClick={toggleCamera}
-                      className={`w-14 h-14 rounded-full flex items-center justify-center transition-all ${
-                        cameraOn
-                          ? "bg-white/10 hover:bg-white/20 text-white"
-                          : "bg-red-500/20 text-red-500 border border-red-500/50"
-                      }`}
+                      className={`w-14 h-14 rounded-full flex items-center justify-center transition-all ${cameraOn
+                        ? "bg-white/10 hover:bg-white/20 text-white"
+                        : "bg-red-500/20 text-red-500 border border-red-500/50"
+                        }`}
                     >
                       {cameraOn ? <Video className="w-6 h-6" /> : <VideoOff className="w-6 h-6" />}
                     </button>
                     <button
                       onClick={toggleMic}
-                      className={`w-14 h-14 rounded-full flex items-center justify-center transition-all ${
-                        micOn
-                          ? "bg-white/10 hover:bg-white/20 text-white"
-                          : "bg-red-500/20 text-red-500 border border-red-500/50"
-                      }`}
+                      className={`w-14 h-14 rounded-full flex items-center justify-center transition-all ${micOn
+                        ? "bg-white/10 hover:bg-white/20 text-white"
+                        : "bg-red-500/20 text-red-500 border border-red-500/50"
+                        }`}
                     >
                       {micOn ? <Mic className="w-6 h-6" /> : <MicOff className="w-6 h-6" />}
                     </button>
@@ -482,11 +576,10 @@ export default function GoLivePage() {
                     {/* Nút mở panel sản phẩm */}
                     <button
                       onClick={() => setShowProductPanel(!showProductPanel)}
-                      className={`w-14 h-14 rounded-full flex items-center justify-center transition-all ${
-                        showProductPanel
-                          ? "bg-accent-500/20 text-accent-400 border border-accent-500/50"
-                          : "bg-white/10 hover:bg-white/20 text-white"
-                      }`}
+                      className={`w-14 h-14 rounded-full flex items-center justify-center transition-all ${showProductPanel
+                        ? "bg-accent-500/20 text-accent-400 border border-accent-500/50"
+                        : "bg-white/10 hover:bg-white/20 text-white"
+                        }`}
                       title="Quản lý sản phẩm"
                     >
                       <Package className="w-6 h-6" />

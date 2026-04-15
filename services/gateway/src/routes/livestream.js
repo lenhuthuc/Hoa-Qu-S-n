@@ -24,13 +24,14 @@ router.post("/start", async (req, res) => {
     // ── Tạo stream key duy nhất (format: live-{sellerId}-{uuid8}) ──
     const streamKey = `live-${sellerId}-${uuidv4().slice(0, 8)}`;
 
-    // ── Tạo path trong MediaMTX qua HTTP API ──
-    // MediaMTX sẽ nhận stream RTMP/WebRTC trên path này
+    // ── Không cần tạo path trước qua API ──
+    // MediaMTX sẽ tự động tạo path khi có kết nối WHIP/RTMP 
+    // và áp dụng các quy tắc trong 'all_others' (bao gồm xác thực & transcode)
+    /*
     await axios.post(`${MEDIAMTX_API}/v3/config/paths/add/${streamKey}`, {
       source: "publisher",
-    }).catch(() => {
-      // Path có thể đã tồn tại hoặc auto-created — không fatal
-    });
+    }).catch(() => {});
+    */
 
     // ── Lưu session vào Redis (TTL 8 tiếng) ──
     // Trạng thái ban đầu: PENDING (chờ farmer bắt đầu push stream)
@@ -47,14 +48,17 @@ router.post("/start", async (req, res) => {
     await redis.setex(`livestream:${streamKey}`, 28800, JSON.stringify(session));
 
     // ── Trả về stream_key và các URL để farmer kết nối ──
+    const whipBase = process.env.NEXT_PUBLIC_WHIP_URL || "http://localhost:8889";
+    const hlsBase = process.env.NEXT_PUBLIC_HLS_URL || "http://localhost:8888";
+    
     res.json({
       success: true,
       data: {
         streamKey,
-        rtmpUrl: `rtmp://localhost:1935/${streamKey}`,       // RTMP ingest URL
-        webrtcUrl: `http://localhost:8889/${streamKey}`,      // WebRTC WHIP URL
-        hlsUrl: `http://localhost:8888/${streamKey}/index.m3u8`, // HLS playback URL
-        viewerUrl: `/live/${streamKey}`,                      // Viewer page URL
+        rtmpUrl: `rtmp://localhost:1935/${streamKey}`,
+        webrtcUrl: `${whipBase}/${streamKey}/whip`,
+        hlsUrl: `${hlsBase}/${streamKey}/index.m3u8`,
+        viewerUrl: `/live/${streamKey}`,
       },
     });
   } catch (err) {
@@ -70,45 +74,63 @@ router.post("/start", async (req, res) => {
 // ══════════════════════════════════════════════════════════════
 router.post("/auth/publish", async (req, res) => {
   try {
-    const { path, user, password, ip } = req.body;
-    // path = tên stream key từ MediaMTX (vd: "live-5-abc12345")
-    const streamKey = (path || "").replace(/^\//, "");
+    const { path, action, ip } = req.body || {};
+    // path = tên stream key từ MediaMTX (vd: "live-5-abc12345" hoặc "live-5-abc12345-aac")
+    let streamKey = (path || "").replace(/^\//, "");
+
+    // Nếu là luồng transcode, lấy key gốc để check
+    const originalKey = streamKey.replace(/-(opus|aac)$/, "");
+
+    // ── Read actions: luôn cho phép — stream có tồn tại hay không là việc của MediaMTX ──
+    // Viewer HLS/WebRTC không cần xác thực; luồng không tồn tại → MediaMTX tự trả 404.
+    if (action === "read") {
+      return res.status(200).send();
+    }
 
     console.log(`[Livestream Auth] Publish request: key=${streamKey}, ip=${ip}`);
 
-    // ── Kiểm tra stream key tồn tại trong Redis ──
-    const session = await redis.get(`livestream:${streamKey}`);
+    // ── Kiểm tra stream key tồn tại trong Redis (chỉ cho publish) ──
+    const session = await redis.get(`livestream:${originalKey}`);
     if (!session) {
-      console.warn(`[Livestream Auth] REJECTED — Stream key not found: ${streamKey}`);
-      return res.status(401).json({ error: "Invalid stream key" });
+      console.warn(`[Livestream Auth] REJECTED — Stream key not found: ${originalKey}`);
+      return res.status(401).send();
     }
 
     const parsed = JSON.parse(session);
 
-    // ── Chỉ cho phép stream đang ở trạng thái PENDING hoặc LIVE ──
-    if (parsed.status === "ENDED") {
-      console.warn(`[Livestream Auth] REJECTED — Stream already ended: ${streamKey}`);
-      return res.status(403).json({ error: "Stream has ended" });
+    // ── Kiểm tra quyền Publish ──
+    if (action === "publish") {
+      if (parsed.status === "ENDED") {
+        console.warn(`[Livestream Auth] REJECTED — Stream already ended: ${originalKey}`);
+        return res.status(403).send();
+      }
+
+      // Chỉ cập nhật trạng thái và broadcast nếu là luồng gốc (farmer)
+      // FFmpeg (luồng -aac) không cần cập nhật lại status
+      if (streamKey === originalKey) {
+        parsed.status = "LIVE";
+        parsed.startedAt = parsed.startedAt || new Date().toISOString();
+        await redis.setex(`livestream:${originalKey}`, 28800, JSON.stringify(parsed));
+
+        // Broadcast sự kiện stream:online
+        redisPub.publish("live:stream-status", JSON.stringify({
+          streamKey: originalKey,
+          status: "LIVE",
+          title: parsed.title,
+          sellerId: parsed.sellerId,
+        })).catch(() => {});
+        
+        console.log(`[Livestream Auth] ACCEPTED — Publisher (Farmer) is LIVE: ${originalKey}`);
+      } else {
+        console.log(`[Livestream Auth] ACCEPTED — Transcoder is publishing: ${streamKey}`);
+      }
     }
 
-    // ── Cập nhật trạng thái sang LIVE khi farmer bắt đầu push ──
-    parsed.status = "LIVE";
-    parsed.startedAt = parsed.startedAt || new Date().toISOString();
-    await redis.setex(`livestream:${streamKey}`, 28800, JSON.stringify(parsed));
-
-    // ── Broadcast sự kiện stream:online cho tất cả viewer ──
-    redisPub.publish("live:stream-status", JSON.stringify({
-      streamKey,
-      status: "LIVE",
-      title: parsed.title,
-      sellerId: parsed.sellerId,
-    })).catch(() => {});
-
-    console.log(`[Livestream Auth] ACCEPTED — Stream is now LIVE: ${streamKey}`);
-    res.status(200).json({ ok: true });
+    // ── Chấp nhận yêu cầu (200 OK cho cả publish và read) ──
+    res.status(200).send();
   } catch (err) {
     console.error("[Livestream Auth] Error:", err.message);
-    res.status(500).json({ error: "Auth check failed" });
+    res.status(500).send();
   }
 });
 

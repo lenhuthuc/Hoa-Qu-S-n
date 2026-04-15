@@ -32,12 +32,26 @@ app.use(helmet({ crossOriginResourcePolicy: false }));
 app.use(cors({ origin: allowedOrigins, credentials: true }));
 app.use(morgan("short"));
 
-// Rate limiting
-const limiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 500, standardHeaders: true });
-app.use(limiter);
-
 // ─── Health Check ───
 app.get("/health", (_req, res) => res.json({ success: true, data: { service: "gateway", status: "ok" } }));
+
+// ─── MediaMTX Auth Webhooks — TRƯỚC rate limiter ───
+// MediaMTX gọi liên tục cho mỗi kết nối RTSP/HLS/WebRTC.
+// Nếu để sau rate limiter, IP của MediaMTX sẽ bị 429 → toàn bộ stream sập.
+app.post(
+  "/api/livestream/auth/publish",
+  express.json({ limit: "1mb" }),
+  (req, res, next) => { req.url = "/auth/publish"; livestreamRoutes(req, res, next); }
+);
+app.post(
+  "/api/livestream/auth/unpublish",
+  express.json({ limit: "1mb" }),
+  (req, res, next) => { req.url = "/auth/unpublish"; livestreamRoutes(req, res, next); }
+);
+
+// Rate limiting (chỉ cho user-facing routes — auth webhooks đã được xử lý phía trên)
+const limiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 500, standardHeaders: true });
+app.use(limiter);
 
 // ─── Proxies BEFORE body parsing so raw stream is intact ───
 
@@ -105,17 +119,6 @@ app.use(express.urlencoded({ extended: true }));
 
 // ─── Gateway-owned routes ───
 const { optionalAuth } = require("./middleware/auth");
-
-// ── Livestream auth webhook (MediaMTX gọi — KHÔNG cần JWT) ──
-// MediaMTX gọi khi publisher kết nối/ngắt để xác thực stream key
-app.post("/api/livestream/auth/publish", (req, res, next) => {
-  req.url = "/auth/publish";
-  livestreamRoutes(req, res, next);
-});
-app.post("/api/livestream/auth/unpublish", (req, res, next) => {
-  req.url = "/auth/unpublish";
-  livestreamRoutes(req, res, next);
-});
 
 // ── Livestream public routes (không cần auth) ──
 app.get("/api/livestream/active", optionalAuth, (req, res, next) => {

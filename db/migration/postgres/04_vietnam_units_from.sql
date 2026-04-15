@@ -1,5 +1,5 @@
 -- Dữ liệu hành chính Việt Nam (Nguồn: CSV 2021)
-SET NAMES 'utf8mb4';
+SET NAMES 'UTF8';
 
 INSERT INTO provinces (code, name, type) VALUES ('01', 'Thành phố Hà Nội', 'Tỉnh/Thành phố');
 INSERT INTO provinces (code, name, type) VALUES ('02', 'Tỉnh Hà Giang', 'Tỉnh/Thành phố');
