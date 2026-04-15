@@ -1,6 +1,6 @@
+FROM bluenviron/mediamtx:latest-ffmpeg AS mediamtx
 FROM alpine:latest
-RUN apk add --no-cache curl
-COPY --from=bluenviron/mediamtx:latest /mediamtx /mediamtx
-COPY --from=bluenviron/mediamtx:latest /mediamtx.yml /mediamtx.yml
-# EXPOSE ports if needed but docker-compose handles it
+RUN apk add --no-cache curl ffmpeg
+COPY --from=mediamtx /mediamtx /mediamtx
+COPY mediamtx.yml /mediamtx.yml
 ENTRYPOINT [ "/mediamtx" ]
