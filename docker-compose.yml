@@ -71,11 +71,11 @@ services:
       dockerfile: Dockerfile
     container_name: hqs-mediamtx
     ports:
-      - "1935:1935"   # RTMP
-      - "8888:8888"   # HLS
-      - "8889:8889"   # WebRTC HTTP (WHIP/WHEP)
-      - "8189:8189/udp" # WebRTC ICE/UDP
-      - "9997:9997"   # HTTP API
+      - "8889:8889"      # WHIP/WHEP TCP
+      - "8189:8189/udp"  # WebRTC UDP (ICE)
+      - "8888:8888"      # HLS
+      - "8554:8554"      # RTSP
+      - "9997:9997"      # API
     volumes:
       - ./vendor/mediamtx/mediamtx.yml:/mediamtx.yml
     networks:
@@ -177,6 +177,7 @@ services:
       NEXT_PUBLIC_HLS_URL: http://localhost:8888
       NEXT_PUBLIC_WS_URL: http://localhost:3000
       INTERNAL_API_URL: http://gateway:3000
+      NEXT_PUBLIC_WHIP_URL: http://localhost:8889
     depends_on:
       - gateway
     networks:

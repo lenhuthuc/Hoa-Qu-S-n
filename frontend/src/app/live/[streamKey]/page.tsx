@@ -52,8 +52,9 @@ interface StreamInfo {
 export default function LiveViewerPage() {
   const params = useParams();
   const streamKey = params.streamKey as string;
+  // Kết nối thẳng vào stream gốc — đã có Opus native từ WebRTC, không cần path -opus đã transcode
   const whepUrl = `${process.env.NEXT_PUBLIC_WHEP_URL || "http://localhost:8889"}/${streamKey}/whep`;
-  const hlsUrl = `${process.env.NEXT_PUBLIC_HLS_URL || "http://localhost:8888"}/${streamKey}/index.m3u8`;
+  const hlsUrl = `${process.env.NEXT_PUBLIC_HLS_URL || "http://localhost:8888"}/${streamKey}-aac/index.m3u8`;
 
   // ── State: thông tin phiên live ──
   const [streamInfo, setStreamInfo] = useState<StreamInfo>({});

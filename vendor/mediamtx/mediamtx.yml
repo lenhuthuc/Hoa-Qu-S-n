@@ -1,88 +1,71 @@
 # ══════════════════════════════════════════════════════════════
 # MediaMTX Configuration — Hoa Quả Sơn Livestream Platform
 # ══════════════════════════════════════════════════════════════
-# Stack: RTMP Ingest → MediaMTX Transcode → HLS/WebRTC Delivery
-# Farmer push stream qua RTMP/WebRTC → MediaMTX xử lý →
-# CDN cache HLS segments → Viewer xem qua HLS.js hoặc WebRTC
 
 # ─── Global Settings ───
 logLevel: info
 logDestinations: [stdout]
-authInternalUsers: [] # Cho phép tất cả (v1.x)
+authInternalUsers:
+  - user: internal
+    pass: internal
+    permissions:
+      - action: publish
+        path:
+      - action: read
+        path:
 
-
-# ─── HTTP API: Quản lý stream paths (tạo/xóa phòng live) ───
+# ─── HTTP API ───
 api: yes
 apiAddress: :9997
 
-# ══════════════════════════════════════════════════════════════
-# BƯỚC 2 — RTMP INGEST (Nhận stream video từ farmer)
-# ══════════════════════════════════════════════════════════════
-# | Thông số    | Giá trị                     |
-# |-------------|------------------------------|
-# | Protocol    | RTMP — port 1935             |
-# | Video Codec | H.264 (libx264)              |
-# | Audio Codec | AAC                          |
-# | Bitrate     | 2500–4000 kbps               |
-# | Keyframe    | 2 giây (cho HLS alignment)   |
+# ─── Protocols ───
 rtmp: yes
 rtmpAddress: :1935
 
-# ══════════════════════════════════════════════════════════════
-# BƯỚC 3 & 4 — HLS DELIVERY (Phân phối video qua CDN)
-# ══════════════════════════════════════════════════════════════
-# HLS server tự động remux từ RTMP/WebRTC sang LL-HLS
-# CDN Cloudflare cache các .ts segments → giảm tải origin ~99%
-# | Không CDN: 1000 req/s đến origin                         |
-# | Có CDN:    ~10 req/s (cache hit ~99%)                     |
+rtsp: yes
+rtspAddress: :8554
+
 hls: yes
 hlsAddress: :8888
-hlsAlwaysRemux: no
-hlsSegmentCount: 7              # Giữ 7 segments trong playlist
-hlsSegmentDuration: 2s          # Mỗi segment 2 giây (khớp keyframe)
-hlsPartDuration: 200ms          # Low-latency HLS parts
+hlsAlwaysRemux: yes
+hlsSegmentCount: 7
+hlsSegmentDuration: 2s
+hlsPartDuration: 500ms
 hlsSegmentMaxSize: 50M
-hlsAllowOrigins: ["*"]             # Cho phép CDN & frontend truy cập (v1.x)
-hlsVariant: lowLatency          # Low-latency HLS cho gần realtime
+hlsAllowOrigins: ["*"]
+hlsVariant: lowLatency
 
-# ══════════════════════════════════════════════════════════════
-# WebRTC — Browser ingest (Farmer) & playback (Viewer)
-# ══════════════════════════════════════════════════════════════
-# Farmer publish qua WHIP, Viewer xem qua WHEP
-# Ưu điểm: latency cực thấp (~0.5s) so với HLS (~4-8s)
 webrtc: yes
 webrtcAddress: :8889
-webrtcAdditionalHosts: [127.0.0.1]
+webrtcAdditionalHosts: [127.0.0.1, 192.168.1.8]
+webrtcLocalUDPAddress: :8189
 webrtcICEServers2:
   - url: stun:stun.l.google.com:19302
 
-# ══════════════════════════════════════════════════════════════
-# PATH DEFAULTS — Cấu hình xác thực & bảo mật
-# ══════════════════════════════════════════════════════════════
-# Stream key bị lộ → Webhook auth khi RTMP connect
-# Kẻ xâm nhập không thể push stream với key không hợp lệ
+authMethod: http
+authHTTPAddress: http://gateway:3000/api/livestream/auth/publish
+
 pathDefaults:
-  # Records (tắt — sử dụng CDN cache)
   record: no
 
-  # ── Webhook xác thực khi publisher kết nối ──
-  # MediaMTX gọi Gateway API để verify stream key
-  # Nếu key không tồn tại trong Redis → reject (401)
-  # Sử dụng runOnReady thay cho runOnPublish (MediaMTX v1.x)
-  # Sử dụng trap để gọi unpublish khi stream kết thúc
-  runOnReady: >
-    sh -c '
-    curl -s -X POST http://gateway:3000/api/livestream/auth/publish -H "Content-Type: application/json" -d "{\"path\":\"$MTX_PATH\",\"ip\":\"$MTX_SOURCEIP\"}";
-    trap "curl -s -X POST http://gateway:3000/api/livestream/auth/unpublish -H \"Content-Type: application/json\" -d \"{\\\"path\\\":\\\"$MTX_PATH\\\"}\"" EXIT;
-    while true; do sleep 1; done
-    '
-  runOnReadyRestart: no
-
-
-
 # ══════════════════════════════════════════════════════════════
-# PATHS — Livestream paths được tạo động qua API
+# PATHS — Quản lý luồng video & Transcoding
 # ══════════════════════════════════════════════════════════════
 paths:
-  # Mọi path đều chấp nhận (tạo động qua Gateway API)
-  all_others:
+  "~^live-[0-9]+-[0-9a-f]{8}$":
+    runOnReady: >
+      ffmpeg
+      -hide_banner
+      -loglevel warning
+      -rtsp_transport tcp
+      -i rtsp://127.0.0.1:8554/$MTX_PATH
+      -map 0:v:0 -map 0:a:0
+      -c:v copy
+      -c:a aac -b:a 128k -ar 48000 -ac 2
+      -af "aresample=async=1"
+      -f rtsp -rtsp_transport tcp
+      rtsp://127.0.0.1:8554/${MTX_PATH}-aac
+    runOnReadyRestart: yes
+
+  "~^live-[0-9]+-[0-9a-f]{8}-aac$":
+    runOnReady: ""

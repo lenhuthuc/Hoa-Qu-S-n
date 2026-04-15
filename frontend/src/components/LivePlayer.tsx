@@ -62,6 +62,8 @@ export default function LivePlayer({ whepUrl, hlsUrl, streamKey, streamStatus }:
   const [qualities, setQualities] = useState<QualityLevel[]>([]);
   const [currentQuality, setCurrentQuality] = useState(-1); // -1 = auto
   const [showQualityMenu, setShowQualityMenu] = useState(false);
+  const [isMuted, setIsMuted] = useState(true);
+
 
   // ══════════════════════════════════════════════════════════════
   // BƯỚC 1 — Kết nối WebRTC (WHEP) — Ưu tiên latency thấp
@@ -72,40 +74,53 @@ export default function LivePlayer({ whepUrl, hlsUrl, streamKey, streamStatus }:
 
     try {
       const pc = new RTCPeerConnection({
-        iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+        iceServers: [
+          { urls: "stun:stun.l.google.com:19302" },
+          {
+            urls: "turn:your-turn-server.com:3478",   // ← thêm TURN
+            username: "user",
+            credential: "pass"
+          }
+        ],
       });
+
+      let trackCount = 0;
+      let mediaStream: MediaStream | null = null;
 
       pc.addTransceiver("video", { direction: "recvonly" });
       pc.addTransceiver("audio", { direction: "recvonly" });
 
       pc.ontrack = (event) => {
-        if (event.streams?.[0]) {
-          video.srcObject = event.streams[0];
-          video.play().then(() => setIsPlaying(true)).catch(() => {});
+        if (!mediaStream && event.streams?.[0]) {
+          mediaStream = event.streams[0];
+        }
+        trackCount++;
+        if (trackCount >= 2 && mediaStream) {
+          video.srcObject = mediaStream;
+          video.play().then(() => setIsPlaying(true)).catch(() => { });
         }
       };
 
-      // ── Xử lý mất kết nối WebRTC ──
       pc.onconnectionstatechange = () => {
         if (pc.connectionState === "failed" || pc.connectionState === "disconnected") {
           setIsPlaying(false);
-          // Fallback sang HLS khi WebRTC mất kết nối
-          connectHLS();
+          connectHLSRef.current();
         }
       };
 
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
 
-      // Đợi ICE gathering hoàn tất
-      await new Promise<void>((resolve) => {
-        if (pc.iceGatheringState === "complete") resolve();
-        else pc.onicegatheringstatechange = () => {
+      await Promise.race([
+        new Promise<void>((resolve) => {
           if (pc.iceGatheringState === "complete") resolve();
-        };
-      });
+          else pc.onicegatheringstatechange = () => {
+            if (pc.iceGatheringState === "complete") resolve();
+          };
+        }),
+        new Promise<void>((resolve) => setTimeout(resolve, 5000))
+      ]);
 
-      // ── Gửi WHEP request đến MediaMTX ──
       const resp = await fetch(whepUrl, {
         method: "POST",
         headers: { "Content-Type": "application/sdp" },
@@ -119,6 +134,13 @@ export default function LivePlayer({ whepUrl, hlsUrl, streamKey, streamStatus }:
 
       const answerSdp = await resp.text();
       await pc.setRemoteDescription({ type: "answer", sdp: answerSdp });
+
+      // jitterBufferTarget — Chrome only, graceful fallback cho browser khác
+      pc.getReceivers().forEach((receiver) => {
+        if (receiver.track.kind === "audio" && "jitterBufferTarget" in receiver) {
+          (receiver as RTCRtpReceiver & { jitterBufferTarget: number }).jitterBufferTarget = 50;
+        }
+      });
 
       pcRef.current = pc;
       setPlayerMode("webrtc");
@@ -140,8 +162,10 @@ export default function LivePlayer({ whepUrl, hlsUrl, streamKey, streamStatus }:
   // 6. Nếu bandwidth giảm → ABR tự switch xuống quality thấp
   const connectHLS = useCallback(() => {
     const video = videoRef.current;
-    const url = hlsUrl || `${process.env.NEXT_PUBLIC_HLS_URL || "http://localhost:8888"}/${streamKey}/index.m3u8`;
     if (!video) return;
+    const baseUrl = hlsUrl || `${process.env.NEXT_PUBLIC_HLS_URL || "http://localhost:8888"}/${streamKey}/index.m3u8`;
+    // ── Sử dụng path -aac để đảm bảo có âm thanh chuẩn AAC cho HLS (Tránh chắp nối đúp) ──
+    const url = baseUrl.includes("-aac/index.m3u8") ? baseUrl : baseUrl.replace("/index.m3u8", "-aac/index.m3u8");
 
     // Dọn dẹp WebRTC nếu đang dùng
     if (pcRef.current) {
@@ -155,7 +179,7 @@ export default function LivePlayer({ whepUrl, hlsUrl, streamKey, streamStatus }:
       video.play().then(() => {
         setIsPlaying(true);
         setPlayerMode("hls");
-      }).catch(() => {});
+      }).catch(() => { });
       return;
     }
 
@@ -171,14 +195,19 @@ export default function LivePlayer({ whepUrl, hlsUrl, streamKey, streamStatus }:
     }
 
     const hls = new Hls({
-      // ── Cấu hình ABR (Adaptive Bitrate) ──
+      // ── Cấu hình ABR & Sync cao cấp (Fix Audio desync) ──
       enableWorker: true,
       lowLatencyMode: true,           // Low-latency HLS
       backBufferLength: 30,           // Buffer 30 giây
-      maxBufferLength: 10,            // Tối đa 10 giây ahead
-      maxMaxBufferLength: 30,
+      maxBufferLength: 15,            // Tăng để tránh dropout
+      maxMaxBufferLength: 8,
       liveSyncDurationCount: 3,       // Sync với 3 segments gần nhất
-      liveMaxLatencyDurationCount: 6, // Tối đa 6 segments delay
+      liveMaxLatencyDurationCount: 10, // Giữ độ trễ ổn định
+
+      // Auto-sync audio/video (Nudging)
+      nudgeMaxRetry: 10,
+      nudgeOffset: 0.2,
+
       // ── Retry config cho mạng không ổn định ──
       fragLoadPolicy: {
         default: {
@@ -201,14 +230,14 @@ export default function LivePlayer({ whepUrl, hlsUrl, streamKey, streamStatus }:
         label: level.height >= 720
           ? `${level.height}p HD`
           : level.height >= 480
-          ? `${level.height}p SD`
-          : `${level.height}p LD`,
+            ? `${level.height}p SD`
+            : `${level.height}p LD`,
       }));
       setQualities(levels);
       video.play().then(() => {
         setIsPlaying(true);
         setPlayerMode("hls");
-      }).catch(() => {});
+      }).catch(() => { });
     });
 
     // ── Theo dõi quality hiện tại (ABR switching) ──
@@ -239,6 +268,12 @@ export default function LivePlayer({ whepUrl, hlsUrl, streamKey, streamStatus }:
     hls.loadSource(url);
     hls.attachMedia(video);
   }, [hlsUrl, streamKey]);
+
+  // ── Dùng Ref để tránh stale closure khi fallback WebRTC -> HLS ──
+  const connectHLSRef = useRef(connectHLS);
+  useEffect(() => {
+    connectHLSRef.current = connectHLS;
+  }, [connectHLS]);
 
   // ══════════════════════════════════════════════════════════════
   // KHỞI ĐỘNG — Thử WebRTC trước, fallback HLS
@@ -306,9 +341,25 @@ export default function LivePlayer({ whepUrl, hlsUrl, streamKey, streamStatus }:
         className="w-full h-full object-contain"
         controls
         playsInline
-        muted
+        muted={isMuted}
         autoPlay
       />
+
+      {/* ── Nút unmute (Hiện khi đang phát mà bị muted) ── */}
+      {isPlaying && isMuted && (
+        <button
+          onClick={() => {
+            if (videoRef.current) videoRef.current.muted = false;
+            setIsMuted(false);
+          }}
+          className="absolute bottom-20 left-1/2 -translate-x-1/2 
+                     bg-black/70 text-white px-6 py-2 rounded-full 
+                     text-sm font-bold flex items-center gap-2 animate-bounce
+                     border border-white/20 shadow-xl z-20"
+        >
+          🔇 Bấm để bật âm thanh
+        </button>
+      )}
 
       {/* ── LIVE Badge ── */}
       {isPlaying && (
@@ -342,11 +393,10 @@ export default function LivePlayer({ whepUrl, hlsUrl, streamKey, streamStatus }:
               {/* Auto (ABR tự động) */}
               <button
                 onClick={() => switchQuality(-1)}
-                className={`w-full text-left px-3 py-1.5 rounded text-xs flex items-center justify-between ${
-                  currentQuality === -1
-                    ? "bg-white/20 text-white"
-                    : "text-white/70 hover:bg-white/10"
-                }`}
+                className={`w-full text-left px-3 py-1.5 rounded text-xs flex items-center justify-between ${currentQuality === -1
+                  ? "bg-white/20 text-white"
+                  : "text-white/70 hover:bg-white/10"
+                  }`}
               >
                 <span>Tự động</span>
                 {currentQuality === -1 && <Wifi className="w-3 h-3 text-green-400" />}
@@ -356,11 +406,10 @@ export default function LivePlayer({ whepUrl, hlsUrl, streamKey, streamStatus }:
                 <button
                   key={q.index}
                   onClick={() => switchQuality(q.index)}
-                  className={`w-full text-left px-3 py-1.5 rounded text-xs flex items-center justify-between ${
-                    currentQuality === q.index
-                      ? "bg-white/20 text-white"
-                      : "text-white/70 hover:bg-white/10"
-                  }`}
+                  className={`w-full text-left px-3 py-1.5 rounded text-xs flex items-center justify-between ${currentQuality === q.index
+                    ? "bg-white/20 text-white"
+                    : "text-white/70 hover:bg-white/10"
+                    }`}
                 >
                   <span>{q.label}</span>
                   <span className="text-white/40">{Math.round(q.bitrate / 1000)}k</span>
