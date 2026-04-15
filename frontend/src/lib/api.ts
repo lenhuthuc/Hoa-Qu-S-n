@@ -98,6 +98,7 @@ export const aiApi = {
       quantity?: number;
       unitWeightGrams: number;
       totalStockWeightKg: number;
+      shelfLifeDays?: number;
       categoryId: number;
       description: string;
       batchId?: string;
@@ -119,6 +120,7 @@ export const aiApi = {
       quantity?: number;
       unitWeightGrams: number;
       totalStockWeightKg: number;
+      shelfLifeDays?: number;
       categoryId: number;
       description: string;
       batchId?: string;
@@ -351,7 +353,7 @@ export const adminApi = {
   deleteProduct: (id: number) => api.delete(`/api/admin/products/${id}`),
   getSellerApplications: (status?: string) =>
     api.get(`/api/admin/seller-applications${status ? `?status=${encodeURIComponent(status)}` : ""}`),
-  getSellerApplicationDocument: (id: number, type: "front" | "back" | "license") =>
+  getSellerApplicationDocument: (id: number, type: "front" | "back" | "license" | "food-safety") =>
     api.get(`/api/admin/seller-applications/${id}/documents/${type}`, { responseType: "blob" }),
   startReviewSellerApplication: (id: number) =>
     api.put(`/api/admin/seller-applications/${id}/start-review`),

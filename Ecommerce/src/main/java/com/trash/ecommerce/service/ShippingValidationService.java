@@ -9,18 +9,21 @@ import com.trash.ecommerce.repository.ProvinceRepository;
 import com.trash.ecommerce.repository.DistrictRepository;
 import com.trash.ecommerce.repository.WardRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class ShippingValidationService {
@@ -229,6 +232,30 @@ public class ShippingValidationService {
         return ghnDefaultFromWardCode;
     }
 
+    private String resolveToWardCode(int toDistrictId, String toWardCode) {
+        List<Map<String, Object>> wards = getWards(toDistrictId);
+        if (wards == null || wards.isEmpty()) {
+            return toWardCode;
+        }
+
+        if (toWardCode != null && !toWardCode.isBlank()) {
+            boolean valid = wards.stream()
+                    .map(w -> w.get("code"))
+                    .filter(Objects::nonNull)
+                    .map(Object::toString)
+                    .anyMatch(code -> code.equalsIgnoreCase(toWardCode));
+            if (valid) {
+                return toWardCode;
+            }
+        }
+
+        Object firstCode = wards.get(0).get("code");
+        String fallbackWard = firstCode != null ? firstCode.toString() : toWardCode;
+        log.warn("Invalid toWardCode '{}' for toDistrictId {}. Fallback to ward '{}'",
+                toWardCode, toDistrictId, fallbackWard);
+        return fallbackWard;
+    }
+
     private String buildServiceName(Map<?, ?> service) {
         Object shortName = service.get("short_name");
         if (shortName != null && !shortName.toString().isBlank()) {
@@ -243,39 +270,18 @@ public class ShippingValidationService {
         };
     }
 
-    private int defaultEstimatedDays(Map<?, ?> service) {
-        Object type = service.get("service_type_id");
-        int typeId = type instanceof Number ? ((Number) type).intValue() : 2;
-        return switch (typeId) {
-            case 1 -> 1;
-            case 3 -> 4;
-            default -> 2;
-        };
-    }
-
     @SuppressWarnings("unchecked")
     private List<ShippingOption> fetchGhnShippingOptions(Product product, String toDistrictId, String toWardCode) {
         List<ShippingOption> options = new ArrayList<>();
 
         if (!isGhnConfigured()) {
-            options.add(ShippingOption.builder()
-                    .carrier("GHN")
-                    .serviceName("Chuẩn")
-                    .estimatedDays(2)
-                    .fee(30000L)
-                    .build());
-            options.add(ShippingOption.builder()
-                    .carrier("GHN")
-                    .serviceName("Express")
-                    .estimatedDays(1)
-                    .fee(60000L)
-                    .build());
             return options;
         }
 
         int fromDistrictId = resolveFromDistrictId(product);
         String fromWardCode = resolveFromWardCode(product);
         int toDistrict = Integer.parseInt(toDistrictId);
+        String normalizedToWardCode = resolveToWardCode(toDistrict, toWardCode);
         long weight = (product.getUnitWeightGrams() != null && product.getUnitWeightGrams() > 0)
                 ? product.getUnitWeightGrams()
                 : 500L;
@@ -309,22 +315,50 @@ public class ShippingValidationService {
                 }
 
                 long serviceId = serviceNumber.longValue();
-                Long fee = fetchFee(fromDistrictId, fromWardCode, toDistrict, toWardCode, serviceId, weight, insurance);
+                Integer serviceTypeId = null;
+                Object serviceTypeObj = service.get("service_type_id");
+                if (serviceTypeObj instanceof Number serviceTypeNumber) {
+                    serviceTypeId = serviceTypeNumber.intValue();
+                }
+
+                // Checkout only supports GHN Nhanh (1) and Chuan (2).
+                if (serviceTypeId == null || (serviceTypeId != 1 && serviceTypeId != 2)) {
+                    continue;
+                }
+
+                Long fee = fetchFee(fromDistrictId, fromWardCode, toDistrict, normalizedToWardCode,
+                        serviceId, serviceTypeId, weight, insurance);
+                Integer estimatedDays = fetchLeadtimeDays(fromDistrictId, fromWardCode, toDistrict,
+                    normalizedToWardCode, serviceId);
+
+                int defaultFromDistrict = ghnDefaultFromDistrictId != null ? ghnDefaultFromDistrictId : fromDistrictId;
+                String defaultFromWard = (ghnDefaultFromWardCode != null && !ghnDefaultFromWardCode.isBlank())
+                        ? ghnDefaultFromWardCode
+                        : fromWardCode;
+
+                // Retry with configured default pickup if seller pickup address causes GHN fee API failure.
+                if ((fee == null || estimatedDays == null)
+                    && (fromDistrictId != defaultFromDistrict || !Objects.equals(fromWardCode, defaultFromWard))) {
+                    fee = fetchFee(defaultFromDistrict, defaultFromWard, toDistrict, normalizedToWardCode,
+                        serviceId, serviceTypeId, weight, insurance);
+                    estimatedDays = fetchLeadtimeDays(defaultFromDistrict, defaultFromWard, toDistrict,
+                        normalizedToWardCode, serviceId);
+                }
+
+                if (fee == null || estimatedDays == null) {
+                    continue;
+                }
 
                 options.add(ShippingOption.builder()
                         .carrier("GHN")
                         .serviceName(buildServiceName(service))
-                        .estimatedDays(defaultEstimatedDays(service))
-                        .fee(Objects.requireNonNullElse(fee, 0L))
+                        .serviceTypeId(serviceTypeId)
+                        .estimatedDays(estimatedDays)
+                        .fee(fee)
                         .build());
             }
-        } catch (Exception ignored) {
-            options.add(ShippingOption.builder()
-                    .carrier("GHN")
-                    .serviceName("Chuẩn")
-                    .estimatedDays(2)
-                    .fee(30000L)
-                    .build());
+        } catch (Exception e) {
+            return options;
         }
 
         return options;
@@ -332,11 +366,15 @@ public class ShippingValidationService {
 
     @SuppressWarnings("unchecked")
     private Long fetchFee(int fromDistrictId, String fromWardCode, int toDistrictId,
-                          String toWardCode, long serviceId, long weight, long insuranceValue) {
+                          String toWardCode, long serviceId, Integer serviceTypeId,
+                          long weight, long insuranceValue) {
         Map<String, Object> feeBody = new HashMap<>();
         feeBody.put("from_district_id", fromDistrictId);
         feeBody.put("from_ward_code", fromWardCode);
         feeBody.put("service_id", serviceId);
+        if (serviceTypeId != null) {
+            feeBody.put("service_type_id", serviceTypeId);
+        }
         feeBody.put("to_district_id", toDistrictId);
         feeBody.put("to_ward_code", toWardCode);
         feeBody.put("height", 10);
@@ -345,23 +383,75 @@ public class ShippingValidationService {
         feeBody.put("weight", weight);
         feeBody.put("insurance_value", Math.max(insuranceValue, 0));
         feeBody.put("cod_value", 0);
+        feeBody.put("cod_failed_amount", 0);
+        feeBody.put("coupon", null);
+        feeBody.put("items", List.of(Map.of(
+                "name", "ITEM",
+                "quantity", 1,
+                "height", 10,
+                "length", 10,
+                "width", 10,
+                "weight", weight
+        )));
 
-        Map<String, Object> response = ghnClientWithShopId().post()
-                .uri("/v2/shipping-order/fee")
-                .contentType(MediaType.APPLICATION_JSON)
-            .bodyValue(feeBody)
-                .retrieve()
-                .bodyToMono(Map.class)
-                .block();
+        try {
+            Map<String, Object> response = ghnClientWithShopId().post()
+                    .uri("/v2/shipping-order/fee")
+                    .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(feeBody)
+                    .retrieve()
+                    .bodyToMono(Map.class)
+                    .block();
 
-        if (response == null || !(response.get("data") instanceof Map<?, ?> data)) {
+            if (response == null || !(response.get("data") instanceof Map<?, ?> data)) {
+                return null;
+            }
+            Object total = data.get("total");
+            if (total instanceof Number number) {
+                return number.longValue();
+            }
+            return null;
+        } catch (Exception e) {
             return null;
         }
-        Object total = data.get("total");
-        if (total instanceof Number number) {
-            return number.longValue();
+    }
+
+    @SuppressWarnings("unchecked")
+    private Integer fetchLeadtimeDays(int fromDistrictId, String fromWardCode, int toDistrictId,
+                                      String toWardCode, long serviceId) {
+        Map<String, Object> body = new HashMap<>();
+        body.put("from_district_id", fromDistrictId);
+        body.put("from_ward_code", fromWardCode);
+        body.put("to_district_id", toDistrictId);
+        body.put("to_ward_code", toWardCode);
+        body.put("service_id", serviceId);
+
+        try {
+            Map<String, Object> response = ghnClientWithShopId().post()
+                    .uri("/v2/shipping-order/leadtime")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .bodyValue(body)
+                    .retrieve()
+                    .bodyToMono(Map.class)
+                    .block();
+
+            if (response == null || !(response.get("data") instanceof Map<?, ?> data)) {
+                return null;
+            }
+
+            Object leadtimeObj = data.get("leadtime");
+            if (!(leadtimeObj instanceof Number leadtimeNum)) {
+                return null;
+            }
+
+            long leadtimeEpoch = leadtimeNum.longValue();
+            long nowEpoch = Instant.now().getEpochSecond();
+            long secondsDiff = Math.max(leadtimeEpoch - nowEpoch, 0);
+            long days = (long) Math.ceil(secondsDiff / 86400.0);
+            return (int) Math.max(days, 1);
+        } catch (Exception e) {
+            return null;
         }
-        return null;
     }
 
     private WebClient ghnClient() {

@@ -183,6 +183,7 @@ public class AdminController {
                 case "front" -> app.getIdCardFrontUrl();
                 case "back" -> app.getIdCardBackUrl();
                 case "license" -> app.getBusinessLicenseUrl();
+                case "food-safety" -> app.getFoodSafetyDocumentUrl();
                 default -> throw new RuntimeException("Loại tài liệu không hợp lệ");
             };
 

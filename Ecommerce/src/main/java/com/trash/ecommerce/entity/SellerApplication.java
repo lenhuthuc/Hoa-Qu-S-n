@@ -55,6 +55,12 @@ public class SellerApplication {
     @Column(name = "business_license_url", length = 1000)
     private String businessLicenseUrl;
 
+    @Column(name = "food_safety_document_type", length = 50)
+    private String foodSafetyDocumentType;
+
+    @Column(name = "food_safety_document_url", length = 1000)
+    private String foodSafetyDocumentUrl;
+
     @Column(name = "identity_full_name", nullable = false, length = 150)
     private String identityFullName;
 

@@ -7,7 +7,7 @@ import {
   Leaf, ShoppingCart, Star, Truck, QrCode, Loader2, Minus, Plus,
   MessageCircle, ChevronLeft, Shield, User, Store,
 } from "lucide-react";
-import { productApi, cartApi, reviewApi, shippingApi, interactionApi } from "@/lib/api";
+import { productApi, cartApi, reviewApi, shippingApi, interactionApi, userApi } from "@/lib/api";
 import toast from "react-hot-toast";
 
 interface Product {
@@ -69,7 +69,21 @@ export default function ProductDetailPage() {
         try { await interactionApi.record(productId); } catch {}
         // Check shipping
         try {
-          const shipRes = await shippingApi.validate(productId);
+          let districtId: string | undefined;
+          let wardCode: string | undefined;
+          try {
+            const profileRes = await userApi.getProfile();
+            const profile = profileRes.data?.data || profileRes.data;
+            const address = profile?.address;
+            if (address?.ghnDistrictId) {
+              districtId = String(address.ghnDistrictId);
+            }
+            if (address?.ghnWardCode) {
+              wardCode = String(address.ghnWardCode);
+            }
+          } catch {}
+
+          const shipRes = await shippingApi.validate(productId, districtId, wardCode);
           setShippingInfo(shipRes.data?.data || shipRes.data || null);
         } catch {}
       } catch {

@@ -22,6 +22,9 @@ import java.util.stream.Collectors;
 
 @Service
 public class SellerApplicationServiceImpl implements SellerApplicationService {
+    private static final String FOOD_SAFETY_CERTIFICATE = "FOOD_SAFETY_CERTIFICATE";
+    private static final String FOOD_SAFETY_COMMITMENT = "FOOD_SAFETY_COMMITMENT";
+
     private final SellerApplicationRepository sellerApplicationRepository;
     private final UserRepository userRepository;
     private final RoleRepository roleRepository;
@@ -110,6 +113,8 @@ public class SellerApplicationServiceImpl implements SellerApplicationService {
         app.setBusinessName(trimOrNull(request.getBusinessName()));
         app.setBusinessAddress(trimOrNull(request.getBusinessAddress()));
         app.setBusinessLicenseUrl(trimOrNull(request.getBusinessLicenseUrl()));
+        app.setFoodSafetyDocumentType(normalizeFoodSafetyDocumentType(request.getFoodSafetyDocumentType()));
+        app.setFoodSafetyDocumentUrl(trimOrNull(request.getFoodSafetyDocumentUrl()));
         app.setIdentityFullName(request.getIdentityFullName().trim());
         app.setIdentityNumber(request.getIdentityNumber().trim());
         app.setIdentityIssueDate(request.getIdentityIssueDate());
@@ -219,21 +224,6 @@ public class SellerApplicationServiceImpl implements SellerApplicationService {
                         "Chúc mừng!\n\nHồ sơ người bán của bạn đã được phê duyệt. Bạn có thể đăng sản phẩm ngay bây giờ.\n\nTrân trọng,\nHoa Quả Sơn"
                     );
             }
-            case "NEEDS_REVISION" -> {
-                app.setStatus(SellerApplicationStatus.NEEDS_REVISION);
-                notificationService.send(
-                        app.getUser().getId(),
-                        "Hồ sơ người bán cần bổ sung",
-                        "Admin đã yêu cầu bạn bổ sung/chỉnh sửa hồ sơ. Vui lòng kiểm tra ghi chú.",
-                        NotificationType.SYSTEM,
-                        app.getId()
-                );
-                    sendEmailAsync(
-                        app.getContactEmail(),
-                        "[Hoa Quả Sơn] Hồ sơ cần bổ sung",
-                        "Chào bạn,\n\nAdmin đã yêu cầu bạn bổ sung/chỉnh sửa hồ sơ đăng ký người bán.\nGhi chú: " + Optional.ofNullable(trimOrNull(note)).orElse("Không có") + "\n\nTrân trọng,\nHoa Quả Sơn"
-                    );
-            }
             case "REJECT" -> {
                 app.setStatus(SellerApplicationStatus.REJECTED);
                 notificationService.send(
@@ -246,10 +236,10 @@ public class SellerApplicationServiceImpl implements SellerApplicationService {
                     sendEmailAsync(
                         app.getContactEmail(),
                         "[Hoa Quả Sơn] Hồ sơ người bán bị từ chối",
-                        "Chào bạn,\n\nHồ sơ đăng ký người bán của bạn hiện chưa được duyệt.\nGhi chú: " + Optional.ofNullable(trimOrNull(note)).orElse("Không có") + "\nạn có thể cập nhật và gửi lại hồ sơ.\n\nTrân trọng,\nHoa Quả Sơn"
+                        "Chào bạn,\n\nHồ sơ đăng ký người bán của bạn hiện chưa được duyệt.\nGhi chú: " + Optional.ofNullable(trimOrNull(note)).orElse("Không có") + "\n\nBạn có thể cập nhật và gửi lại hồ sơ.\n\nTrân trọng,\nHoa Quả Sơn"
                     );
             }
-            default -> throw new RuntimeException("Hành động duyệt không hợp lệ. Dùng APPROVE / NEEDS_REVISION / REJECT");
+            default -> throw new RuntimeException("Hành động duyệt không hợp lệ. Dùng APPROVE hoặc REJECT");
         }
 
         app.setReviewNote(trimOrNull(note));
@@ -284,9 +274,30 @@ public class SellerApplicationServiceImpl implements SellerApplicationService {
         if (!Boolean.TRUE.equals(request.getAgreedToTerms())) {
             throw new RuntimeException("Bạn cần đồng ý điều khoản trước khi gửi hồ sơ");
         }
+
+        if (isBlank(request.getTaxCode())) {
+            throw new RuntimeException("Vui lòng nhập mã số thuế phù hợp với loại hình kinh doanh");
+        }
+
+        String documentType = Optional.ofNullable(request.getFoodSafetyDocumentType()).orElse("").trim().toUpperCase(Locale.ROOT);
+        String documentUrl = trimOrNull(request.getFoodSafetyDocumentUrl());
+        if (isBlank(documentUrl)) {
+            throw new RuntimeException("Vui lòng tải lên tài liệu chứng nhận/cam kết an toàn thực phẩm");
+        }
+
         if (request.getSellerType() == SellerType.BUSINESS) {
             if (isBlank(request.getTaxCode()) || isBlank(request.getBusinessName()) || isBlank(request.getBusinessAddress()) || isBlank(request.getBusinessLicenseUrl())) {
                 throw new RuntimeException("Hồ sơ doanh nghiệp cần đầy đủ MST, tên doanh nghiệp, địa chỉ và giấy phép kinh doanh");
+            }
+            if (!FOOD_SAFETY_CERTIFICATE.equals(documentType)) {
+                throw new RuntimeException("Doanh nghiệp bắt buộc nộp Giấy chứng nhận ATTP");
+            }
+            return;
+        }
+
+        if (request.getSellerType() == SellerType.INDIVIDUAL) {
+            if (!FOOD_SAFETY_CERTIFICATE.equals(documentType) && !FOOD_SAFETY_COMMITMENT.equals(documentType)) {
+                throw new RuntimeException("Cá nhân cần chọn Giấy chứng nhận ATTP hoặc Bản cam kết sản xuất an toàn thực phẩm");
             }
         }
     }
@@ -326,6 +337,14 @@ public class SellerApplicationServiceImpl implements SellerApplicationService {
         return value == null || value.trim().isEmpty();
     }
 
+    private String normalizeFoodSafetyDocumentType(String value) {
+        if (value == null) {
+            return null;
+        }
+        String normalized = value.trim().toUpperCase(Locale.ROOT);
+        return normalized.isEmpty() ? null : normalized;
+    }
+
     private SellerApplicationResponseDTO toDTO(SellerApplication app) {
         SellerApplicationResponseDTO dto = new SellerApplicationResponseDTO();
         dto.setId(app.getId());
@@ -351,6 +370,8 @@ public class SellerApplicationServiceImpl implements SellerApplicationService {
         dto.setBusinessName(app.getBusinessName());
         dto.setBusinessAddress(app.getBusinessAddress());
         dto.setBusinessLicenseUrl(app.getBusinessLicenseUrl());
+        dto.setFoodSafetyDocumentType(app.getFoodSafetyDocumentType());
+        dto.setFoodSafetyDocumentUrl(app.getFoodSafetyDocumentUrl());
         dto.setIdentityFullName(app.getIdentityFullName());
         dto.setIdentityNumber(app.getIdentityNumber());
         dto.setIdentityIssueDate(app.getIdentityIssueDate());

@@ -50,6 +50,8 @@ interface SellerApplication {
   businessName?: string;
   businessAddress?: string;
   businessLicenseUrl?: string;
+  foodSafetyDocumentType?: "FOOD_SAFETY_CERTIFICATE" | "FOOD_SAFETY_COMMITMENT";
+  foodSafetyDocumentUrl?: string;
   identityFullName?: string;
   identityNumber?: string;
   identityIssueDate?: string;
@@ -62,7 +64,7 @@ interface SellerApplication {
   reviewNote?: string;
 }
 
-type DocumentType = "front" | "back" | "license";
+type DocumentType = "front" | "back" | "license" | "food-safety";
 
 type Tab = "users" | "products" | "seller-applications";
 
@@ -84,12 +86,15 @@ export default function AdminPage() {
     front: "",
     back: "",
     license: "",
+    "food-safety": "",
   });
   const [documentMimeTypes, setDocumentMimeTypes] = useState<Record<DocumentType, string>>({
     front: "",
     back: "",
     license: "",
+    "food-safety": "",
   });
+  const [reviewNote, setReviewNote] = useState("");
 
   useEffect(() => {
     if (!isLoggedIn()) { router.push("/login"); return; }
@@ -124,10 +129,9 @@ export default function AdminPage() {
     }
   };
 
-  const handleReviewSellerApplication = async (id: number, action: "APPROVE" | "NEEDS_REVISION" | "REJECT") => {
+  const handleReviewSellerApplication = async (id: number, action: "APPROVE" | "REJECT") => {
     const currentApp = sellerApplications.find((item) => item.id === id);
-    const note = action === "APPROVE" ? "" : prompt("Nhập ghi chú cho người dùng:") || "";
-    if (action !== "APPROVE" && !note.trim()) {
+    if (action !== "APPROVE" && !reviewNote.trim()) {
       toast.error("Vui lòng nhập ghi chú");
       return;
     }
@@ -136,7 +140,7 @@ export default function AdminPage() {
       if (currentApp?.status === "SUBMITTED") {
         await adminApi.startReviewSellerApplication(id);
       }
-      await adminApi.reviewSellerApplication(id, action, note);
+      await adminApi.reviewSellerApplication(id, action, reviewNote);
       toast.success("Đã cập nhật trạng thái hồ sơ");
       await loadData();
     } catch (err: any) {
@@ -205,8 +209,8 @@ export default function AdminPage() {
     let disposed = false;
     const createdUrls: string[] = [];
 
-    setDocumentPreviewUrls({ front: "", back: "", license: "" });
-    setDocumentMimeTypes({ front: "", back: "", license: "" });
+    setDocumentPreviewUrls({ front: "", back: "", license: "", "food-safety": "" });
+    setDocumentMimeTypes({ front: "", back: "", license: "", "food-safety": "" });
 
     if (!selectedSellerApplication) {
       return () => {
@@ -215,13 +219,14 @@ export default function AdminPage() {
     }
 
     (async () => {
-      const nextUrls: Record<DocumentType, string> = { front: "", back: "", license: "" };
-      const nextMimes: Record<DocumentType, string> = { front: "", back: "", license: "" };
+      const nextUrls: Record<DocumentType, string> = { front: "", back: "", license: "", "food-safety": "" };
+      const nextMimes: Record<DocumentType, string> = { front: "", back: "", license: "", "food-safety": "" };
 
       const tasks: Array<{ type: DocumentType; url?: string }> = [
         { type: "front", url: selectedSellerApplication.idCardFrontUrl },
         { type: "back", url: selectedSellerApplication.idCardBackUrl },
         { type: "license", url: selectedSellerApplication.businessLicenseUrl },
+        { type: "food-safety", url: selectedSellerApplication.foodSafetyDocumentUrl },
       ];
 
       for (const task of tasks) {
@@ -268,48 +273,81 @@ export default function AdminPage() {
 
     if (!displayUrl) {
       return (
-        <div className="rounded-lg border border-dashed border-gray-300 p-3 text-sm text-gray-400">
+        <div className="rounded-xl border border-dashed border-gray-300 bg-white p-4 text-sm text-gray-400 min-h-40 flex items-center justify-center">
           {label}: Chưa có tài liệu
         </div>
       );
     }
 
     return (
-      <div className="rounded-lg border border-gray-200 p-3">
-        <div className="flex items-center justify-between gap-3 mb-2">
-          <p className="text-sm font-medium text-gray-700">{label}</p>
+      <div className="rounded-xl overflow-hidden bg-white border border-gray-200 shadow-sm">
+        <div className="relative aspect-[4/3] bg-gray-100">
+          {isImageFile(displayUrl, mimeType) ? (
+            <img src={displayUrl} alt={label} className="w-full h-full object-cover" />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center text-sm text-gray-500">
+              Tài liệu PDF
+            </div>
+          )}
+          <div className="absolute bottom-2 left-2 bg-black/55 text-white text-xs px-2 py-1 rounded-md">
+            {label}
+          </div>
+        </div>
+        <div className="px-3 py-2 flex items-center justify-end">
           <a
             href={displayUrl}
             target="_blank"
             rel="noreferrer"
-            className="text-xs text-blue-600 hover:text-blue-700 underline"
+            className="text-xs text-green-700 hover:text-green-800 font-medium"
           >
-            Mở tài liệu
+            Xem chi tiết
           </a>
         </div>
-        {isImageFile(displayUrl, mimeType) ? (
-          <img src={displayUrl} alt={label} className="w-full h-48 object-cover rounded-lg border border-gray-100" />
-        ) : (
-          <div className="h-20 rounded-lg bg-gray-50 border border-gray-100 flex items-center justify-center text-sm text-gray-500">
-            Tài liệu PDF - bấm "Mở tài liệu" để xem
-          </div>
-        )}
       </div>
     );
   };
 
+  const getStatusBadgeClass = (status?: string) => {
+    if (status === "APPROVED") return "bg-green-100 text-green-700";
+    if (status === "REJECTED") return "bg-red-100 text-red-700";
+    if (status === "NEEDS_REVISION") return "bg-amber-100 text-amber-700";
+    return "bg-blue-100 text-blue-700";
+  };
+
+  const mapSellerTypeLabel = (type?: "INDIVIDUAL" | "BUSINESS") => {
+    if (type === "BUSINESS") return "Doanh nghiệp";
+    if (type === "INDIVIDUAL") return "Hộ kinh doanh cá thể";
+    return "-";
+  };
+
+  const mapFoodSafetyTypeLabel = (type?: string) => {
+    if (type === "FOOD_SAFETY_COMMITMENT") {
+      return "Bản cam kết sản xuất an toàn thực phẩm";
+    }
+    if (type === "FOOD_SAFETY_CERTIFICATE") {
+      return "Giấy chứng nhận ATTP";
+    }
+    return "-";
+  };
+
+  const DetailRow = ({ label, value }: { label: string; value?: string }) => (
+    <div className="flex justify-between items-center bg-[#eef3ea] p-3 rounded-lg gap-3">
+      <span className="text-sm text-gray-600">{label}</span>
+      <span className="text-sm font-semibold text-gray-800 text-right">{value || "-"}</span>
+    </div>
+  );
+
   return (
-    <div className="max-w-6xl mx-auto px-4 py-8">
-      <div className="flex items-center gap-3 mb-6">
+    <div className="min-h-screen bg-white px-4 py-8">
+      <div className="max-w-5xl xl:max-w-7xl mx-auto">
         <Shield className="w-7 h-7 text-primary-600" />
         <h1 className="text-2xl font-bold text-gray-800">Quản trị hệ thống</h1>
         <Link href="/admin/analytics" className="ml-auto flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700">
           📊 Thống kê & Phân tích
         </Link>
-      </div>
 
-      {/* Tabs */}
-      <div className="flex gap-1 mb-6 bg-gray-100 rounded-xl p-1 w-fit">
+        {/* Tabs */}
+        <div className="flex gap-1 mb-6 bg-gray-100 rounded-xl p-1 w-fit mt-6">
         <button
           onClick={() => setTab("users")}
           className={`px-4 py-2 rounded-lg text-sm font-medium transition flex items-center gap-2 ${
@@ -409,7 +447,7 @@ export default function AdminPage() {
           {/* Create product modal */}
           {showCreateProduct && (
             <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => setShowCreateProduct(false)}>
-              <div className="bg-white rounded-2xl p-6 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-white rounded-2xl p-6 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="font-bold text-gray-800">Thêm sản phẩm mới</h3>
                   <button onClick={() => setShowCreateProduct(false)} className="p-1 text-gray-400 hover:text-gray-600">
@@ -582,35 +620,15 @@ export default function AdminPage() {
                       </td>
                       <td className="py-3 px-4 text-gray-600 text-xs max-w-xs">{app.reviewNote || "-"}</td>
                       <td className="py-3 px-4">
-                        <div className="flex items-center justify-center gap-2">
-                          <button
-                            onClick={() => setSelectedSellerApplication(app)}
-                            className="px-2 py-1 text-xs rounded bg-slate-600 text-white hover:bg-slate-700"
-                          >
-                            Xem hồ sơ
-                          </button>
-                          <button
-                            disabled={reviewingId === app.id || app.status === "APPROVED"}
-                            onClick={() => handleReviewSellerApplication(app.id, "APPROVE")}
-                            className="px-2 py-1 text-xs rounded bg-green-600 text-white hover:bg-green-700 disabled:opacity-50"
-                          >
-                            Duyệt
-                          </button>
-                          <button
-                            disabled={reviewingId === app.id || app.status === "APPROVED"}
-                            onClick={() => handleReviewSellerApplication(app.id, "NEEDS_REVISION")}
-                            className="px-2 py-1 text-xs rounded bg-amber-500 text-white hover:bg-amber-600 disabled:opacity-50"
-                          >
-                            Bổ sung
-                          </button>
-                          <button
-                            disabled={reviewingId === app.id || app.status === "APPROVED"}
-                            onClick={() => handleReviewSellerApplication(app.id, "REJECT")}
-                            className="px-2 py-1 text-xs rounded bg-red-600 text-white hover:bg-red-700 disabled:opacity-50"
-                          >
-                            Từ chối
-                          </button>
-                        </div>
+                        <button
+                          onClick={() => {
+                            setSelectedSellerApplication(app);
+                            setReviewNote(app.reviewNote || "");
+                          }}
+                          className="px-3 py-1 text-xs rounded bg-slate-600 text-white hover:bg-slate-700"
+                        >
+                          Xem hồ sơ
+                        </button>
                       </td>
                     </tr>
                   ))
@@ -620,50 +638,136 @@ export default function AdminPage() {
           </div>
         </div>
       )}
+      </div>
 
       {selectedSellerApplication && (
-        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => setSelectedSellerApplication(null)}>
-          <div className="bg-white rounded-2xl p-6 w-full max-w-4xl max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="font-bold text-gray-800 text-lg">Chi tiết hồ sơ người bán #{selectedSellerApplication.id}</h3>
-              <button onClick={() => setSelectedSellerApplication(null)} className="p-1 text-gray-400 hover:text-gray-600">
-                <X className="w-5 h-5" />
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => {
+          setSelectedSellerApplication(null);
+          setReviewNote("");
+        }}>
+          <div className="bg-[#f6fbf1] rounded-3xl w-full max-w-5xl max-h-[92vh] overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <div className="px-6 py-4 border-b border-gray-200 bg-[#f6fbf1] sticky top-0 z-10">
+              <div className="flex items-center justify-between">
+                <h3 className="font-bold text-gray-800 text-lg">Duyệt hồ sơ người bán #{selectedSellerApplication.id}</h3>
+                <button onClick={() => {
+                  setSelectedSellerApplication(null);
+                  setReviewNote("");
+                }} className="p-1 text-gray-400 hover:text-gray-600">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            <div className="p-6 space-y-6 overflow-y-auto max-h-[calc(92vh-148px)]">
+              <section className="space-y-3">
+                <div className="flex items-end justify-between">
+                  <h4 className="font-semibold text-2xl text-gray-800">Thông tin shop</h4>
+                  <span className="text-green-700 text-sm font-medium">Chi tiết</span>
+                </div>
+                <div className="bg-white rounded-xl p-5 shadow-sm border border-gray-100">
+                  <div className="space-y-3">
+                    <div>
+                      <p className="text-xs uppercase tracking-wider text-gray-500">Tên cửa hàng</p>
+                      <p className="text-xl font-bold text-gray-800">{selectedSellerApplication.shopName}</p>
+                    </div>
+                    <p className="text-sm text-gray-600">Email: {selectedSellerApplication.contactEmail || selectedSellerApplication.userEmail}</p>
+                    <p className="text-sm text-gray-600">SĐT: {selectedSellerApplication.contactPhone || "-"}</p>
+                    <p className="text-sm text-gray-600">Địa chỉ: {selectedSellerApplication.pickupAddress || "-"}</p>
+                    <div className="pt-3 border-t border-gray-200 flex items-center justify-between">
+                      <span className="text-xs text-gray-500">Đối tác vận chuyển</span>
+                      <span className="px-3 py-1 rounded-full bg-green-100 text-green-700 text-xs font-bold uppercase">
+                        {selectedSellerApplication.shippingProvider || "-"}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <section className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <h4 className="font-semibold text-2xl text-gray-800">Thông tin định danh</h4>
+                  <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase ${getStatusBadgeClass(selectedSellerApplication.status)}`}>
+                    {selectedSellerApplication.status}
+                  </span>
+                </div>
+                <div className="bg-[#eef3ea] rounded-xl p-5 border border-gray-100 grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <p className="text-[11px] uppercase tracking-wider text-gray-500">Họ và tên</p>
+                    <p className="text-lg font-semibold text-gray-800">{selectedSellerApplication.identityFullName || "-"}</p>
+                  </div>
+                  <div className="md:text-right">
+                    <p className="text-[11px] uppercase tracking-wider text-gray-500">Số CCCD</p>
+                    <p className="text-lg font-semibold text-gray-800">{selectedSellerApplication.identityNumber || "-"}</p>
+                  </div>
+                  <div>
+                    <p className="text-[11px] uppercase tracking-wider text-gray-500">Ngày cấp</p>
+                    <p className="text-lg font-semibold text-gray-800">{selectedSellerApplication.identityIssueDate ? new Date(selectedSellerApplication.identityIssueDate).toLocaleDateString("vi-VN") : "-"}</p>
+                  </div>
+                  <div className="md:text-right">
+                    <p className="text-[11px] uppercase tracking-wider text-gray-500">Nơi cấp</p>
+                    <p className="text-lg font-semibold text-gray-800">{selectedSellerApplication.identityIssuePlace || "-"}</p>
+                  </div>
+                </div>
+              </section>
+
+              <section className="space-y-3">
+                <h4 className="font-semibold text-2xl text-gray-800">Thông tin thuế</h4>
+                <div className="bg-white rounded-xl p-5 border border-gray-100 space-y-3">
+                  <DetailRow label="Loại hình kinh doanh" value={mapSellerTypeLabel(selectedSellerApplication.sellerType)} />
+                  <DetailRow label="Mã số thuế" value={selectedSellerApplication.taxCode} />
+                  {selectedSellerApplication.sellerType === "BUSINESS" && (
+                    <>
+                      <DetailRow label="Tên doanh nghiệp" value={selectedSellerApplication.businessName} />
+                      <DetailRow label="Địa chỉ doanh nghiệp" value={selectedSellerApplication.businessAddress} />
+                    </>
+                  )}
+                  <DetailRow label="Loại tài liệu ATTP" value={mapFoodSafetyTypeLabel(selectedSellerApplication.foodSafetyDocumentType)} />
+                </div>
+              </section>
+
+              <section className="space-y-3">
+                <h4 className="font-semibold text-2xl text-gray-800">Tài liệu đính kèm</h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {renderDocumentPreview("Mặt trước CCCD", selectedSellerApplication.idCardFrontUrl, "front")}
+                  {renderDocumentPreview("Mặt sau CCCD", selectedSellerApplication.idCardBackUrl, "back")}
+                  {renderDocumentPreview("Giấy phép đăng ký kinh doanh", selectedSellerApplication.businessLicenseUrl, "license")}
+                  {renderDocumentPreview(
+                    selectedSellerApplication.foodSafetyDocumentType === "FOOD_SAFETY_COMMITMENT"
+                      ? "Bản cam kết an toàn thực phẩm"
+                      : "Chứng nhận vệ sinh an toàn thực phẩm",
+                    selectedSellerApplication.foodSafetyDocumentUrl,
+                    "food-safety"
+                  )}
+                </div>
+              </section>
+
+              <section className="space-y-2 pb-2">
+                <h4 className="font-semibold text-2xl text-gray-800">Ghi chú kiểm duyệt</h4>
+                <p className="text-sm text-gray-600">Nhận xét của bạn</p>
+                <textarea
+                  value={reviewNote}
+                  onChange={(e) => setReviewNote(e.target.value)}
+                  placeholder="Nhập ghi chú (bắt buộc nếu từ chối)"
+                  className="w-full bg-white border-2 border-gray-300 rounded-xl p-4 text-sm h-28 resize-none text-gray-700 focus:border-green-600 focus:outline-none"
+                />
+              </section>
+            </div>
+
+            <div className="px-6 py-4 bg-white/90 border-t border-gray-200 flex items-center justify-between gap-3">
+              <button
+                onClick={() => handleReviewSellerApplication(selectedSellerApplication.id, "REJECT")}
+                disabled={reviewingId === selectedSellerApplication.id || selectedSellerApplication.status === "APPROVED"}
+                className="min-w-36 py-3 rounded-xl border border-gray-300 text-gray-600 font-medium hover:bg-gray-50 disabled:opacity-50"
+              >
+                Từ chối
               </button>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-              <div className="rounded-xl bg-gray-50 p-4 border border-gray-100">
-                <p className="text-xs uppercase tracking-wide text-gray-500 mb-2">Thông tin shop</p>
-                <p className="text-sm text-gray-700"><span className="font-medium">Shop:</span> {selectedSellerApplication.shopName}</p>
-                <p className="text-sm text-gray-700"><span className="font-medium">Email:</span> {selectedSellerApplication.contactEmail || selectedSellerApplication.userEmail}</p>
-                <p className="text-sm text-gray-700"><span className="font-medium">SĐT:</span> {selectedSellerApplication.contactPhone || "-"}</p>
-                <p className="text-sm text-gray-700"><span className="font-medium">Địa chỉ lấy hàng:</span> {selectedSellerApplication.pickupAddress || "-"}</p>
-                <p className="text-sm text-gray-700"><span className="font-medium">Đơn vị VC:</span> {selectedSellerApplication.shippingProvider || "-"}</p>
-              </div>
-
-              <div className="rounded-xl bg-gray-50 p-4 border border-gray-100">
-                <p className="text-xs uppercase tracking-wide text-gray-500 mb-2">Thông tin định danh</p>
-                <p className="text-sm text-gray-700"><span className="font-medium">Họ tên:</span> {selectedSellerApplication.identityFullName || "-"}</p>
-                <p className="text-sm text-gray-700"><span className="font-medium">Số giấy tờ:</span> {selectedSellerApplication.identityNumber || "-"}</p>
-                <p className="text-sm text-gray-700"><span className="font-medium">Ngày cấp:</span> {selectedSellerApplication.identityIssueDate ? new Date(selectedSellerApplication.identityIssueDate).toLocaleDateString("vi-VN") : "-"}</p>
-                <p className="text-sm text-gray-700"><span className="font-medium">Nơi cấp:</span> {selectedSellerApplication.identityIssuePlace || "-"}</p>
-                <p className="text-sm text-gray-700"><span className="font-medium">Trạng thái:</span> {selectedSellerApplication.status}</p>
-              </div>
-
-              <div className="rounded-xl bg-gray-50 p-4 border border-gray-100 md:col-span-2">
-                <p className="text-xs uppercase tracking-wide text-gray-500 mb-2">Thông tin thuế/doanh nghiệp</p>
-                <p className="text-sm text-gray-700"><span className="font-medium">Loại hình:</span> {selectedSellerApplication.sellerType === "BUSINESS" ? "Doanh nghiệp" : "Cá nhân"}</p>
-                <p className="text-sm text-gray-700"><span className="font-medium">MST:</span> {selectedSellerApplication.taxCode || "-"}</p>
-                <p className="text-sm text-gray-700"><span className="font-medium">Tên doanh nghiệp:</span> {selectedSellerApplication.businessName || "-"}</p>
-                <p className="text-sm text-gray-700"><span className="font-medium">Địa chỉ doanh nghiệp:</span> {selectedSellerApplication.businessAddress || "-"}</p>
-                <p className="text-sm text-gray-700"><span className="font-medium">Ghi chú admin:</span> {selectedSellerApplication.reviewNote || "-"}</p>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {renderDocumentPreview("CCCD mặt trước", selectedSellerApplication.idCardFrontUrl, "front")}
-              {renderDocumentPreview("CCCD mặt sau", selectedSellerApplication.idCardBackUrl, "back")}
-              {renderDocumentPreview("Giấy phép kinh doanh", selectedSellerApplication.businessLicenseUrl, "license")}
+              <button
+                onClick={() => handleReviewSellerApplication(selectedSellerApplication.id, "APPROVE")}
+                disabled={reviewingId === selectedSellerApplication.id || selectedSellerApplication.status === "APPROVED"}
+                className="min-w-36 py-3 rounded-xl bg-green-700 text-white font-semibold hover:bg-green-800 disabled:opacity-50"
+              >
+                Duyệt
+              </button>
             </div>
           </div>
         </div>

@@ -60,6 +60,8 @@ public class SellerApplicationSubmitRequestDTO {
     private String businessName;
     private String businessAddress;
     private String businessLicenseUrl;
+    private String foodSafetyDocumentType;
+    private String foodSafetyDocumentUrl;
 
     @NotBlank(message = "Họ tên theo giấy tờ không được để trống")
     private String identityFullName;

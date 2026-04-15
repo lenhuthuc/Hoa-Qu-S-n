@@ -16,6 +16,7 @@ public class ProductRequestDTO {
     private Long quantity;
     private Long unitWeightGrams;
     private BigDecimal totalStockWeightKg;
+    private Integer shelfLifeDays;
     private Long categoryId;
     private String description;
     private String batchId;
