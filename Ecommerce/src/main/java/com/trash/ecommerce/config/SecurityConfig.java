@@ -49,7 +49,7 @@ public class SecurityConfig {
                         .requestMatchers("GET", "/api/market-prices/**").permitAll()
                         .requestMatchers("/api/farming-journal/**").authenticated()
                         .requestMatchers("/api/traceability/**").authenticated()
-                        .requestMatchers("/api/shipping/**").authenticated()
+                        .requestMatchers("/api/shipping/**").permitAll()
                         .requestMatchers("GET", "/api/trust-score/**").permitAll()
                         .requestMatchers("/api/trust-score/**").authenticated()
                         .requestMatchers("/api/returns/**").authenticated()

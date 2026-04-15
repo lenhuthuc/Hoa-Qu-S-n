@@ -11,4 +11,5 @@ public class SellerDocumentUploadResponseDTO {
     private String idCardFrontUrl;
     private String idCardBackUrl;
     private String businessLicenseUrl;
+    private String foodSafetyDocumentUrl;
 }

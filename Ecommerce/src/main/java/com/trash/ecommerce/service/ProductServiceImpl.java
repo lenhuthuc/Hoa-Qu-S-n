@@ -103,6 +103,7 @@ public class ProductServiceImpl implements ProductService {
         product.setProductName(productRequestDTO.getProductName());
         product.setUnitWeightGrams(productRequestDTO.getUnitWeightGrams());
         product.setTotalStockWeightKg(productRequestDTO.getTotalStockWeightKg());
+        product.setShelfLifeDays(productRequestDTO.getShelfLifeDays());
         product.setQuantity(resolveInventoryQuantity(productRequestDTO, null));
         product.setDescription(productRequestDTO.getDescription());
         product.setBatchId(productRequestDTO.getBatchId());
@@ -187,6 +188,9 @@ public class ProductServiceImpl implements ProductService {
         }
         if (productRequestDTO.getTotalStockWeightKg() != null) {
             product.setTotalStockWeightKg(productRequestDTO.getTotalStockWeightKg());
+        }
+        if (productRequestDTO.getShelfLifeDays() != null) {
+            product.setShelfLifeDays(productRequestDTO.getShelfLifeDays());
         }
         if (productRequestDTO.getUnitWeightGrams() != null
                 || productRequestDTO.getTotalStockWeightKg() != null) {

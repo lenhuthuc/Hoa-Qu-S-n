@@ -7,6 +7,7 @@ import { isLoggedIn, parseToken, sellerOnboardingApi, shippingApi, userApi } fro
 import toast from "react-hot-toast";
 
 type SellerType = "INDIVIDUAL" | "BUSINESS";
+type FoodSafetyDocumentType = "FOOD_SAFETY_CERTIFICATE" | "FOOD_SAFETY_COMMITMENT";
 
 type ApplicationStatus = "DRAFT" | "SUBMITTED" | "UNDER_REVIEW" | "NEEDS_REVISION" | "APPROVED" | "REJECTED";
 
@@ -32,6 +33,8 @@ interface SellerApplicationResponse {
   businessName?: string;
   businessAddress?: string;
   businessLicenseUrl?: string;
+  foodSafetyDocumentType?: FoodSafetyDocumentType;
+  foodSafetyDocumentUrl?: string;
   identityFullName?: string;
   identityNumber?: string;
   identityIssueDate?: string;
@@ -45,6 +48,7 @@ interface SellerDocumentUploadResponse {
   idCardFrontUrl: string;
   idCardBackUrl: string;
   businessLicenseUrl?: string;
+  foodSafetyDocumentUrl?: string;
 }
 
 interface ProvinceOption {
@@ -80,6 +84,8 @@ const initialForm = {
   businessName: "",
   businessAddress: "",
   businessLicenseUrl: "",
+  foodSafetyDocumentType: "FOOD_SAFETY_CERTIFICATE" as FoodSafetyDocumentType,
+  foodSafetyDocumentUrl: "",
   identityFullName: "",
   identityNumber: "",
   identityIssueDate: "",
@@ -98,6 +104,7 @@ export default function SellerRegisterPage() {
   const [idCardFrontFile, setIdCardFrontFile] = useState<File | null>(null);
   const [idCardBackFile, setIdCardBackFile] = useState<File | null>(null);
   const [businessLicenseFile, setBusinessLicenseFile] = useState<File | null>(null);
+  const [foodSafetyFile, setFoodSafetyFile] = useState<File | null>(null);
   const [provinces, setProvinces] = useState<ProvinceOption[]>([]);
   const [districts, setDistricts] = useState<DistrictOption[]>([]);
   const [wards, setWards] = useState<WardOption[]>([]);
@@ -214,6 +221,8 @@ export default function SellerRegisterPage() {
             businessName: app.businessName || prev.businessName,
             businessAddress: app.businessAddress || prev.businessAddress,
             businessLicenseUrl: app.businessLicenseUrl || prev.businessLicenseUrl,
+            foodSafetyDocumentType: app.foodSafetyDocumentType || prev.foodSafetyDocumentType,
+            foodSafetyDocumentUrl: app.foodSafetyDocumentUrl || prev.foodSafetyDocumentUrl,
             identityFullName: app.identityFullName || prev.identityFullName,
             identityNumber: app.identityNumber || prev.identityNumber,
             identityIssueDate: app.identityIssueDate || prev.identityIssueDate,
@@ -313,27 +322,40 @@ export default function SellerRegisterPage() {
       let idCardFrontUrl = form.idCardFrontUrl;
       let idCardBackUrl = form.idCardBackUrl;
       let businessLicenseUrl = form.businessLicenseUrl;
+      let foodSafetyDocumentUrl = form.foodSafetyDocumentUrl;
 
-      const shouldUpload = !!idCardFrontFile || !!idCardBackFile || !!businessLicenseFile;
+      const shouldUpload = !!idCardFrontFile || !!idCardBackFile || !!businessLicenseFile || !!foodSafetyFile;
 
       if (shouldUpload) {
-        if (!idCardFrontFile || !idCardBackFile) {
+        if (!idCardFrontFile && !idCardFrontUrl) {
+          toast.error("Cần chọn ảnh CCCD mặt trước");
+          return;
+        }
+        if (!idCardBackFile && !idCardBackUrl) {
           toast.error("Cần chọn đủ ảnh CCCD mặt trước và mặt sau");
           return;
         }
 
         const documentForm = new FormData();
-        documentForm.append("idCardFront", idCardFrontFile);
-        documentForm.append("idCardBack", idCardBackFile);
+        if (idCardFrontFile) {
+          documentForm.append("idCardFront", idCardFrontFile);
+        }
+        if (idCardBackFile) {
+          documentForm.append("idCardBack", idCardBackFile);
+        }
         if (businessLicenseFile) {
           documentForm.append("businessLicense", businessLicenseFile);
+        }
+        if (foodSafetyFile) {
+          documentForm.append("foodSafetyDocument", foodSafetyFile);
         }
 
         const uploadRes = await sellerOnboardingApi.uploadDocuments(documentForm);
         const uploaded: SellerDocumentUploadResponse = uploadRes.data;
-        idCardFrontUrl = uploaded.idCardFrontUrl;
-        idCardBackUrl = uploaded.idCardBackUrl;
+        idCardFrontUrl = uploaded.idCardFrontUrl || idCardFrontUrl;
+        idCardBackUrl = uploaded.idCardBackUrl || idCardBackUrl;
         businessLicenseUrl = uploaded.businessLicenseUrl || businessLicenseUrl;
+        foodSafetyDocumentUrl = uploaded.foodSafetyDocumentUrl || foodSafetyDocumentUrl;
       }
 
       if (!idCardFrontUrl || !idCardBackUrl) {
@@ -343,6 +365,22 @@ export default function SellerRegisterPage() {
 
       if (form.sellerType === "BUSINESS" && !businessLicenseUrl) {
         toast.error("Doanh nghiệp cần tải giấy phép kinh doanh");
+        return;
+      }
+      if (!form.taxCode.trim()) {
+        toast.error(form.sellerType === "BUSINESS" ? "Doanh nghiệp cần nhập mã số thuế" : "Cá nhân cần nhập mã số thuế cá nhân");
+        return;
+      }
+      if (!foodSafetyDocumentUrl) {
+        toast.error("Vui lòng tải tài liệu Giấy phép & Chứng nhận");
+        return;
+      }
+      if (form.sellerType === "BUSINESS" && form.foodSafetyDocumentType !== "FOOD_SAFETY_CERTIFICATE") {
+        toast.error("Doanh nghiệp bắt buộc chọn Giấy chứng nhận ATTP");
+        return;
+      }
+      if (form.sellerType === "INDIVIDUAL" && !["FOOD_SAFETY_CERTIFICATE", "FOOD_SAFETY_COMMITMENT"].includes(form.foodSafetyDocumentType)) {
+        toast.error("Cá nhân cần chọn loại tài liệu an toàn thực phẩm hợp lệ");
         return;
       }
 
@@ -364,12 +402,15 @@ export default function SellerRegisterPage() {
         businessName: form.businessName || null,
         businessAddress: form.businessAddress || null,
         businessLicenseUrl: businessLicenseUrl || null,
+        foodSafetyDocumentType: form.foodSafetyDocumentType,
+        foodSafetyDocumentUrl: foodSafetyDocumentUrl || null,
       };
       const res = await sellerOnboardingApi.submit(payload);
       setApplication(res.data);
       setIdCardFrontFile(null);
       setIdCardBackFile(null);
       setBusinessLicenseFile(null);
+      setFoodSafetyFile(null);
       toast.success("Đã gửi hồ sơ đăng ký bán hàng, vui lòng chờ xét duyệt");
     } catch (err: any) {
       const respData = err?.response?.data;
@@ -575,16 +616,30 @@ export default function SellerRegisterPage() {
                 <select
                   disabled={!canEdit}
                   value={form.sellerType}
-                  onChange={(e) => setForm((p) => ({ ...p, sellerType: e.target.value as SellerType }))}
+                  onChange={(e) => {
+                    const sellerType = e.target.value as SellerType;
+                    setForm((p) => ({
+                      ...p,
+                      sellerType,
+                      foodSafetyDocumentType: sellerType === "BUSINESS" ? "FOOD_SAFETY_CERTIFICATE" : p.foodSafetyDocumentType,
+                    }));
+                  }}
                   className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-2.5 focus:ring-2 focus:ring-green-400 outline-none disabled:bg-gray-50"
                 >
                   <option value="INDIVIDUAL">Cá nhân</option>
                   <option value="BUSINESS">Doanh nghiệp</option>
                 </select>
               </div>
+              <Input
+                label={form.sellerType === "BUSINESS" ? "Mã số thuế doanh nghiệp" : "Mã số thuế cá nhân"}
+                required
+                disabled={!canEdit}
+                value={form.taxCode}
+                onChange={(v) => setForm((p) => ({ ...p, taxCode: v }))}
+                placeholder={form.sellerType === "BUSINESS" ? "Nhập mã số thuế doanh nghiệp" : "Nhập mã số thuế cá nhân"}
+              />
               {form.sellerType === "BUSINESS" && (
                 <>
-                  <Input label="Mã số thuế" required disabled={!canEdit} value={form.taxCode} onChange={(v) => setForm((p) => ({ ...p, taxCode: v }))} placeholder="Nhập mã số thuế" />
                   <Input label="Tên doanh nghiệp" required disabled={!canEdit} value={form.businessName} onChange={(v) => setForm((p) => ({ ...p, businessName: v }))} placeholder="Tên pháp lý công ty" />
                   <Input label="Địa chỉ trụ sở" required disabled={!canEdit} value={form.businessAddress} onChange={(v) => setForm((p) => ({ ...p, businessAddress: v }))} placeholder="Địa chỉ đăng ký kinh doanh" />
                   <DocumentFileInput
@@ -598,6 +653,38 @@ export default function SellerRegisterPage() {
                   />
                 </>
               )}
+            </div>
+          </section>
+
+          <section className="bg-white rounded-2xl border border-gray-100 p-6 shadow-sm">
+            <h2 className="text-lg font-semibold text-gray-800 flex items-center gap-2 mb-4">
+              <FileCheck2 className="w-5 h-5 text-green-600" /> Giấy phép & Chứng nhận
+            </h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="text-sm font-medium text-gray-700">Loại tài liệu an toàn thực phẩm</label>
+                <select
+                  disabled={!canEdit || form.sellerType === "BUSINESS"}
+                  value={form.sellerType === "BUSINESS" ? "FOOD_SAFETY_CERTIFICATE" : form.foodSafetyDocumentType}
+                  onChange={(e) => setForm((p) => ({ ...p, foodSafetyDocumentType: e.target.value as FoodSafetyDocumentType }))}
+                  className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-2.5 focus:ring-2 focus:ring-green-400 outline-none disabled:bg-gray-50"
+                >
+                  <option value="FOOD_SAFETY_CERTIFICATE">Giấy chứng nhận ATTP</option>
+                  <option value="FOOD_SAFETY_COMMITMENT">Bản cam kết sản xuất an toàn thực phẩm</option>
+                </select>
+                {form.sellerType === "BUSINESS" && (
+                  <p className="mt-1 text-xs text-gray-500">Doanh nghiệp bắt buộc nộp Giấy chứng nhận ATTP.</p>
+                )}
+              </div>
+              <DocumentFileInput
+                label={form.foodSafetyDocumentType === "FOOD_SAFETY_COMMITMENT" ? "Bản cam kết sản xuất an toàn thực phẩm" : "Giấy chứng nhận ATTP"}
+                required
+                disabled={!canEdit}
+                accept="image/*,.pdf"
+                file={foodSafetyFile}
+                existingUrl={form.foodSafetyDocumentUrl}
+                onChange={setFoodSafetyFile}
+              />
             </div>
           </section>
 

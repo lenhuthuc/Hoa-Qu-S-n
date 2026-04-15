@@ -4,6 +4,7 @@ import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
@@ -453,6 +454,8 @@ public class OrderServiceImpl implements OrderService {
         Set<OrderItem> orderItems = new HashSet<>();
         Set<CartItemDetailsResponseDTO> responseItems = new HashSet<>();
         List<String> shippingWarnings = new ArrayList<>();
+        List<String> standardBlockedProducts = new ArrayList<>();
+        List<String> expressBlockedProducts = new ArrayList<>();
         boolean canStandard = true;
         boolean canExpress = true;
         BigDecimal standardShippingTotal = BigDecimal.ZERO;
@@ -490,19 +493,19 @@ public class OrderServiceImpl implements OrderService {
             ShippingValidationResponse shippingValidation = shippingValidationService.validateShipping(
                     product.getId(), normalizedDistrictId, normalizedWardCode);
             boolean itemHasStandard = shippingValidation.getAvailableMethods().stream()
-                    .anyMatch(m -> !isExpressServiceName(m.getServiceName()));
+                    .anyMatch(this::isStandardOption);
             boolean itemHasExpress = shippingValidation.getAvailableMethods().stream()
-                    .anyMatch(m -> isExpressServiceName(m.getServiceName()));
+                    .anyMatch(this::isExpressOption);
 
                 Long standardFee = shippingValidation.getAvailableMethods().stream()
-                    .filter(m -> !isExpressServiceName(m.getServiceName()))
+                    .filter(this::isStandardOption)
                     .map(ShippingValidationResponse.ShippingOption::getFee)
                     .filter(Objects::nonNull)
                     .min(Long::compareTo)
                     .orElse(null);
 
                 Long expressFee = shippingValidation.getAvailableMethods().stream()
-                    .filter(m -> isExpressServiceName(m.getServiceName()))
+                    .filter(this::isExpressOption)
                     .map(ShippingValidationResponse.ShippingOption::getFee)
                     .filter(Objects::nonNull)
                     .min(Long::compareTo)
@@ -510,16 +513,25 @@ public class OrderServiceImpl implements OrderService {
 
             if (!itemHasStandard) {
                 canStandard = false;
-                shippingWarnings.add("" + product.getProductName() + ": không có giao tiêu chuẩn phù hợp");
+                standardBlockedProducts.add(product.getProductName());
                 } else if (standardFee != null) {
                 standardShippingTotal = standardShippingTotal.add(BigDecimal.valueOf(standardFee));
             }
             if (!itemHasExpress) {
                 canExpress = false;
-                shippingWarnings.add("" + product.getProductName() + ": không có giao hỏa tốc phù hợp");
+                expressBlockedProducts.add(product.getProductName());
                 } else if (expressFee != null) {
                 expressShippingTotal = expressShippingTotal.add(BigDecimal.valueOf(expressFee));
             }
+        }
+
+        if (!standardBlockedProducts.isEmpty()) {
+            shippingWarnings.add("Giao tiêu chuẩn: Không hỗ trợ " + joinProductNames(standardBlockedProducts)
+                    + " vì thời gian vận chuyển dài hơn hạn sử dụng.");
+        }
+        if (!expressBlockedProducts.isEmpty()) {
+            shippingWarnings.add("Giao hỏa tốc: Không hỗ trợ " + joinProductNames(expressBlockedProducts)
+                    + " vì GHN hiện không cung cấp dịch vụ hỏa tốc cho tuyến giao này.");
         }
 
         List<String> availableDeliveryTypes = new ArrayList<>();
@@ -530,7 +542,33 @@ public class OrderServiceImpl implements OrderService {
             availableDeliveryTypes.add("EXPRESS");
         }
         if (availableDeliveryTypes.isEmpty()) {
-            throw new OrderValidException("Không có phương thức vận chuyển phù hợp cho giỏ hàng hiện tại");
+            shippingWarnings.add("Gợi ý: Hãy đổi địa chỉ nhận hoặc xóa các sản phẩm nhạy cảm để tiếp tục đặt hàng.");
+
+            BigDecimal discountAmount = resolveVoucherDiscount(discountVoucherCode, subtotal,
+                    "Mã giảm giá", consumeVoucherUsage);
+            BigDecimal shippingDiscountAmount = BigDecimal.ZERO;
+
+            BigDecimal totalAmount = subtotal.subtract(discountAmount);
+            if (totalAmount.compareTo(BigDecimal.ZERO) < 0) {
+                totalAmount = BigDecimal.ZERO;
+            }
+
+            String fallbackDeliveryType = (deliveryType == null || deliveryType.isBlank())
+                    ? "STANDARD"
+                    : deliveryType.trim().toUpperCase(Locale.ROOT);
+
+            OrderPreviewResponseDTO blockedPreview = new OrderPreviewResponseDTO();
+            blockedPreview.setSubtotal(subtotal);
+            blockedPreview.setShippingFee(BigDecimal.ZERO);
+            blockedPreview.setDiscountAmount(discountAmount);
+            blockedPreview.setShippingDiscountAmount(shippingDiscountAmount);
+            blockedPreview.setTotalAmount(totalAmount);
+            blockedPreview.setDeliveryType(fallbackDeliveryType);
+            blockedPreview.setAvailableDeliveryTypes(availableDeliveryTypes);
+            blockedPreview.setShippingWarnings(shippingWarnings);
+            blockedPreview.setCanCheckout(false);
+
+            return new PreviewContext(cart, orderItems, responseItems, blockedPreview);
         }
 
         String normalizedDeliveryType = normalizeDeliveryType(deliveryType, availableDeliveryTypes);
@@ -596,6 +634,13 @@ public class OrderServiceImpl implements OrderService {
         return toDistrictId;
     }
 
+    private String joinProductNames(List<String> names) {
+        if (names == null || names.isEmpty()) {
+            return "một số sản phẩm";
+        }
+        return String.join(", ", new LinkedHashSet<>(names));
+    }
+
     private String normalizeDeliveryType(String deliveryType, List<String> availableDeliveryTypes) {
         String normalized = (deliveryType == null || deliveryType.isBlank())
                 ? "STANDARD"
@@ -604,6 +649,28 @@ public class OrderServiceImpl implements OrderService {
             return availableDeliveryTypes.get(0);
         }
         return normalized;
+    }
+
+    private boolean isExpressOption(ShippingValidationResponse.ShippingOption option) {
+        if (option == null) {
+            return false;
+        }
+        Integer serviceTypeId = option.getServiceTypeId();
+        if (serviceTypeId != null) {
+            return serviceTypeId == 1;
+        }
+        return isExpressServiceName(option.getServiceName());
+    }
+
+    private boolean isStandardOption(ShippingValidationResponse.ShippingOption option) {
+        if (option == null) {
+            return false;
+        }
+        Integer serviceTypeId = option.getServiceTypeId();
+        if (serviceTypeId != null) {
+            return serviceTypeId == 2;
+        }
+        return !isExpressServiceName(option.getServiceName());
     }
 
     private boolean isExpressServiceName(String serviceName) {

@@ -34,6 +34,8 @@ public class SellerApplicationResponseDTO {
     private String businessName;
     private String businessAddress;
     private String businessLicenseUrl;
+    private String foodSafetyDocumentType;
+    private String foodSafetyDocumentUrl;
 
     private String identityFullName;
     private String identityNumber;
