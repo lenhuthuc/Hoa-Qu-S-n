@@ -22,15 +22,15 @@ public interface ProductRepository extends JpaRepository <Product, Long> {
     Page<Product> findProductsByName(@Param("name") String name, PageRequest pageRequest);
 
     @Modifying
-    @Query(value = "UPDATE product p SET p.quantity = p.quantity - :amount " +
-            "WHERE p.id = :id AND p.quantity >= :amount",
+    @Query(value = "UPDATE product SET quantity = quantity - :amount " +
+            "WHERE id = :id AND quantity >= :amount",
             nativeQuery = true)
     int decreaseStock(@Param("id") Long id, @Param("amount") Long amount);
 
-        @Modifying
-        @Query(value = "UPDATE product p SET p.quantity = p.quantity + :amount WHERE p.id = :id",
+    @Modifying
+    @Query(value = "UPDATE product SET quantity = quantity + :amount WHERE id = :id",
             nativeQuery = true)
-        int increaseStock(@Param("id") Long id, @Param("amount") Long amount);
+    int increaseStock(@Param("id") Long id, @Param("amount") Long amount);
 
     Page<Product> findByCategoryId(Long categoryId, PageRequest pageRequest);
 
