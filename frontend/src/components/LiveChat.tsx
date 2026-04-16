@@ -340,7 +340,7 @@ export default function LiveChat({
             onKeyDown={(e) => e.key === "Enter" && send()}
             placeholder="Nhập tin nhắn..."
             maxLength={500}
-            className="flex-1 border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+            className="flex-1 border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 text-gray-900 bg-white placeholder-gray-400"
           />
           <button
             onClick={send}

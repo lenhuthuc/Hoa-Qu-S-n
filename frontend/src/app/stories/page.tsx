@@ -41,10 +41,12 @@ export default function StoriesPage() {
 
   async function loadStories() {
     try {
-      const res = await storyApi.getAll(page, 12);
-      const data = res.data;
-      setStories(data.content || data || []);
-      setTotalPages(data.totalPages || 0);
+      const { data } = await storyApi.getAll(page, 12);
+      const items = Array.isArray(data?.content) ? data.content
+                  : Array.isArray(data) ? data
+                  : [];
+      setStories(items);
+      setTotalPages(data?.totalPages || 0);
     } catch {
       setStories([]);
     } finally {
@@ -101,8 +103,8 @@ export default function StoriesPage() {
                     )}
                   </div>
 
-                  <h2 className="font-semibold text-gray-800 mb-1 line-clamp-2">{story.title}</h2>
-                  <p className="text-sm text-gray-600 line-clamp-3 mb-3">{story.content}</p>
+                  <h2 className="font-semibold text-gray-800 mb-1 line-clamp-2">{story.title ?? ""}</h2>
+                  <p className="text-sm text-gray-600 line-clamp-3 mb-3">{story.content ?? ""}</p>
 
                   {story.videoUrl && (
                     <a href={story.videoUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-500 hover:underline mb-2 inline-block">

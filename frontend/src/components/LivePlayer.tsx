@@ -138,7 +138,7 @@ export default function LivePlayer({ whepUrl, hlsUrl, streamKey, streamStatus }:
       // jitterBufferTarget — Chrome only, graceful fallback cho browser khác
       pc.getReceivers().forEach((receiver) => {
         if (receiver.track.kind === "audio" && "jitterBufferTarget" in receiver) {
-          (receiver as RTCRtpReceiver & { jitterBufferTarget: number }).jitterBufferTarget = 50;
+          (receiver as RTCRtpReceiver & { jitterBufferTarget: number }).jitterBufferTarget = 100;
         }
       });
 
@@ -195,18 +195,18 @@ export default function LivePlayer({ whepUrl, hlsUrl, streamKey, streamStatus }:
     }
 
     const hls = new Hls({
-      // ── Cấu hình ABR & Sync cao cấp (Fix Audio desync) ──
       enableWorker: true,
-      lowLatencyMode: true,           // Low-latency HLS
-      backBufferLength: 30,           // Buffer 30 giây
-      maxBufferLength: 15,            // Tăng để tránh dropout
-      maxMaxBufferLength: 8,
-      liveSyncDurationCount: 3,       // Sync với 3 segments gần nhất
-      liveMaxLatencyDurationCount: 10, // Giữ độ trễ ổn định
+      lowLatencyMode: false,           // TẮT — nguyên nhân audio đến trước video
+      backBufferLength: 10,
+      maxBufferLength: 20,
+      maxMaxBufferLength: 30,
+      liveSyncDurationCount: 4,        // Sync 4 segments để A/V ổn định hơn
+      liveMaxLatencyDurationCount: 10,
+      maxBufferHole: 0.5,              // Lấp lỗ hổng audio/video
 
       // Auto-sync audio/video (Nudging)
       nudgeMaxRetry: 10,
-      nudgeOffset: 0.2,
+      nudgeOffset: 0.1,
 
       // ── Retry config cho mạng không ổn định ──
       fragLoadPolicy: {
