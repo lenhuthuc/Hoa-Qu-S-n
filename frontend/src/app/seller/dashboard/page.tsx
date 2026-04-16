@@ -18,7 +18,7 @@ import {
   Star,
   Tag,
 } from "lucide-react";
-import { sellerApi, trustScoreApi, isLoggedIn, parseToken, hasRole } from "@/lib/api";
+import { sellerApi, trustScoreApi, isLoggedIn, parseToken, hasRole, userApi } from "@/lib/api";
 
 interface DashboardData {
   totalProducts: number;
@@ -57,9 +57,31 @@ export default function SellerDashboard() {
 
   useEffect(() => {
     if (!isLoggedIn()) { router.push("/login"); return; }
-    if (!hasRole("SELLER") && !hasRole("ADMIN")) { router.push("/seller/register"); return; }
     (async () => {
       try {
+        if (!hasRole("SELLER") && !hasRole("ADMIN")) {
+          const refreshToken = localStorage.getItem("hqs_refresh_token");
+          if (refreshToken) {
+            try {
+              const refreshRes = await userApi.refresh(refreshToken);
+              const tokenData = refreshRes.data;
+              if (tokenData?.access) {
+                localStorage.setItem("hqs_token", tokenData.access);
+              }
+              if (tokenData?.refresh) {
+                localStorage.setItem("hqs_refresh_token", tokenData.refresh);
+              }
+            } catch {
+              // ignore refresh error and fallback to register redirect
+            }
+          }
+
+          if (!hasRole("SELLER") && !hasRole("ADMIN")) {
+            router.replace("/seller/register");
+            return;
+          }
+        }
+
         const [dashRes, trustRes] = await Promise.allSettled([
           sellerApi.getDashboard(),
           trustScoreApi.get(parseToken()?.id || 0),
@@ -69,7 +91,7 @@ export default function SellerDashboard() {
       } catch {}
       setLoading(false);
     })();
-  }, []);
+  }, [router]);
 
   const quickLinks = [
     { href: "/seller/products", icon: Package, label: "Quản lý sản phẩm", color: "text-green-600 bg-green-50" },

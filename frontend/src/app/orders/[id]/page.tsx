@@ -3,8 +3,8 @@
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { Package, Loader2, ChevronLeft, Leaf, CreditCard, Truck, FileText, CheckCircle, XCircle, MapPin } from "lucide-react";
-import { orderApi, userApi } from "@/lib/api";
+import { Package, Loader2, ChevronLeft, Leaf, CreditCard, Truck, CheckCircle, MapPin, Star, X, ImageIcon, Film, Trash2 } from "lucide-react";
+import { orderApi, reviewApi, sellerApi, userApi } from "@/lib/api";
 import toast from "react-hot-toast";
 
 interface OrderDetail {
@@ -26,6 +26,16 @@ interface OrderDetail {
   }>;
 }
 
+type ReviewTarget = {
+  productId: number;
+  productName: string;
+};
+
+type SelectedReviewFile = {
+  file: File;
+  previewUrl: string;
+};
+
 const statusMap: Record<string, { label: string; color: string; step: number }> = {
   PENDING: { label: "Chờ xác nhận", color: "text-amber-600", step: 1 },
   PLACED: { label: "Đã đặt hàng", color: "text-blue-600", step: 1 },
@@ -44,7 +54,16 @@ export default function OrderDetailPage() {
   const [order, setOrder] = useState<OrderDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [payingVnPay, setPayingVnPay] = useState(false);
+  const [confirmingReceived, setConfirmingReceived] = useState(false);
+  const [updatingSellerStatus, setUpdatingSellerStatus] = useState(false);
+  const [reviewTarget, setReviewTarget] = useState<ReviewTarget | null>(null);
+  const [reviewRating, setReviewRating] = useState(5);
+  const [reviewComment, setReviewComment] = useState("");
+  const [submittingReview, setSubmittingReview] = useState(false);
+  const [reviewedProductIds, setReviewedProductIds] = useState<number[]>([]);
   const [profilePhone, setProfilePhone] = useState<string>("");
+  const [reviewImages, setReviewImages] = useState<SelectedReviewFile[]>([]);
+  const [reviewVideo, setReviewVideo] = useState<SelectedReviewFile | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -88,6 +107,130 @@ export default function OrderDetailPage() {
       toast.error("Lỗi tạo thanh toán VNPay");
     } finally {
       setPayingVnPay(false);
+    }
+  };
+
+  const handleConfirmReceived = async () => {
+    if (!order || order.status !== "SHIPPED") return;
+    if (!confirm("Xác nhận bạn đã nhận được đơn hàng này?")) return;
+
+    setConfirmingReceived(true);
+    try {
+      await orderApi.updateStatus(order.id, "FINISHED");
+      setOrder((prev) => (prev ? { ...prev, status: "FINISHED" } : prev));
+      toast.success("Đã xác nhận nhận hàng");
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || "Không thể xác nhận nhận hàng");
+    } finally {
+      setConfirmingReceived(false);
+    }
+  };
+
+  const handleSellerUpdateStatus = async (newStatus: "PREPARING" | "SHIPPED") => {
+    if (!order || order.viewerRole !== "SELLER") return;
+
+    const label = newStatus === "PREPARING" ? "Xác nhận đơn" : "Giao hàng";
+    if (!confirm(`${label} cho đơn #${order.id}?`)) return;
+
+    setUpdatingSellerStatus(true);
+    try {
+      await sellerApi.updateOrderStatus(order.id, newStatus);
+      setOrder((prev) => (prev ? { ...prev, status: newStatus } : prev));
+      toast.success(label + " thành công");
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || "Không thể cập nhật trạng thái");
+    } finally {
+      setUpdatingSellerStatus(false);
+    }
+  };
+
+  const openReviewModal = (productId: number, productName: string) => {
+    setReviewTarget({ productId, productName });
+    setReviewRating(5);
+    setReviewComment("");
+    setReviewImages([]);
+    setReviewVideo(null);
+  };
+
+  const closeReviewModal = () => {
+    if (submittingReview) return;
+    reviewImages.forEach((item) => URL.revokeObjectURL(item.previewUrl));
+    if (reviewVideo?.previewUrl) {
+      URL.revokeObjectURL(reviewVideo.previewUrl);
+    }
+    setReviewTarget(null);
+    setReviewRating(5);
+    setReviewComment("");
+    setReviewImages([]);
+    setReviewVideo(null);
+  };
+
+  const handleReviewImagesChange = (files: FileList | null) => {
+    if (!files) return;
+    const nextFiles = Array.from(files).slice(0, Math.max(0, 2 - reviewImages.length));
+    const mapped = nextFiles
+      .filter((file) => file.type.startsWith("image/"))
+      .map((file) => ({ file, previewUrl: URL.createObjectURL(file) }));
+    setReviewImages((prev) => [...prev, ...mapped].slice(0, 2));
+  };
+
+  const handleReviewVideoChange = (file: File | null) => {
+    if (!file) return;
+    if (!file.type.startsWith("video/")) {
+      toast.error("Chỉ được tải lên 1 video hợp lệ");
+      return;
+    }
+    if (reviewVideo?.previewUrl) {
+      URL.revokeObjectURL(reviewVideo.previewUrl);
+    }
+    setReviewVideo({ file, previewUrl: URL.createObjectURL(file) });
+  };
+
+  const removeReviewImage = (index: number) => {
+    setReviewImages((prev) => {
+      const next = [...prev];
+      const removed = next.splice(index, 1)[0];
+      if (removed?.previewUrl) URL.revokeObjectURL(removed.previewUrl);
+      return next;
+    });
+  };
+
+  const removeReviewVideo = () => {
+    setReviewVideo((prev) => {
+      if (prev?.previewUrl) URL.revokeObjectURL(prev.previewUrl);
+      return null;
+    });
+  };
+
+  const handleSubmitReview = async () => {
+    if (!reviewTarget) return;
+    if (!reviewRating || reviewRating < 1 || reviewRating > 5) {
+      toast.error("Vui lòng chọn số sao đánh giá");
+      return;
+    }
+    if (!reviewComment.trim()) {
+      toast.error("Vui lòng nhập nhận xét sản phẩm");
+      return;
+    }
+
+    setSubmittingReview(true);
+    try {
+      const formData = new FormData();
+      formData.append("rating", String(reviewRating));
+      formData.append("comment", reviewComment.trim());
+      reviewImages.forEach(({ file }) => formData.append("images", file));
+      if (reviewVideo) {
+        formData.append("video", reviewVideo.file);
+      }
+
+      await reviewApi.createWithMedia(reviewTarget.productId, formData);
+      setReviewedProductIds((prev) => (prev.includes(reviewTarget.productId) ? prev : [...prev, reviewTarget.productId]));
+      toast.success(`Đã gửi đánh giá cho ${reviewTarget.productName}`);
+      closeReviewModal();
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || "Không thể gửi đánh giá");
+    } finally {
+      setSubmittingReview(false);
     }
   };
 
@@ -218,6 +361,22 @@ export default function OrderDetailPage() {
                     <div className="text-right flex-shrink-0">
                       <p className="text-gray-500 text-sm">x{item.quantity}</p>
                       <p className="text-lg font-bold text-gray-900">{formatPrice(item.price * item.quantity)}</p>
+                      {order.status === "FINISHED" && order.viewerRole !== "SELLER" && (
+                        reviewedProductIds.includes(item.productId) ? (
+                          <div className="mt-3 inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700">
+                            <Star className="w-3.5 h-3.5 fill-current" />
+                            Đã đánh giá
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => openReviewModal(item.productId, item.productName)}
+                            className="mt-3 inline-flex items-center gap-2 rounded-full bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-emerald-700"
+                          >
+                            <Star className="w-3.5 h-3.5" />
+                            Đánh giá sản phẩm
+                          </button>
+                        )
+                      )}
                     </div>
                   </div>
                 ))}
@@ -317,6 +476,66 @@ export default function OrderDetailPage() {
                 </button>
               )}
 
+              {order.status === "SHIPPED" && order.viewerRole !== "SELLER" && (
+                <button
+                  onClick={handleConfirmReceived}
+                  disabled={confirmingReceived}
+                  className="w-full py-3 bg-green-700 text-white font-bold rounded-xl hover:bg-green-800 transition disabled:opacity-50 flex items-center justify-center gap-2 mt-2"
+                >
+                  {confirmingReceived ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Đang xác nhận...
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle className="w-4 h-4" />
+                      Đã nhận hàng
+                    </>
+                  )}
+                </button>
+              )}
+
+              {order.viewerRole === "SELLER" && (order.status === "PLACED" || order.status === "PAID") && (
+                <button
+                  onClick={() => handleSellerUpdateStatus("PREPARING")}
+                  disabled={updatingSellerStatus}
+                  className="w-full py-3 bg-orange-600 text-white font-bold rounded-xl hover:bg-orange-700 transition disabled:opacity-50 flex items-center justify-center gap-2 mt-2"
+                >
+                  {updatingSellerStatus ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Đang xử lý...
+                    </>
+                  ) : (
+                    "Xác nhận đơn"
+                  )}
+                </button>
+              )}
+
+              {order.viewerRole === "SELLER" && order.status === "PREPARING" && (
+                <button
+                  onClick={() => handleSellerUpdateStatus("SHIPPED")}
+                  disabled={updatingSellerStatus}
+                  className="w-full py-3 bg-purple-600 text-white font-bold rounded-xl hover:bg-purple-700 transition disabled:opacity-50 flex items-center justify-center gap-2 mt-2"
+                >
+                  {updatingSellerStatus ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Đang xử lý...
+                    </>
+                  ) : (
+                    "Giao hàng"
+                  )}
+                </button>
+              )}
+
+              {order.viewerRole === "SELLER" && order.status === "SHIPPED" && (
+                <div className="w-full py-3 px-4 bg-purple-50 text-purple-700 font-medium rounded-xl mt-2 text-center">
+                  Chờ người mua xác nhận đã nhận hàng
+                </div>
+              )}
+
               <Link
                 href="/search"
                 className="block w-full text-center py-3 text-green-700 font-medium hover:bg-green-50 rounded-xl transition mt-2"
@@ -327,6 +546,140 @@ export default function OrderDetailPage() {
           </div>
         </div>
       </main>
+
+      {reviewTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
+          <div className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl">
+            <div className="flex items-start justify-between gap-4 mb-5">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-600">Đánh giá sản phẩm</p>
+                <h2 className="mt-2 text-xl font-bold text-gray-900">{reviewTarget.productName}</h2>
+              </div>
+              <button
+                onClick={closeReviewModal}
+                disabled={submittingReview}
+                className="rounded-full p-2 text-gray-500 transition hover:bg-gray-100 disabled:cursor-not-allowed"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="mb-5">
+              <p className="mb-3 text-sm font-medium text-gray-700">Mức độ hài lòng</p>
+              <div className="flex items-center gap-2">
+                {[1, 2, 3, 4, 5].map((value) => {
+                  const active = value <= reviewRating;
+                  return (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => setReviewRating(value)}
+                      className="transition hover:scale-105"
+                      aria-label={`Đánh giá ${value} sao`}
+                    >
+                      <Star className={`w-8 h-8 ${active ? "fill-amber-400 text-amber-400" : "text-gray-300"}`} />
+                    </button>
+                  );
+                })}
+                <span className="ml-2 text-sm font-semibold text-gray-600">{reviewRating}/5</span>
+              </div>
+            </div>
+
+            <div className="mb-6">
+              <label className="mb-2 block text-sm font-medium text-gray-700">Nhận xét</label>
+              <textarea
+                value={reviewComment}
+                onChange={(e) => setReviewComment(e.target.value)}
+                rows={5}
+                placeholder="Chia sẻ trải nghiệm của bạn về sản phẩm..."
+                className="w-full rounded-2xl border border-gray-200 px-4 py-3 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
+              />
+            </div>
+
+            <div className="mb-6 space-y-4">
+              <div>
+                <div className="mb-2 flex items-center justify-between gap-3">
+                  <label className="block text-sm font-medium text-gray-700">Ảnh đính kèm</label>
+                  <span className="text-xs text-gray-500">Tối đa 2 ảnh</span>
+                </div>
+                <label className="flex cursor-pointer items-center justify-center gap-2 rounded-2xl border border-dashed border-gray-300 bg-gray-50 px-4 py-3 text-sm font-medium text-gray-600 transition hover:border-emerald-400 hover:bg-emerald-50 hover:text-emerald-700">
+                  <ImageIcon className="w-4 h-4" />
+                  Chọn ảnh
+                  <input
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    onChange={(e) => handleReviewImagesChange(e.target.files)}
+                    className="hidden"
+                  />
+                </label>
+                {reviewImages.length > 0 && (
+                  <div className="mt-3 grid grid-cols-2 gap-3">
+                    {reviewImages.map((item, index) => (
+                      <div key={`${item.previewUrl}-${index}`} className="relative overflow-hidden rounded-2xl border border-gray-200 bg-gray-50">
+                        <img src={item.previewUrl} alt={`Ảnh đánh giá ${index + 1}`} className="h-32 w-full object-cover" />
+                        <button
+                          type="button"
+                          onClick={() => removeReviewImage(index)}
+                          className="absolute right-2 top-2 rounded-full bg-black/60 p-1 text-white transition hover:bg-black/75"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <div className="mb-2 flex items-center justify-between gap-3">
+                  <label className="block text-sm font-medium text-gray-700">Video đính kèm</label>
+                  <span className="text-xs text-gray-500">Tối đa 1 video</span>
+                </div>
+                <label className="flex cursor-pointer items-center justify-center gap-2 rounded-2xl border border-dashed border-gray-300 bg-gray-50 px-4 py-3 text-sm font-medium text-gray-600 transition hover:border-emerald-400 hover:bg-emerald-50 hover:text-emerald-700">
+                  <Film className="w-4 h-4" />
+                  Chọn video
+                  <input
+                    type="file"
+                    accept="video/*"
+                    onChange={(e) => handleReviewVideoChange(e.target.files?.[0] || null)}
+                    className="hidden"
+                  />
+                </label>
+                {reviewVideo && (
+                  <div className="mt-3 overflow-hidden rounded-2xl border border-gray-200 bg-gray-50">
+                    <video src={reviewVideo.previewUrl} controls className="h-56 w-full object-cover" />
+                    <div className="flex items-center justify-between gap-3 px-3 py-2 text-xs text-gray-600">
+                      <span className="truncate">{reviewVideo.file.name}</span>
+                      <button type="button" onClick={removeReviewVideo} className="font-semibold text-emerald-700">
+                        Xóa video
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
+              <button
+                onClick={closeReviewModal}
+                disabled={submittingReview}
+                className="rounded-2xl border border-gray-200 px-4 py-3 text-sm font-semibold text-gray-700 transition hover:bg-gray-50 disabled:cursor-not-allowed"
+              >
+                Hủy
+              </button>
+              <button
+                onClick={handleSubmitReview}
+                disabled={submittingReview}
+                className="inline-flex items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-emerald-600 to-lime-600 px-5 py-3 text-sm font-semibold text-white transition hover:from-emerald-700 hover:to-lime-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {submittingReview ? <Loader2 className="w-4 h-4 animate-spin" /> : <Star className="w-4 h-4" />}
+                Gửi đánh giá
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

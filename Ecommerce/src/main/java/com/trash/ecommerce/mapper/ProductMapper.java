@@ -3,6 +3,8 @@ package com.trash.ecommerce.mapper;
 import com.trash.ecommerce.dto.ProductDetailsResponseDTO;
 import com.trash.ecommerce.entity.Product;
 import com.trash.ecommerce.entity.ProductImage;
+import com.trash.ecommerce.repository.SellerApplicationRepository;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
@@ -10,6 +12,9 @@ import java.util.stream.Collectors;
 
 @Component
 public class ProductMapper {
+
+    @Autowired
+    private SellerApplicationRepository sellerApplicationRepository;
 
     public ProductDetailsResponseDTO mapperProduct(Product product) {
         ProductDetailsResponseDTO productDTO = new ProductDetailsResponseDTO();
@@ -42,6 +47,17 @@ public class ProductMapper {
             productDTO.setSellerId(product.getSeller().getId());
             productDTO.setSellerName(product.getSeller().getFullName() != null
                     ? product.getSeller().getFullName() : product.getSeller().getEmail());
+            // Get shop name from SellerApplication
+            try {
+                var sellerApp = sellerApplicationRepository.findByUserId(product.getSeller().getId()).orElse(null);
+                if (sellerApp != null && sellerApp.getShopName() != null) {
+                    productDTO.setShopName(sellerApp.getShopName());
+                } else {
+                    productDTO.setShopName(product.getSeller().getFullName());
+                }
+            } catch (Exception e) {
+                productDTO.setShopName(product.getSeller().getFullName());
+            }
         }
         // Traceability
         productDTO.setBatchId(product.getBatchId());

@@ -82,6 +82,13 @@ public class OrderMapper {
             dto.setProductId(orderItem.getProduct().getId());
             dto.setProductName(orderItem.getProduct().getProductName());
             dto.setImageUrl(orderItem.getProduct().getPrimaryImagePath() != null ? "/api/products/" + orderItem.getProduct().getId() + "/img" : null);
+            if (orderItem.getProduct().getSeller() != null) {
+                dto.setSellerName(
+                        orderItem.getProduct().getSeller().getFullName() != null && !orderItem.getProduct().getSeller().getFullName().isBlank()
+                                ? orderItem.getProduct().getSeller().getFullName()
+                                : orderItem.getProduct().getSeller().getUsername()
+                );
+            }
         }
         dto.setPrice(orderItem.getPrice());
         dto.setQuantity(orderItem.getQuantity());

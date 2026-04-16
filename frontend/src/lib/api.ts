@@ -309,6 +309,10 @@ export const reviewApi = {
   getByProduct: (productId: number) => api.get(`/api/reviews/products/${productId}`),
   create: (productId: number, data: { rating: number; comment: string }) =>
     api.post(`/api/reviews/products/${productId}`, data),
+  createWithMedia: (productId: number, formData: FormData) =>
+    api.post(`/api/reviews/products/${productId}/attachments`, formData, {
+      headers: { "Content-Type": "multipart/form-data" },
+    }),
   delete: (productId: number, reviewId: number) =>
     api.delete(`/api/reviews/products/${productId}/${reviewId}`),
 };

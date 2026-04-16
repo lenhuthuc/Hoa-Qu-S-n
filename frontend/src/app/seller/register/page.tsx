@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { CheckCircle2, FileCheck2, Loader2, Store, Truck, UserCheck } from "lucide-react";
 import { isLoggedIn, parseToken, sellerOnboardingApi, shippingApi, userApi } from "@/lib/api";
@@ -108,6 +108,7 @@ export default function SellerRegisterPage() {
   const [provinces, setProvinces] = useState<ProvinceOption[]>([]);
   const [districts, setDistricts] = useState<DistrictOption[]>([]);
   const [wards, setWards] = useState<WardOption[]>([]);
+  const handledApprovedRef = useRef(false);
 
   const loadProvinces = async (): Promise<ProvinceOption[]> => {
     try {
@@ -299,6 +300,38 @@ export default function SellerRegisterPage() {
       }
     })();
   }, [router, isSeller]);
+
+  useEffect(() => {
+    if (application?.status !== "APPROVED") {
+      handledApprovedRef.current = false;
+      return undefined;
+    }
+    if (handledApprovedRef.current) return undefined;
+
+    handledApprovedRef.current = true;
+    (async () => {
+      try {
+        const refreshToken = localStorage.getItem("hqs_refresh_token");
+        if (refreshToken) {
+          const refreshRes = await userApi.refresh(refreshToken);
+          const tokenData = refreshRes.data;
+          if (tokenData?.access) {
+            localStorage.setItem("hqs_token", tokenData.access);
+          }
+          if (tokenData?.refresh) {
+            localStorage.setItem("hqs_refresh_token", tokenData.refresh);
+          }
+        }
+      } catch {
+        // fallback to route change anyway, dashboard will re-check role
+      }
+
+      toast.success("Hồ sơ đã được duyệt! Chuyển hướng sang Bảng điều khiển...");
+      router.replace("/seller/dashboard");
+    })();
+
+    return undefined;
+  }, [application?.status, router]);
 
   const waitingReview = application && ["SUBMITTED", "UNDER_REVIEW"].includes(application.status);
 

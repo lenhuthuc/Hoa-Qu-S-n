@@ -182,20 +182,6 @@ export default function CartPage() {
                     <span>Tạm tính</span>
                     <span className="font-medium text-gray-900">{formatPrice(total)}</span>
                   </div>
-                  <div className="flex justify-between items-center text-gray-500">
-                    <span>Phí vận chuyển</span>
-                    <span className="font-medium text-gray-900">
-                      {total >= 500000 ? (
-                        <span className="text-green-700">Miễn phí</span>
-                      ) : (
-                        "Tính sau"
-                      )}
-                    </span>
-                  </div>
-                  <div className="flex justify-between items-center text-gray-500">
-                    <span>Giảm giá</span>
-                    <span className="font-medium text-green-700">-0 VNĐ</span>
-                  </div>
 
                   <div className="pt-4 mt-4 border-t border-gray-200 flex justify-between items-center">
                     <span className="text-lg font-bold text-gray-900">Tổng cộng</span>
@@ -204,17 +190,19 @@ export default function CartPage() {
                 </div>
 
                 {/* Action Buttons */}
-                <div className="space-y-3">
+                <div className="flex flex-col gap-3">
                   <Link
                     href="/checkout"
-                    className="w-full bg-gradient-to-r from-green-700 to-green-800 text-white font-bold py-4 rounded-2xl shadow-lg shadow-green-700/20 hover:shadow-xl hover:from-green-800 hover:to-green-900 transition-all flex items-center justify-center gap-2 active:scale-95"
+                    className="block w-full bg-gradient-to-r from-green-700 to-green-800 text-white font-bold py-4 rounded-2xl shadow-lg shadow-green-700/20 hover:shadow-xl hover:from-green-800 hover:to-green-900 transition-all text-center"
                   >
-                    <span>Tiến hành thanh toán</span>
-                    <ArrowRight className="w-5 h-5" />
+                    <span className="inline-flex items-center justify-center gap-2">
+                      <span>Tiến hành thanh toán</span>
+                      <ArrowRight className="w-5 h-5" />
+                    </span>
                   </Link>
                   <Link
                     href="/search"
-                    className="w-full py-3 text-gray-600 font-medium hover:text-green-700 transition-colors text-center text-sm hover:bg-gray-50 rounded-xl"
+                    className="block w-full py-3 text-gray-600 font-medium hover:text-green-700 transition-colors text-center text-sm hover:bg-gray-50 rounded-xl"
                   >
                     Tiếp tục mua sắm
                   </Link>

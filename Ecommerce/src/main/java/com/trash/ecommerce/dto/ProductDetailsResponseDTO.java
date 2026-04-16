@@ -29,6 +29,7 @@ public class ProductDetailsResponseDTO {
     private Double rating;
     private Long sellerId;
     private String sellerName;
+    private String shopName;
     private String batchId;
     private String origin;
 }

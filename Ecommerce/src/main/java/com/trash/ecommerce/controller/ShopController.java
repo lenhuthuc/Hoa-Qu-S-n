@@ -1,10 +1,12 @@
 package com.trash.ecommerce.controller;
 
 import com.trash.ecommerce.entity.Product;
+import com.trash.ecommerce.entity.SellerApplication;
 import com.trash.ecommerce.entity.TrustScore;
 import com.trash.ecommerce.entity.Users;
 import com.trash.ecommerce.repository.ProductRepository;
 import com.trash.ecommerce.repository.ReviewRepository;
+import com.trash.ecommerce.repository.SellerApplicationRepository;
 import com.trash.ecommerce.repository.TrustScoreRepository;
 import com.trash.ecommerce.repository.UserRepository;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -30,6 +32,9 @@ public class ShopController {
     private TrustScoreRepository trustScoreRepository;
 
     @Autowired
+    private SellerApplicationRepository sellerApplicationRepository;
+
+    @Autowired
     private ReviewRepository reviewRepository;
 
     @GetMapping("/{sellerId}")
@@ -43,6 +48,14 @@ public class ShopController {
             profile.put("sellerName", seller.getFullName());
             profile.put("avatar", seller.getAvatar());
             profile.put("phone", seller.getPhone());
+
+            // Get shop name from SellerApplication
+            SellerApplication sellerApp = sellerApplicationRepository.findByUserId(seller.getId()).orElse(null);
+            if (sellerApp != null && sellerApp.getShopName() != null) {
+                profile.put("shopName", sellerApp.getShopName());
+            } else {
+                profile.put("shopName", seller.getFullName());
+            }
 
             if (seller.getAddress() != null) {
                 profile.put("province", seller.getAddress().getProvince());

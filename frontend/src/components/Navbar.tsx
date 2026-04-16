@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   Leaf, Search, Video, ShoppingCart, User, LogOut, LayoutDashboard,
-  MessageCircle, TrendingUp, Menu, X, ChevronDown, Shield, Bell, Heart, Coins, BookOpen,
+  MessageCircle, TrendingUp, Menu, X, ChevronDown, Shield, Bell, Heart, BookOpen,
 } from "lucide-react";
 import { parseToken, notificationApi } from "@/lib/api";
 
@@ -126,7 +126,7 @@ export default function Navbar() {
                 href={isSeller ? "/seller/dashboard" : "/seller/register"}
                 className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 text-sm font-medium"
               >
-                Bán hàng
+                Kênh Người Bán
               </Link>
               <div className="relative">
                 <button
@@ -146,13 +146,6 @@ export default function Navbar() {
                         className="flex items-center gap-2 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50"
                       >
                         <User className="w-4 h-4" /> Tài khoản
-                      </Link>
-                      <Link
-                        href="/coins"
-                        onClick={() => setUserMenuOpen(false)}
-                        className="flex items-center gap-2 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50"
-                      >
-                        <Coins className="w-4 h-4" /> Ví AgriCoin
                       </Link>
                       <Link
                         href="/orders"
@@ -191,6 +184,12 @@ export default function Navbar() {
             </>
           ) : (
             <>
+              <Link
+                href={isSeller ? "/seller/dashboard" : "/seller/register"}
+                className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 text-sm font-medium"
+              >
+                Kênh Người Bán
+              </Link>
               <Link
                 href="/login"
                 className="px-4 py-2 text-sm text-gray-600 hover:text-primary-600 font-medium"
@@ -245,9 +244,6 @@ export default function Navbar() {
               <Link href="/messages" onClick={() => setMenuOpen(false)} className="flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm text-gray-700 hover:bg-gray-50">
                 <MessageCircle className="w-4 h-4" /> Tin nhắn
               </Link>
-              <Link href="/coins" onClick={() => setMenuOpen(false)} className="flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm text-gray-700 hover:bg-gray-50">
-                <Coins className="w-4 h-4" /> Ví AgriCoin
-              </Link>
               <Link href="/orders" onClick={() => setMenuOpen(false)} className="flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm text-gray-700 hover:bg-gray-50">
                 <LayoutDashboard className="w-4 h-4" /> Đơn hàng
               </Link>
@@ -258,7 +254,7 @@ export default function Navbar() {
                 <User className="w-4 h-4" /> Tài khoản
               </Link>
               <Link href={isSeller ? "/seller/dashboard" : "/seller/register"} onClick={() => setMenuOpen(false)} className="flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm text-primary-600 font-medium hover:bg-primary-50">
-                <Leaf className="w-4 h-4" /> Bán hàng
+                <Leaf className="w-4 h-4" /> Kênh Người Bán
               </Link>
               {isAdmin && (
                 <Link href="/admin" onClick={() => setMenuOpen(false)} className="flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm text-gray-700 hover:bg-gray-50">
@@ -271,6 +267,9 @@ export default function Navbar() {
             </>
           ) : (
             <>
+              <Link href={isSeller ? "/seller/dashboard" : "/seller/register"} onClick={() => setMenuOpen(false)} className="flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm text-primary-600 font-medium hover:bg-primary-50">
+                <Leaf className="w-4 h-4" /> Kênh Người Bán
+              </Link>
               <Link href="/login" onClick={() => setMenuOpen(false)} className="flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm text-gray-700 hover:bg-gray-50">
                 Đăng nhập
               </Link>

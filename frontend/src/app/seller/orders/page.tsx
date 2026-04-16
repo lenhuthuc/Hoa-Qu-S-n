@@ -72,7 +72,6 @@ export default function SellerOrdersPage() {
     const labels: Record<string, string> = {
       PREPARING: "Xác nhận đơn hàng",
       SHIPPED: "Xác nhận giao hàng",
-      FINISHED: "Xác nhận hoàn thành",
       CANCELLED: "Hủy đơn",
     };
     if (!confirm(`${labels[newStatus] || newStatus} cho đơn #${orderId}?`)) return;
@@ -207,7 +206,7 @@ export default function SellerOrdersPage() {
                           onClick={() => handleUpdateStatus(order.orderId, "PREPARING")}
                           className="px-3 py-1.5 bg-orange-600 text-white text-sm rounded-lg hover:bg-orange-700"
                         >
-                          ✅ Xác nhận đơn
+                          Xác nhận đơn
                         </button>
                       )}
                       {order.status === "PREPARING" && (
@@ -215,16 +214,13 @@ export default function SellerOrdersPage() {
                           onClick={() => handleUpdateStatus(order.orderId, "SHIPPED")}
                           className="px-3 py-1.5 bg-purple-600 text-white text-sm rounded-lg hover:bg-purple-700"
                         >
-                          📦 Giao hàng
+                          Giao hàng
                         </button>
                       )}
                       {order.status === "SHIPPED" && (
-                        <button
-                          onClick={() => handleUpdateStatus(order.orderId, "FINISHED")}
-                          className="px-3 py-1.5 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700"
-                        >
-                          ✅ Hoàn thành
-                        </button>
+                        <span className="px-3 py-1.5 bg-purple-50 text-purple-700 text-sm rounded-lg">
+                          Chờ người mua xác nhận đã nhận hàng
+                        </span>
                       )}
                       {(order.status === "PLACED" || order.status === "PREPARING") && (
                         <button

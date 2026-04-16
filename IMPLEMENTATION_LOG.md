@@ -3,6 +3,67 @@
 Last Updated: 2026-04-15  
 Status: Complete and deployed
 
+## Update 2026-04-17 - User Profile + Product Detail UI + Shop Name Mapping
+
+### 1) Code User Profile
+What was implemented:
+- Rebuilt user profile page into a full account dashboard style layout.
+- Added stronger information hierarchy: hero header, profile summary card, quick actions, personal information section, and validated shipping address section.
+- Kept full editable profile flow with province/district/ward selection and backend update integration.
+
+Files modified (related to this task):
+- frontend/src/app/profile/page.tsx
+
+### 2) Improve Product Detail UI
+What was implemented:
+- Reworked product detail page into a clearer modern layout:
+	- Top section: large gallery + product essentials + shop card.
+	- Bottom section: product description first, review section after.
+	- Review section includes average score, star distribution bars, and review cards.
+- Refined spacing, button sizing, visual consistency, and responsive behavior.
+- Added review media rendering support in product detail cards (image/video when available).
+
+Files modified (related to this task):
+- frontend/src/app/product/[id]/page.tsx
+
+### 3) Fix User Name -> Shop Name in Product Detail Page
+What was implemented:
+- Corrected seller identity source so product detail displays shop name from seller registration data instead of user profile full name.
+- Extended product detail response model to include shopName.
+- Updated product mapping layer to resolve shopName from SellerApplication.
+- Updated shop public profile response to expose shopName consistently.
+- Product detail UI now prioritizes shopName for seller badge/name display.
+
+Files modified (related to this task):
+- Ecommerce/src/main/java/com/trash/ecommerce/dto/ProductDetailsResponseDTO.java
+- Ecommerce/src/main/java/com/trash/ecommerce/mapper/ProductMapper.java
+- Ecommerce/src/main/java/com/trash/ecommerce/controller/ShopController.java
+- frontend/src/app/product/[id]/page.tsx
+
+### 4) Product Review Feature (Rating + Comment + Image/Video)
+What was implemented:
+- Added buyer-side review flow from order detail after order completion.
+- Added review modal with star rating (1-5), comment input, and media attachments.
+- Added upload constraints in UI/Backend:
+	- Max 2 images.
+	- Max 1 video.
+- Added backend multipart endpoint for review creation with attachments.
+- Added backend media serving endpoint for review attachments.
+- Added product detail rendering of review media (image/video) when available.
+- Fixed media display permission by allowing public GET access to review media endpoint.
+- Stabilized file persistence for review uploads by writing bytes directly to avoid temp-file not found errors.
+
+Files modified (related to this task):
+- Ecommerce/src/main/java/com/trash/ecommerce/controller/ReviewController.java
+- Ecommerce/src/main/java/com/trash/ecommerce/config/SecurityConfig.java
+- frontend/src/lib/api.ts
+- frontend/src/app/orders/[id]/page.tsx
+- frontend/src/app/product/[id]/page.tsx
+
+### Verification Status
+- Backend compile: pass.
+- Frontend build: pass.
+
 ## Scope Summary
 - Seller onboarding flow completed (upload, review, email workflow).
 - Checkout/cart/order flow upgraded (preview, shipping validation, payment retry, UI redesign).

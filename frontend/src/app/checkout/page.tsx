@@ -81,8 +81,6 @@ export default function CheckoutPage() {
   const [districts, setDistricts] = useState<DistrictOption[]>([]);
   const [wards, setWards] = useState<WardOption[]>([]);
 
-  const [discountVoucherCode, setDiscountVoucherCode] = useState("");
-  const [shippingVoucherCode, setShippingVoucherCode] = useState("");
   const [deliveryType, setDeliveryType] = useState<"STANDARD" | "EXPRESS">("STANDARD");
   const [preview, setPreview] = useState<OrderPreview | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
@@ -196,8 +194,6 @@ export default function CheckoutPage() {
     setPreviewLoading(true);
     try {
       const res = await orderApi.preview({
-        discountVoucherCode: discountVoucherCode.trim() || undefined,
-        shippingVoucherCode: shippingVoucherCode.trim() || undefined,
         deliveryType,
         toDistrictId: selectedDistrictId,
         toWardCode: selectedWardCode,
@@ -284,8 +280,6 @@ export default function CheckoutPage() {
       }
 
       const latestPreviewRes = await orderApi.preview({
-        discountVoucherCode: discountVoucherCode.trim() || undefined,
-        shippingVoucherCode: shippingVoucherCode.trim() || undefined,
         deliveryType,
         toDistrictId: selectedDistrictId,
         toWardCode: selectedWardCode,
@@ -301,8 +295,8 @@ export default function CheckoutPage() {
       const res = await orderApi.create(
         paymentMethod,
         undefined,
-        discountVoucherCode.trim() || undefined,
-        shippingVoucherCode.trim() || undefined,
+        undefined,
+        undefined,
         latestPreview.deliveryType || deliveryType,
         selectedDistrictId,
         selectedWardCode
@@ -350,7 +344,7 @@ export default function CheckoutPage() {
         </button>
         <div className="mb-8">
           <h1 className="text-4xl lg:text-5xl font-bold text-gray-900 mb-2">Thanh toán</h1>
-          <p className="text-gray-600 font-medium text-lg">Hoàn tất đơn hàng các sản phẩm nông sản tuyển chọn của bạn</p>
+          <p className="text-gray-600 font-medium text-lg">Hoàn tất đơn hàng của bạn</p>
         </div>
       </div>
 
@@ -623,25 +617,6 @@ export default function CheckoutPage() {
                     <span className="text-green-700">-{formatPrice(shippingDiscount)}</span>
                   </div>
                 )}
-              </div>
-
-              {/* Voucher Section */}
-              <div className="space-y-2 mb-6 pb-6 border-b border-gray-200">
-                <label className="block text-xs font-bold uppercase tracking-wider text-gray-700 mb-2">Mã ưu đãi</label>
-                <input
-                  type="text"
-                  value={discountVoucherCode}
-                  onChange={(e) => setDiscountVoucherCode(e.target.value)}
-                  placeholder="Mã giảm giá"
-                  className="w-full bg-gray-100 border-none rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-green-600 focus:ring-offset-0 outline-none font-medium mb-2"
-                />
-                <input
-                  type="text"
-                  value={shippingVoucherCode}
-                  onChange={(e) => setShippingVoucherCode(e.target.value)}
-                  placeholder="Mã freeship"
-                  className="w-full bg-gray-100 border-none rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-green-600 focus:ring-offset-0 outline-none font-medium"
-                />
               </div>
 
               {/* Total */}

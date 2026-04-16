@@ -1,8 +1,21 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { User, Mail, Phone, Loader2, Save, LogOut, MapPin } from "lucide-react";
+import {
+  ChevronRight,
+  Loader2,
+  LogOut,
+  Mail,
+  MapPin,
+  MapPinned,
+  Phone,
+  Save,
+  ShoppingBag,
+  Store,
+  User,
+} from "lucide-react";
 import { shippingApi, userApi } from "@/lib/api";
 import toast from "react-hot-toast";
 
@@ -26,6 +39,7 @@ interface UserProfile {
   email: string;
   fullName?: string;
   phone?: string;
+  avatar?: string;
   address?: {
     id?: number;
     province?: string;
@@ -59,6 +73,18 @@ export default function ProfilePage() {
   const [selectedProvinceId, setSelectedProvinceId] = useState<number | null>(null);
   const [selectedDistrictId, setSelectedDistrictId] = useState<number | null>(null);
   const [selectedWardCode, setSelectedWardCode] = useState<string>("");
+
+  const profileName = profile?.fullName?.trim() || profile?.email || "Tài khoản của tôi";
+  const avatarText = profileName
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join("");
+  const addressSummary = [streetDetail, ward, district, province]
+    .map((part) => part?.trim())
+    .filter(Boolean)
+    .join(", ");
 
   const loadProvinces = async (): Promise<ProvinceOption[]> => {
     try {
@@ -202,180 +228,302 @@ export default function ProfilePage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-[60vh]">
-        <Loader2 className="w-8 h-8 animate-spin text-primary-600" />
+      <div className="flex min-h-[60vh] items-center justify-center bg-gradient-to-br from-emerald-50 to-white">
+        <Loader2 className="w-8 h-8 animate-spin text-emerald-600" />
       </div>
     );
   }
 
   return (
-    <div className="max-w-2xl mx-auto px-4 py-8">
-      <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-2 mb-6">
-        <User className="w-6 h-6 text-primary-600" />
-        Tài khoản của tôi
-      </h1>
+    <div className="min-h-screen bg-gradient-to-br from-emerald-50 via-white to-lime-50">
+      <div className="max-w-7xl mx-auto px-4 py-8 lg:py-12">
+        <div className="mb-8 rounded-3xl bg-gradient-to-r from-emerald-700 via-emerald-600 to-lime-600 px-6 py-7 lg:px-8 lg:py-9 text-white shadow-lg shadow-emerald-900/10">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+            <div className="max-w-2xl">
+              <p className="text-sm uppercase tracking-[0.28em] text-emerald-100 mb-3">Hồ sơ tài khoản</p>
+              <h1 className="text-3xl lg:text-5xl font-bold tracking-tight">{profileName}</h1>
+              <p className="mt-3 text-emerald-50/90 text-sm lg:text-base">
+                Quản lý thông tin cá nhân, địa chỉ giao hàng và đơn mua.
+              </p>
+            </div>
 
-      <div className="bg-white rounded-2xl border p-6 mb-6">
-        <div className="flex items-center gap-4 mb-6 pb-6 border-b">
-          <div className="w-16 h-16 bg-primary-100 rounded-full flex items-center justify-center">
-            <User className="w-8 h-8 text-primary-600" />
-          </div>
-          <div>
-            <h2 className="font-semibold text-lg">{profile?.fullName || profile?.email}</h2>
-            <p className="text-sm text-gray-500">{profile?.email}</p>
-            {profile?.role && (
-              <span className="inline-block mt-1 text-xs bg-primary-100 text-primary-700 px-2 py-0.5 rounded-full font-medium">
-                {profile.role}
-              </span>
-            )}
+            <div className="flex flex-wrap gap-3">
+              <Link
+                href="/orders"
+                className="inline-flex items-center gap-2 rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-50"
+              >
+                <ShoppingBag className="w-4 h-4" />
+                Đơn mua
+              </Link>
+              <Link
+                href="/search"
+                className="inline-flex items-center gap-2 rounded-2xl border border-white/20 bg-white/10 px-4 py-3 text-sm font-semibold text-white backdrop-blur transition hover:bg-white/20"
+              >
+                <Store className="w-4 h-4" />
+                Tiếp tục mua sắm
+              </Link>
+            </div>
           </div>
         </div>
 
-        <form onSubmit={handleSave} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">Email</label>
-            <div className="relative">
-              <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-              <input
-                type="email"
-                value={profile?.email || ""}
-                disabled
-                className="w-full pl-10 pr-4 py-3 border rounded-xl bg-gray-50 text-gray-500 cursor-not-allowed"
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">Họ và tên</label>
-            <div className="relative">
-              <User className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-              <input
-                type="text"
-                value={fullName}
-                onChange={(e) => setFullName(e.target.value)}
-                placeholder="Nguyễn Văn A"
-                className="w-full pl-10 pr-4 py-3 border rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none"
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">Số điện thoại</label>
-            <div className="relative">
-              <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-              <input
-                type="tel"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                placeholder="0912 345 678"
-                className="w-full pl-10 pr-4 py-3 border rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none"
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">Địa chỉ xác thực</label>
-            <div className="space-y-3">
-              <div className="grid grid-cols-2 gap-3">
-                <div className="relative">
-                  <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                  <select
-                    value={selectedProvinceId ?? ""}
-                    onChange={async (e) => {
-                      const id = Number(e.target.value);
-                      const selected = provinces.find((p) => p.id === id);
-                      setSelectedProvinceId(id || null);
-                      setProvince(selected?.name || "");
-                      setSelectedDistrictId(null);
-                      setSelectedWardCode("");
-                      setDistrict("");
-                      setWard("");
-                      setWards([]);
-                      if (id) {
-                        await loadDistricts(id);
-                      } else {
-                        setDistricts([]);
-                      }
-                    }}
-                    className="w-full pl-10 pr-4 py-3 border rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none"
-                  >
-                    <option value="">Tỉnh/Thành phố</option>
-                    {provinces.map((item) => (
-                      <option key={item.id} value={item.id}>{item.name}</option>
-                    ))}
-                  </select>
+        <div className="grid gap-8 lg:grid-cols-12 items-start">
+          <aside className="lg:col-span-3">
+            <div className="sticky top-24 space-y-5">
+              <div className="rounded-3xl border border-emerald-100 bg-white p-5 shadow-sm">
+                <div className="flex items-center gap-4 border-b border-emerald-50 pb-5">
+                  <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-2xl bg-emerald-100 text-emerald-700">
+                    {profile?.avatar ? (
+                      <img src={profile.avatar} alt={profileName} className="h-full w-full object-cover" />
+                    ) : (
+                      <span className="text-lg font-bold">{avatarText || "H"}</span>
+                    )}
+                  </div>
+                  <div className="min-w-0">
+                    <h2 className="truncate text-lg font-bold text-gray-900">{profileName}</h2>
+                    <p className="truncate text-sm text-gray-500">{profile?.email}</p>
+                    {profile?.role && (
+                      <span className="mt-2 inline-flex rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">
+                        {profile.role}
+                      </span>
+                    )}
+                  </div>
                 </div>
-                <select
-                  value={selectedDistrictId ?? ""}
-                  onChange={async (e) => {
-                    const id = Number(e.target.value);
-                    const selected = districts.find((d) => d.id === id);
-                    setSelectedDistrictId(id || null);
-                    setDistrict(selected?.name || "");
-                    setSelectedWardCode("");
-                    setWard("");
-                    if (id) {
-                      await loadWards(id);
-                    } else {
-                      setWards([]);
-                    }
-                  }}
-                  disabled={!selectedProvinceId}
-                  className="w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none disabled:bg-gray-100"
-                >
-                  <option value="">Quận/Huyện</option>
-                  {districts.map((item) => (
-                    <option key={item.id} value={item.id}>{item.name}</option>
-                  ))}
-                </select>
+
+                <div className="mt-5 space-y-2">
+                  <Link href="/orders" className="flex items-center justify-between rounded-2xl bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-100">
+                    <span className="flex items-center gap-2"><ShoppingBag className="w-4 h-4" /> Đơn mua</span>
+                    <ChevronRight className="w-4 h-4" />
+                  </Link>
+                  <Link href="/search" className="flex items-center justify-between rounded-2xl bg-gray-50 px-4 py-3 text-sm font-semibold text-gray-700 transition hover:bg-gray-100">
+                    <span className="flex items-center gap-2"><Store className="w-4 h-4" /> Mua sắm</span>
+                    <ChevronRight className="w-4 h-4" />
+                  </Link>
+                </div>
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <select
-                  value={selectedWardCode}
-                  onChange={(e) => {
-                    const code = e.target.value;
-                    const selected = wards.find((w) => w.code === code);
-                    setSelectedWardCode(code);
-                    setWard(selected?.name || "");
-                  }}
-                  disabled={!selectedDistrictId}
-                  className="w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none disabled:bg-gray-100"
-                >
-                  <option value="">Phường/Xã</option>
-                  {wards.map((item) => (
-                    <option key={item.code} value={item.code}>{item.name}</option>
-                  ))}
-                </select>
-                <input
-                  type="text"
-                  value={streetDetail}
-                  onChange={(e) => setStreetDetail(e.target.value)}
-                  disabled={!selectedWardCode}
-                  placeholder="Số nhà, tên đường"
-                  className="w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none disabled:bg-gray-100"
-                />
+
+              <div className="rounded-3xl border border-emerald-100 bg-white p-5 shadow-sm">
+                <h3 className="mb-4 text-sm font-bold uppercase tracking-[0.2em] text-gray-500">Thông tin nhanh</h3>
+                <div className="space-y-3 text-sm">
+                  <div className="flex items-start gap-3">
+                    <Mail className="mt-0.5 w-4 h-4 text-emerald-600" />
+                    <div>
+                      <p className="font-semibold text-gray-900">Email</p>
+                      <p className="text-gray-500">{profile?.email}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-3">
+                    <Phone className="mt-0.5 w-4 h-4 text-emerald-600" />
+                    <div>
+                      <p className="font-semibold text-gray-900">Số điện thoại</p>
+                      <p className="text-gray-500">{phone || "Chưa cập nhật"}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-3">
+                    <MapPinned className="mt-0.5 w-4 h-4 text-emerald-600" />
+                    <div>
+                      <p className="font-semibold text-gray-900">Địa chỉ</p>
+                      <p className="text-gray-500">{addressSummary || "Chưa có địa chỉ"}</p>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
-          </div>
+          </aside>
 
-          <div className="flex gap-3 pt-2">
-            <button
-              type="submit"
-              disabled={saving}
-              className="flex-1 py-3 bg-primary-600 text-white rounded-xl hover:bg-primary-700 disabled:opacity-50 font-medium flex items-center justify-center gap-2 transition"
-            >
-              {saving ? <Loader2 className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />}
-              Lưu thay đổi
-            </button>
-            <button
-              type="button"
-              onClick={handleLogout}
-              className="py-3 px-6 border border-red-200 text-red-600 rounded-xl hover:bg-red-50 font-medium flex items-center gap-2 transition"
-            >
-              <LogOut className="w-5 h-5" /> Đăng xuất
-            </button>
-          </div>
-        </form>
+          <main className="lg:col-span-9 space-y-6">
+            <form onSubmit={handleSave} className="space-y-6">
+              <section className="rounded-3xl border border-emerald-100 bg-white p-6 lg:p-7 shadow-sm">
+                <div className="mb-6 flex items-center justify-between gap-4">
+                  <div>
+                    <h2 className="text-xl font-bold text-gray-900">Thông tin cá nhân</h2>
+                    <p className="mt-1 text-sm text-gray-500">Tên, email và số điện thoại liên hệ.</p>
+                  </div>
+                  <div className="hidden sm:flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-700">
+                    <User className="w-6 h-6" />
+                  </div>
+                </div>
+
+                <div className="grid gap-5 md:grid-cols-2">
+                  <div>
+                    <label className="mb-1.5 block text-sm font-medium text-gray-700">Email</label>
+                    <div className="relative">
+                      <Mail className="absolute left-3 top-1/2 w-5 h-5 -translate-y-1/2 text-gray-400" />
+                      <input
+                        type="email"
+                        value={profile?.email || ""}
+                        disabled
+                        className="w-full rounded-2xl border border-gray-200 bg-gray-50 py-3 pl-10 pr-4 text-gray-500 outline-none cursor-not-allowed"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="mb-1.5 block text-sm font-medium text-gray-700">Họ và tên</label>
+                    <div className="relative">
+                      <User className="absolute left-3 top-1/2 w-5 h-5 -translate-y-1/2 text-gray-400" />
+                      <input
+                        type="text"
+                        value={fullName}
+                        onChange={(e) => setFullName(e.target.value)}
+                        placeholder="Nguyễn Văn A"
+                        className="w-full rounded-2xl border border-gray-200 py-3 pl-10 pr-4 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="mb-1.5 block text-sm font-medium text-gray-700">Số điện thoại</label>
+                    <div className="relative">
+                      <Phone className="absolute left-3 top-1/2 w-5 h-5 -translate-y-1/2 text-gray-400" />
+                      <input
+                        type="tel"
+                        value={phone}
+                        onChange={(e) => setPhone(e.target.value)}
+                        placeholder="0912 345 678"
+                        className="w-full rounded-2xl border border-gray-200 py-3 pl-10 pr-4 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="mb-1.5 block text-sm font-medium text-gray-700">Trạng thái hồ sơ</label>
+                    <div className="rounded-2xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+                      {profile?.role ? `Vai trò: ${profile.role}` : "Khách hàng"}
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <section className="rounded-3xl border border-emerald-100 bg-white p-6 lg:p-7 shadow-sm">
+                <div className="mb-6 flex items-center justify-between gap-4">
+                  <div>
+                    <h2 className="text-xl font-bold text-gray-900">Địa chỉ giao hàng</h2>
+                  </div>
+                  <div className="hidden sm:flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-700">
+                    <MapPin className="w-6 h-6" />
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div>
+                      <label className="mb-1.5 block text-sm font-medium text-gray-700">Tỉnh/Thành phố</label>
+                      <div className="relative">
+                        <MapPin className="absolute left-3 top-1/2 w-5 h-5 -translate-y-1/2 text-gray-400" />
+                        <select
+                          value={selectedProvinceId ?? ""}
+                          onChange={async (e) => {
+                            const id = Number(e.target.value);
+                            const selected = provinces.find((p) => p.id === id);
+                            setSelectedProvinceId(id || null);
+                            setProvince(selected?.name || "");
+                            setSelectedDistrictId(null);
+                            setSelectedWardCode("");
+                            setDistrict("");
+                            setWard("");
+                            setWards([]);
+                            if (id) {
+                              await loadDistricts(id);
+                            } else {
+                              setDistricts([]);
+                            }
+                          }}
+                          className="w-full appearance-none rounded-2xl border border-gray-200 bg-white py-3 pl-10 pr-4 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
+                        >
+                          <option value="">Tỉnh/Thành phố</option>
+                          {provinces.map((item) => (
+                            <option key={item.id} value={item.id}>{item.name}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="mb-1.5 block text-sm font-medium text-gray-700">Quận/Huyện</label>
+                      <select
+                        value={selectedDistrictId ?? ""}
+                        onChange={async (e) => {
+                          const id = Number(e.target.value);
+                          const selected = districts.find((d) => d.id === id);
+                          setSelectedDistrictId(id || null);
+                          setDistrict(selected?.name || "");
+                          setSelectedWardCode("");
+                          setWard("");
+                          if (id) {
+                            await loadWards(id);
+                          } else {
+                            setWards([]);
+                          }
+                        }}
+                        disabled={!selectedProvinceId}
+                        className="w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100 disabled:bg-gray-50 disabled:text-gray-400"
+                      >
+                        <option value="">Quận/Huyện</option>
+                        {districts.map((item) => (
+                          <option key={item.id} value={item.id}>{item.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div>
+                      <label className="mb-1.5 block text-sm font-medium text-gray-700">Phường/Xã</label>
+                      <select
+                        value={selectedWardCode}
+                        onChange={(e) => {
+                          const code = e.target.value;
+                          const selected = wards.find((w) => w.code === code);
+                          setSelectedWardCode(code);
+                          setWard(selected?.name || "");
+                        }}
+                        disabled={!selectedDistrictId}
+                        className="w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100 disabled:bg-gray-50 disabled:text-gray-400"
+                      >
+                        <option value="">Phường/Xã</option>
+                        {wards.map((item) => (
+                          <option key={item.code} value={item.code}>{item.name}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="mb-1.5 block text-sm font-medium text-gray-700">Địa chỉ cụ thể</label>
+                      <input
+                        type="text"
+                        value={streetDetail}
+                        onChange={(e) => setStreetDetail(e.target.value)}
+                        disabled={!selectedWardCode}
+                        placeholder="Số nhà, tên đường"
+                        className="w-full rounded-2xl border border-gray-200 px-4 py-3 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100 disabled:bg-gray-50 disabled:text-gray-400"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <div className="flex flex-col gap-3 sm:flex-row">
+                <button
+                  type="submit"
+                  disabled={saving}
+                  className="inline-flex flex-1 items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-emerald-600 to-lime-600 px-5 py-3.5 font-semibold text-white shadow-sm transition hover:from-emerald-700 hover:to-lime-700 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {saving ? <Loader2 className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />}
+                  Lưu thay đổi
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleLogout}
+                  className="inline-flex items-center justify-center gap-2 rounded-2xl border border-rose-200 bg-white px-5 py-3.5 font-semibold text-rose-600 transition hover:bg-rose-50"
+                >
+                  <LogOut className="w-5 h-5" />
+                  Đăng xuất
+                </button>
+              </div>
+            </form>
+          </main>
+        </div>
       </div>
     </div>
   );
