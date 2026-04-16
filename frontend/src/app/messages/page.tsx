@@ -7,6 +7,9 @@ import { io, Socket } from "socket.io-client";
 import { messageApi, isLoggedIn, parseToken } from "@/lib/api";
 import toast from "react-hot-toast";
 
+// Module-level singleton — đảm bảo chỉ có 1 socket connection dù component remount bao nhiêu lần
+let _dmSocket: Socket | null = null;
+
 interface Conversation {
   id: number;
   otherUserId: number;
@@ -49,15 +52,27 @@ function MessagesInner() {
   useEffect(() => {
     if (!isLoggedIn()) { router.push("/login"); return; }
 
+    // Dùng singleton — nếu socket đã được tạo (dù đang connecting hay connected) thì tái sử dụng
+    if (_dmSocket) {
+      console.log("[socket] reusing existing socket, id:", _dmSocket.id);
+      setSocket(_dmSocket);
+      loadConversations(_dmSocket);
+      return;
+    }
+    console.log("[socket] creating NEW socket");
+
     const token = typeof window !== "undefined" ? localStorage.getItem("hqs_token") : null;
 
     const s = io(
       `${process.env.NEXT_PUBLIC_WS_URL || "http://localhost:3000"}/dm`,
       { transports: ["websocket"], path: "/ws", auth: token ? { token } : {} }
     );
+    _dmSocket = s;
 
-    // Incoming message from the other person
+    // dm:message — CHỈ dành cho người NHẬN (bỏ qua nếu là tin mình gửi)
     s.on("dm:message", (msg: Message) => {
+      console.log("[dm:message] fired", msg.id, "senderId:", msg.senderId, "userId:", userId);
+      if (Number(msg.senderId) === Number(userId)) return;
       if (activeConvRef.current?.id === msg.conversationId) {
         setMessages((prev) => [...prev, msg]);
       }
@@ -75,8 +90,9 @@ function MessagesInner() {
       );
     });
 
-    // Confirmation after sending
+    // dm:sent — CHỈ dành cho người GỬI (server xác nhận đã lưu DB)
     s.on("dm:sent", (msg: Message) => {
+      console.log("[dm:sent] fired", msg.id);
       setMessages((prev) => [...prev, { ...msg, isRead: false }]);
       setConversations((prev) =>
         prev.map((c) =>
@@ -99,13 +115,11 @@ function MessagesInner() {
     });
 
     setSocket(s);
-
-    // Load conversations (pass socket so it can auto-open via ?sellerId)
     loadConversations(s);
 
     return () => {
-      s.disconnect();
       if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
+      // Không disconnect ở đây — singleton tồn tại xuyên suốt
     };
   }, []);
 
