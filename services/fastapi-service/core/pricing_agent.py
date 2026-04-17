@@ -11,23 +11,22 @@ settings = get_settings()
 
 _ddg_search = DuckDuckGoSearchResults(max_results=3)
 
-# ĐỊNH NGHĨA LẠI CÔNG CỤ TÌM KIẾM CHO AI
+
 @tool
 def web_search_price(product_name: str) -> str:
     """Dùng để tìm kiếm giá thị trường hiện tại của nông sản trên mạng Internet. BẠN CHỈ CẦN TRUYỀN VÀO TÊN NÔNG SẢN."""
     
-    # === ÉP KHUÔN QUERY Ở ĐÂY ===
-    # Bạn có thể tha hồ tùy chỉnh chuỗi này để có kết quả mượt nhất
+
     formatted_query = f"giá bán {product_name} tại Việt Nam"
     
     
     try:
-        # Gọi công cụ DuckDuckGo với query chuẩn
+
         return _ddg_search.invoke(formatted_query)
     except Exception as e:
         return f"Lỗi tìm kiếm: {str(e)}"
 
-# 2. Định nghĩa Công cụ lấy giá từ Database (Spring Boot)
+
 @tool
 def get_db_price(product_name: str) -> str:
     """Dùng để truy vấn giá trung bình trong lịch sử của sản phẩm từ cơ sở dữ liệu nội bộ."""
@@ -44,14 +43,13 @@ def get_db_price(product_name: str) -> str:
     except Exception as e:
         return f"Lỗi khi kết nối Database: {str(e)}"
 
-# Gom công cụ lại cho Agent
+
 tools = [web_search_price, get_db_price]
 
-# 3. Khởi tạo Mô hình LLM (Bộ não suy luận)
 llm = ChatGroq(
     api_key=settings.groq_api_key, 
     model="llama-3.3-70b-versatile",
-    temperature=0.1 # Để temperature thấp để AI tập trung vào logic, tránh nói lan man
+    temperature=0.1
 )
 
 # 4. Viết Prompt chỉ đạo Agent
@@ -73,9 +71,9 @@ prompt = ChatPromptTemplate.from_messages([
     ("placeholder", "{agent_scratchpad}"),
 ])
 
-# 5. Lắp ráp Agent
+
 agent = create_tool_calling_agent(llm, tools, prompt)
-# Bật verbose=True để xem dòng suy nghĩ của AI trên Terminal
+
 agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True) 
 
 async def get_smart_pricing(product_name: str, freshness: str) -> dict:
@@ -88,7 +86,7 @@ async def get_smart_pricing(product_name: str, freshness: str) -> dict:
     raw_output = result["output"]
     
     try:
-        # Cố gắng dịch câu trả lời của AI thành object JSON
+
         parsed_result = json.loads(raw_output)
         
         return {
