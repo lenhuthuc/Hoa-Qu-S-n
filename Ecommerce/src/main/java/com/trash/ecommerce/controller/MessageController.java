@@ -143,8 +143,12 @@ public class MessageController {
             conv.setLastMessageAt(LocalDateTime.now());
             if (conv.getBuyer().getId().equals(userId)) {
                 conv.setSellerUnread(conv.getSellerUnread() + 1);
+                // Nếu seller đã xóa, nhắn tin mới sẽ khôi phục conversation cho họ
+                conv.setDeletedBySeller(false);
             } else {
                 conv.setBuyerUnread(conv.getBuyerUnread() + 1);
+                // Nếu buyer đã xóa, nhắn tin mới sẽ khôi phục conversation cho họ
+                conv.setDeletedByBuyer(false);
             }
             conversationRepository.save(conv);
 
@@ -173,7 +177,19 @@ public class MessageController {
                 return ResponseEntity.status(403).body(Map.of("message", "Access denied"));
             }
 
-            conversationRepository.delete(conv);
+            if (conv.getBuyer().getId().equals(userId)) {
+                conv.setDeletedByBuyer(true);
+            } else {
+                conv.setDeletedBySeller(true);
+            }
+
+            // Hard delete khi cả 2 đều đã xóa
+            if (Boolean.TRUE.equals(conv.getDeletedByBuyer()) && Boolean.TRUE.equals(conv.getDeletedBySeller())) {
+                conversationRepository.delete(conv);
+            } else {
+                conversationRepository.save(conv);
+            }
+
             return ResponseEntity.ok(Map.of("message", "Conversation deleted successfully"));
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(Map.of("message", e.getMessage()));

@@ -319,7 +319,7 @@ router.post("/:streamKey/order", async (req, res) => {
       productId,
       quantity,
       streamKey,
-    });
+    }, { headers: { Authorization: req.headers.authorization } });
 
     // ── Broadcast sự kiện đặt hàng qua Redis Pub/Sub ──
     // Farmer nhận notification, viewer thấy overlay "Có người vừa đặt hàng"

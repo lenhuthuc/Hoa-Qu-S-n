@@ -127,7 +127,7 @@ function MessagesInner() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  async function loadConversations(s?: Socket) {
+  async function loadConversations(_s?: Socket) {
     try {
       const res = await messageApi.getConversations();
       const convs: Conversation[] = res.data || [];
@@ -159,17 +159,24 @@ function MessagesInner() {
 
   async function openConversation(conv: Conversation) {
     setActiveConv(conv);
+    setMessages([]); // clear ngay khi switch conversation
     setPartnerTyping(false);
     setMsgLoading(true);
     try {
       const res = await messageApi.getMessages(conv.id);
       const msgs: Message[] = res.data?.messages || res.data?.content || [];
-      setMessages([...msgs].reverse()); // oldest first
+      const fetched = [...msgs].reverse(); // oldest first
+      const fetchedIds = new Set(fetched.map((m) => m.id));
+      setMessages((prev) => {
+        // Giữ lại các tin nhắn đến qua socket trong lúc API đang fetch (tránh ghi đè)
+        const pending = prev.filter((m) => m.id && !fetchedIds.has(m.id));
+        return [...fetched, ...pending];
+      });
       setConversations((prev) =>
         prev.map((c) => c.id === conv.id ? { ...c, unreadCount: 0 } : c)
       );
-    } catch {
-      // empty
+    } catch (err) {
+      console.error("[openConversation] failed to load messages:", err);
     } finally {
       setMsgLoading(false);
     }

@@ -52,6 +52,8 @@ export default function GoLivePage() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const isLiveRef = useRef(false);
+  const streamKeyRef = useRef("");
 
 
   // ── Trạng thái phát sóng ──
@@ -102,6 +104,45 @@ export default function GoLivePage() {
       }
     };
     load();
+  }, []);
+
+  // Sync refs để dùng trong event handlers mà không bị stale closure
+  useEffect(() => { isLiveRef.current = isLive; }, [isLive]);
+  useEffect(() => { streamKeyRef.current = streamKey; }, [streamKey]);
+
+  // ── Dừng stream khi rời trang (SPA navigate / tab close) ──
+  useEffect(() => {
+    const stopRemote = () => {
+      if (!isLiveRef.current || !streamKeyRef.current) return;
+      const token = typeof window !== "undefined" ? localStorage.getItem("hqs_token") : null;
+      const base = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000";
+      // keepalive: true — request hoàn thành dù page đã unload
+      fetch(`${base}/api/livestream/stop`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ streamKey: streamKeyRef.current }),
+        keepalive: true,
+      }).catch(() => {});
+      pcRef.current?.close();
+      streamRef.current?.getTracks().forEach((t) => t.stop());
+    };
+
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (!isLiveRef.current) return;
+      e.preventDefault();
+      // Hiện dialog xác nhận trước khi đóng tab / refresh
+      e.returnValue = "Phiên livestream đang chạy. Thoát ra sẽ kết thúc ngay lập tức!";
+      stopRemote();
+    };
+
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => {
+      window.removeEventListener("beforeunload", onBeforeUnload);
+      stopRemote(); // gọi khi component unmount (Next.js SPA navigation)
+    };
   }, []);
 
   // ── Timer đếm thời gian live ──
@@ -238,6 +279,7 @@ export default function GoLivePage() {
       const key = res.data?.data?.streamKey;
       if (!key) throw new Error("Không nhận được stream key");
       setStreamKey(key);
+      streamKeyRef.current = key;
 
       // ✅ Truyền audio raw — không qua bất kỳ bộ lọc nào.
       // getUserMedia constraints đã tắt echoCancellation, noiseSuppression, autoGainControl.
@@ -307,6 +349,7 @@ export default function GoLivePage() {
 
       // ✅ 3. Chỉ lưu ref khi mọi thứ đã hoàn tất
       pcRef.current = pc;
+      isLiveRef.current = true;
       setIsLive(true);
       setLiveDuration(0);
       toast.success("Hệ thống đã sẵn sàng và đang phát sóng HD!");
@@ -333,6 +376,8 @@ export default function GoLivePage() {
     pcRef.current?.close();
     pcRef.current = null;
 
+    isLiveRef.current = false;
+    streamKeyRef.current = "";
     setIsLive(false);
     setIsPreviewing(false);
     setStreamKey("");
