@@ -507,7 +507,7 @@ export default function CheckoutPage() {
 
               {shippingBlockMessage ? (
                 <div className="mt-6 p-4 bg-red-50 border border-red-200 rounded-xl">
-                  <p className="text-sm font-bold text-red-900 mb-1">⚠️ Không thể hoàn tất đơn hàng</p>
+                  <p className="text-sm font-bold text-red-900 mb-1">Không thể hoàn tất đơn hàng</p>
                   <p className="text-sm text-red-700">{shippingBlockMessage}</p>
                 </div>
               ) : null}

@@ -6,6 +6,8 @@ import com.trash.ecommerce.dto.OrderResponseDTO;
 import com.trash.ecommerce.dto.OrderSummaryDTO;
 import com.trash.ecommerce.entity.Order;
 import com.trash.ecommerce.entity.OrderItem;
+import com.trash.ecommerce.repository.SellerApplicationRepository;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.time.ZoneId;
@@ -15,6 +17,8 @@ import java.util.stream.Collectors;
 
 @Component
 public class OrderMapper {
+    @Autowired
+    private SellerApplicationRepository sellerApplicationRepository;
 
     public OrderSummaryDTO toOrderSummaryDTO(Order order, String paymentUrl) {
         if (order == null) {
@@ -83,11 +87,19 @@ public class OrderMapper {
             dto.setProductName(orderItem.getProduct().getProductName());
             dto.setImageUrl(orderItem.getProduct().getPrimaryImagePath() != null ? "/api/products/" + orderItem.getProduct().getId() + "/img" : null);
             if (orderItem.getProduct().getSeller() != null) {
-                dto.setSellerName(
-                        orderItem.getProduct().getSeller().getFullName() != null && !orderItem.getProduct().getSeller().getFullName().isBlank()
-                                ? orderItem.getProduct().getSeller().getFullName()
-                                : orderItem.getProduct().getSeller().getUsername()
-                );
+                String fallbackName = orderItem.getProduct().getSeller().getFullName() != null
+                        && !orderItem.getProduct().getSeller().getFullName().isBlank()
+                        ? orderItem.getProduct().getSeller().getFullName()
+                        : orderItem.getProduct().getSeller().getUsername();
+                String shopName = fallbackName;
+                try {
+                    var sellerApp = sellerApplicationRepository.findByUserId(orderItem.getProduct().getSeller().getId()).orElse(null);
+                    if (sellerApp != null && sellerApp.getShopName() != null && !sellerApp.getShopName().isBlank()) {
+                        shopName = sellerApp.getShopName();
+                    }
+                } catch (Exception ignored) {
+                }
+                dto.setSellerName(shopName);
             }
         }
         dto.setPrice(orderItem.getPrice());

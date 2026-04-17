@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -31,7 +31,14 @@ interface Order {
   createdAt: string;
   totalItems?: number;
   paymentUrl?: string;
-  items?: Array<{ productName: string; quantity: number; price: number }>;
+  items?: Array<{
+    productId?: number;
+    productName: string;
+    quantity: number;
+    price: number;
+    imageUrl?: string;
+    sellerName?: string;
+  }>;
 }
 
 interface OrderDetailItem {
@@ -86,6 +93,7 @@ export default function OrdersPage() {
   const [loading, setLoading] = useState(true);
   const [activeFilter, setActiveFilter] = useState<OrderFilterKey>("ALL");
   const [savingOrderId, setSavingOrderId] = useState<number | null>(null);
+  const inFlightDetailIdsRef = useRef<Set<number>>(new Set());
 
   useEffect(() => {
     (async () => {
@@ -94,17 +102,6 @@ export default function OrdersPage() {
         const list = res.data?.data || res.data || [];
         const normalizedOrders = Array.isArray(list) ? list : [];
         setOrders(normalizedOrders);
-
-        const detailResults = await Promise.allSettled(
-          normalizedOrders.map((order: Order) => orderApi.getById(order.id))
-        );
-        const detailMap: Record<number, OrderDetail> = {};
-        detailResults.forEach((result, index) => {
-          if (result.status === "fulfilled") {
-            detailMap[normalizedOrders[index].id] = result.value.data?.data || result.value.data;
-          }
-        });
-        setOrderDetails(detailMap);
       } catch (err: any) {
         if (err.response?.status === 401 || err.response?.status === 403) {
           toast.error("Vui lòng đăng nhập");
@@ -143,6 +140,46 @@ export default function OrdersPage() {
     return !filter?.statuses || filter.statuses.includes(order.status);
   });
 
+  const getOrderDetail = useCallback(async (orderId: number): Promise<OrderDetail | null> => {
+    if (orderDetails[orderId]) {
+      return orderDetails[orderId];
+    }
+
+    if (inFlightDetailIdsRef.current.has(orderId)) {
+      return null;
+    }
+
+    inFlightDetailIdsRef.current.add(orderId);
+    try {
+      const res = await orderApi.getById(orderId);
+      const detail = res.data?.data || res.data;
+      setOrderDetails((prev) => ({ ...prev, [orderId]: detail }));
+      return detail;
+    } catch {
+      return null;
+    } finally {
+      inFlightDetailIdsRef.current.delete(orderId);
+    }
+  }, [orderDetails]);
+
+  useEffect(() => {
+    if (loading || filteredOrders.length === 0) return;
+
+    let cancelled = false;
+    const loadVisibleOrderDetails = async () => {
+      for (const order of filteredOrders) {
+        if (cancelled) return;
+        if (orderDetails[order.id] || inFlightDetailIdsRef.current.has(order.id)) continue;
+        await getOrderDetail(order.id);
+      }
+    };
+
+    void loadVisibleOrderDetails();
+    return () => {
+      cancelled = true;
+    };
+  }, [filteredOrders, getOrderDetail, loading, orderDetails]);
+
   const handleCancel = async (id: number) => {
     if (!confirm("Bạn muốn hủy đơn hàng này?")) return;
     setSavingOrderId(id);
@@ -174,7 +211,7 @@ export default function OrdersPage() {
   };
 
   const handleRebuy = async (id: number) => {
-    const detail = orderDetails[id];
+    const detail = await getOrderDetail(id);
     if (!detail?.items?.length) {
       router.push("/search");
       return;
@@ -275,7 +312,7 @@ export default function OrdersPage() {
           <div className="space-y-5">
             {filteredOrders.map((order) => {
               const detail = orderDetails[order.id];
-              const items = detail?.items || [];
+              const items = detail?.items || order.items || [];
               const statusMeta = getStatusMeta(order.status);
               const sellerNames = Array.from(new Set(items.map((item) => item.sellerName).filter(Boolean) as string[]));
               const shopLabel = sellerNames.length === 1 ? sellerNames[0] : sellerNames.length > 1 ? "Nhiều shop" : "Shop nông sản";
@@ -324,8 +361,8 @@ export default function OrdersPage() {
 
                       {items.length > 0 ? (
                         <div className="space-y-4">
-                          {items.slice(0, 3).map((item) => (
-                            <div key={item.productId} className="flex gap-4 rounded-2xl bg-white p-3 shadow-sm ring-1 ring-gray-100">
+                          {items.slice(0, 3).map((item, index) => (
+                            <div key={`${order.id}-${item.productId}-${index}`} className="flex gap-4 rounded-2xl bg-white p-3 shadow-sm ring-1 ring-gray-100">
                               <div className="h-16 w-16 flex-shrink-0 overflow-hidden rounded-xl bg-gray-100">
                                 {item.imageUrl ? (
                                   <img src={item.imageUrl} alt={item.productName} className="h-full w-full object-cover" />
@@ -335,7 +372,6 @@ export default function OrdersPage() {
                                   </div>
                                 )}
                               </div>
-
                               <div className="min-w-0 flex-1">
                                 <div className="flex items-start justify-between gap-3">
                                   <div className="min-w-0">
@@ -359,8 +395,17 @@ export default function OrdersPage() {
                           )}
                         </div>
                       ) : (
-                        <div className="rounded-2xl border border-dashed border-gray-200 bg-white p-5 text-sm text-gray-500">
-                          Đang tải chi tiết đơn hàng...
+                        <div className="space-y-3 rounded-2xl border border-dashed border-gray-200 bg-white p-4">
+                          {[0, 1].map((row) => (
+                            <div key={`${order.id}-skeleton-${row}`} className="flex items-center gap-3">
+                              <div className="h-14 w-14 rounded-lg bg-gray-100 animate-pulse" />
+                              <div className="flex-1 space-y-2">
+                                <div className="h-3.5 w-3/5 rounded bg-gray-100 animate-pulse" />
+                                <div className="h-3 w-2/5 rounded bg-gray-100 animate-pulse" />
+                              </div>
+                              <div className="h-3.5 w-16 rounded bg-gray-100 animate-pulse" />
+                            </div>
+                          ))}
                         </div>
                       )}
                     </div>

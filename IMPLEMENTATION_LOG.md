@@ -1,9 +1,75 @@
 ﻿# IMPLEMENTATION LOG (Concise)
 
-Last Updated: 2026-04-15  
+Last Updated: 2026-04-17  
 Status: Complete and deployed
 
 ## Update 2026-04-17 - User Profile + Product Detail UI + Shop Name Mapping
+
+## Update 2026-04-17 - Review Feedback Hardening (N+1 + Validation + Upload Security)
+
+What was implemented:
+- Removed eager N+1 order detail fetching in orders list page.
+- Kept order detail fetch lazy and cached only when needed (rebuy action).
+- Centralized review core validation in service layer for both JSON and multipart paths:
+	- Rating range 1..5.
+	- Non-empty trimmed content.
+	- Max content length.
+	- Max media URL count.
+- Added request-boundary validation for multipart review endpoint.
+- Hardened review upload security:
+	- Strict allowed MIME + extension checks for image/video.
+	- Per-file size limits and total upload size limit.
+	- Rejected suspicious filenames/path traversal patterns.
+	- Switched file persistence from byte-array write to stream copy.
+- Fixed review media input UX on order detail page by resetting file inputs, so selecting the same file again triggers onChange.
+
+Files modified (related to this task):
+- Ecommerce/src/main/java/com/trash/ecommerce/service/ReviewServiceImpl.java
+- Ecommerce/src/main/java/com/trash/ecommerce/controller/ReviewController.java
+- frontend/src/app/orders/page.tsx
+- frontend/src/app/orders/[id]/page.tsx
+
+Verification Status:
+- Backend compile: pass.
+- Frontend build: pass.
+
+## Update 2026-04-17 - Review UX + Quota Logic + Reload Consistency
+
+What was implemented:
+- Fixed review modal behavior when uploading media:
+	- Prevented submit button from being hidden/covered by content.
+	- Converted modal body to scrollable area with sticky action footer.
+- Updated product detail review layout:
+	- Left rating summary panel set to ~1/3 width.
+	- Right review list set to ~2/3 width.
+	- Prevented green summary card from stretching to match comment column height.
+- Corrected shop identity source in order detail/order list product snippets:
+	- Seller display now resolves from seller registration shopName (SellerApplication) instead of account full name when available.
+- Implemented review quota by purchase count (not global one-time lock):
+	- A user can review a product up to the number of FINISHED orders containing that product.
+	- Example: user buys product X in 2 finished orders => can review product X 2 times.
+- Added backend eligibility endpoint for review UI hydration after reload:
+	- FE now re-checks remaining review quota per product when opening order detail.
+	- If quota is exhausted, button remains "Xem đánh giá" after page reload.
+- Added backend guard to reject over-quota review creation even if client is bypassed.
+
+Files modified (related to this task):
+- Ecommerce/src/main/java/com/trash/ecommerce/controller/ReviewController.java
+- Ecommerce/src/main/java/com/trash/ecommerce/service/ReviewService.java
+- Ecommerce/src/main/java/com/trash/ecommerce/service/ReviewServiceImpl.java
+- Ecommerce/src/main/java/com/trash/ecommerce/repository/OrderRepository.java
+- Ecommerce/src/main/java/com/trash/ecommerce/repository/ReviewRepository.java
+- Ecommerce/src/main/java/com/trash/ecommerce/mapper/OrderMapper.java
+- frontend/src/lib/api.ts
+- frontend/src/app/orders/[id]/page.tsx
+- frontend/src/app/product/[id]/page.tsx
+
+Key API added:
+- GET /api/reviews/products/{productId}/eligibility
+
+Verification Status:
+- Backend compile: pass.
+- Frontend build: pass.
 
 ### 1) Code User Profile
 What was implemented:

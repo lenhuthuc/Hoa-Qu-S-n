@@ -20,6 +20,13 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
            "JOIN o.orderItems oi " +
            "WHERE o.user.id = :userId " +
            "AND oi.product.id = :productId " +
-           "AND o.status IN (com.trash.ecommerce.entity.OrderStatus.PAID, com.trash.ecommerce.entity.OrderStatus.PLACED)")
+            "AND o.status = com.trash.ecommerce.entity.OrderStatus.FINISHED")
     boolean existsByUserIdAndProductIdAndStatusPaid(@Param("userId") Long userId, @Param("productId") Long productId);
+
+        @Query("SELECT COUNT(DISTINCT o.id) FROM Order o " +
+            "JOIN o.orderItems oi " +
+            "WHERE o.user.id = :userId " +
+            "AND oi.product.id = :productId " +
+            "AND o.status = com.trash.ecommerce.entity.OrderStatus.FINISHED")
+        long countFinishedOrdersByUserIdAndProductId(@Param("userId") Long userId, @Param("productId") Long productId);
 }
