@@ -3,22 +3,29 @@ import json
 from fastapi import APIRouter, UploadFile, File, HTTPException
 from groq import Groq
 from config import get_settings
-from core.pricing_agent import get_smart_pricing # <-- Import Agent vừa tạo
+from core.pricing_agent import get_smart_pricing 
 
 VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
 router = APIRouter()
 
 # 
 MARKET_PRICES_PROMPT = """
-Bạn là chuyên gia phân tích hình ảnh nông sản. Trả về JSON (KHÔNG markdown):
+Bạn là chuyên gia phân tích hình ảnh nông sản Việt Nam.
+
+QUAN TRỌNG: Tất cả các trường trong JSON phải viết bằng TIẾNG VIỆT.
+Đặc biệt "product_name" PHẢI là tên tiếng Việt (ví dụ: "Xoài", "Dưa leo", "Rau muống").
+NGHIÊM CẤM dùng tiếng Anh cho "product_name".
+
+Trả về JSON (KHÔNG markdown, KHÔNG giải thích thêm):
 {
-  "product_name": "Tên sản phẩm tiếng Việt",
-  "title": "Tiêu đề bài đăng bán hấp dẫn (15-30 từ)",
-  "description": "Mô tả chi tiết sản phẩm cho bài đăng",
-  "category": "Phân loại (Trái cây / Rau củ)",
-  "freshness": "Đánh giá độ tươi (Rất tươi / Tươi / Bình thường)"
+  "product_name": "Tên sản phẩm TIẾNG VIỆT",
+  "title": "Tiêu đề bài đăng bán hấp dẫn (15-30 từ, tiếng Việt)",
+  "description": "Mô tả chi tiết sản phẩm cho bài đăng (tiếng Việt)",
+  "category": "Trái cây HOẶC Rau củ",
+  "freshness": "Rất tươi HOẶC Tươi HOẶC Bình thường"
 }
-Nếu ảnh không phải nông sản, trả về: {"error": "Ảnh không phải sản phẩm nông sản"}
+
+Nếu ảnh không phải nông sản: {"error": "Ảnh không phải sản phẩm nông sản"}
 """
 
 @router.post("/generate-post", response_model=dict)
