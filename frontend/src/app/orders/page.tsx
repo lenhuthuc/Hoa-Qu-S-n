@@ -37,6 +37,7 @@ interface Order {
     quantity: number;
     price: number;
     imageUrl?: string;
+    sellerId?: number;
     sellerName?: string;
   }>;
 }
@@ -47,6 +48,7 @@ interface OrderDetailItem {
   quantity: number;
   price: number;
   imageUrl?: string;
+  sellerId?: number;
   sellerName?: string;
 }
 
@@ -316,6 +318,8 @@ export default function OrdersPage() {
               const statusMeta = getStatusMeta(order.status);
               const sellerNames = Array.from(new Set(items.map((item) => item.sellerName).filter(Boolean) as string[]));
               const shopLabel = sellerNames.length === 1 ? sellerNames[0] : sellerNames.length > 1 ? "Nhiều shop" : "Shop nông sản";
+              const sellerIds = Array.from(new Set(items.map((item) => item.sellerId).filter((value): value is number => typeof value === "number")));
+              const contactSellerHref = sellerIds.length === 1 ? `/messages?sellerId=${sellerIds[0]}` : "/messages";
               const canCancel = ["PENDING", "PENDING_PAYMENT", "PLACED", "PREPARING"].includes(order.status);
               const canConfirm = order.status === "SHIPPED";
               const canRebuy = ["FINISHED", "CANCELLED"].includes(order.status);
@@ -433,7 +437,7 @@ export default function OrdersPage() {
 
                       <div className="mt-5 space-y-2">
                         <Link
-                          href="/messages"
+                          href={contactSellerHref}
                           className="inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-100"
                         >
                           <MessageCircle className="w-4 h-4" />

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Search, Leaf } from "lucide-react";
-import { searchApi } from "@/lib/api";
+import { searchApi, productApi } from "@/lib/api";
 import Link from "next/link";
 
 interface SearchResult {
@@ -11,9 +11,18 @@ interface SearchResult {
   description: string;
   category?: string;
   price: number;
-  image: string;
+  image?: string;
   score: number;
 }
+
+const resolveImageUrl = (value?: string | null) => {
+  if (!value) return "";
+  if (value.startsWith("http://") || value.startsWith("https://") || value.startsWith("/api/")) {
+    return value;
+  }
+  const normalized = value.startsWith("/") ? value : `/${value}`;
+  return normalized;
+};
 
 export default function SemanticSearchPage() {
   const [query, setQuery] = useState("");
@@ -26,7 +35,29 @@ export default function SemanticSearchPage() {
     setLoading(true);
     try {
       const res = await searchApi.semantic(searchQuery);
-      setResults(res.data.data?.results || []);
+      const rawResults: SearchResult[] = res.data.data?.results || [];
+
+      const enrichedResults = await Promise.all(
+        rawResults.map(async (item) => {
+          const fromIndex = resolveImageUrl(item.image);
+          if (fromIndex) {
+            return { ...item, image: fromIndex };
+          }
+
+          try {
+            const productRes = await productApi.getById(item.product_id);
+            const product = productRes.data?.data || productRes.data;
+            const fallback = resolveImageUrl(
+              product?.imageUrl || product?.image || product?.imageUrls?.[0] || ""
+            );
+            return { ...item, image: fallback };
+          } catch {
+            return { ...item, image: "" };
+          }
+        })
+      );
+
+      setResults(enrichedResults);
       setSearched(true);
     } catch {
       setResults([]);

@@ -72,6 +72,7 @@ export default function ProductDetailPage() {
   const [qty, setQty] = useState(1);
   const [addingToCart, setAddingToCart] = useState(false);
   const [shippingInfo, setShippingInfo] = useState<ShippingInfo | null>(null);
+  const [displayUnit, setDisplayUnit] = useState<"g" | "kg">("kg");
 
   useEffect(() => {
     (async () => {
@@ -119,9 +120,9 @@ export default function ProductDetailPage() {
   const formatPrice = (price: number) =>
     new Intl.NumberFormat("vi-VN", { style: "currency", currency: "VND" }).format(price);
 
-  const formatWeight = (grams: number) => {
-    if (grams >= 1000) {
-      return `${(grams / 1000).toLocaleString("vi-VN", { maximumFractionDigits: 2 })} kg`;
+  const formatMassByUnit = (grams: number, unit: "g" | "kg", maxFractionDigits = 2) => {
+    if (unit === "kg") {
+      return `${(grams / 1000).toLocaleString("vi-VN", { maximumFractionDigits: maxFractionDigits })} kg`;
     }
     return `${grams.toLocaleString("vi-VN")} g`;
   };
@@ -159,6 +160,7 @@ export default function ProductDetailPage() {
     ? displayShopName.split(" ").filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("")
     : "NB";
   const isVideoUrl = (url: string) => /\.(mp4|webm|mov|m4v)(\?|#|$)/i.test(url);
+  const toReviewMediaSrc = (url: string) => `/api/reviews/media?url=${encodeURIComponent(url)}`;
 
   if (loading) {
     return (
@@ -228,22 +230,32 @@ export default function ProductDetailPage() {
               <h1 className="text-3xl font-bold tracking-tight text-gray-900">{product.productName}</h1>
               <p className="mt-4 text-3xl font-bold text-emerald-700">{formatPrice(product.price)}</p>
 
-              <div className="mt-5 grid grid-cols-3 gap-3 text-center text-sm">
-                <div className="rounded-2xl bg-emerald-50 p-4 ring-1 ring-emerald-100">
-                  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-700/70">Kho hàng</p>
-                  <p className="mt-2 text-lg font-bold text-gray-900">{product.quantity}</p>
-                </div>
+              <div className="mt-5 flex items-center justify-end gap-2">
+                <span className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-700/70">Đơn vị</span>
+                <select
+                  value={displayUnit}
+                  onChange={(e) => setDisplayUnit(e.target.value as "g" | "kg")}
+                  className="h-9 rounded-xl border border-emerald-200 bg-white px-3 text-sm font-semibold text-emerald-700 outline-none transition focus:ring-2 focus:ring-emerald-300"
+                >
+                  <option value="g">g</option>
+                  <option value="kg">kg</option>
+                </select>
+              </div>
+
+              <div className="mt-3 grid grid-cols-2 gap-3 text-center text-sm">
                 <div className="rounded-2xl bg-emerald-50 p-4 ring-1 ring-emerald-100">
                   <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-700/70">Trọng lượng</p>
                   <p className="mt-2 text-lg font-bold text-gray-900">
-                    {typeof product.unitWeightGrams === "number" && product.unitWeightGrams > 0 ? `${product.unitWeightGrams} g` : "-"}
+                    {typeof product.unitWeightGrams === "number" && product.unitWeightGrams > 0
+                      ? formatMassByUnit(product.unitWeightGrams, displayUnit, displayUnit === "kg" ? 3 : 0)
+                      : "-"}
                   </p>
                 </div>
                 <div className="rounded-2xl bg-emerald-50 p-4 ring-1 ring-emerald-100">
-                  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-700/70">Tổng hàng còn</p>
+                  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-700/70">Tồn kho</p>
                   <p className="mt-2 text-lg font-bold text-gray-900">
                     {typeof product.totalStockWeightKg === "number" && product.totalStockWeightKg > 0
-                      ? `${product.totalStockWeightKg.toLocaleString("vi-VN", { maximumFractionDigits: 3 })} kg`
+                      ? formatMassByUnit(product.totalStockWeightKg * 1000, displayUnit, displayUnit === "kg" ? 3 : 0)
                       : "-"}
                   </p>
                 </div>
@@ -285,14 +297,21 @@ export default function ProductDetailPage() {
                       router.push("/login");
                       return;
                     }
-                    setAddingToCart(true);
-                    try {
-                      await cartApi.addItem({ productId, quantity: qty });
-                      router.push("/cart");
-                    } catch (err: any) {
-                      toast.error(err.response?.data?.message || "Lỗi thêm giỏ hàng");
-                      setAddingToCart(false);
+                    if (!product) {
+                      toast.error("Không tìm thấy thông tin sản phẩm");
+                      return;
                     }
+
+                    const buyNowPayload = {
+                      productId,
+                      productName: product.productName,
+                      price: product.price,
+                      quantity: qty,
+                      imageUrl: product.imageUrl,
+                    };
+
+                    localStorage.setItem("hqs_buy_now_item", JSON.stringify(buyNowPayload));
+                    router.push("/cart?mode=buy-now");
                   }}
                   disabled={addingToCart || product.quantity === 0}
                   className="h-11 min-w-[116px] flex-1 rounded-xl bg-emerald-600 px-4 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
@@ -439,9 +458,9 @@ export default function ProductDetailPage() {
                           {review.mediaUrls.map((url, index) => (
                             <div key={`${review.id}-${index}`} className="overflow-hidden rounded-2xl border border-gray-100 bg-gray-50">
                               {isVideoUrl(url) ? (
-                                <video src={url} controls className="h-48 w-full bg-black object-cover" />
+                                <video src={toReviewMediaSrc(url)} controls className="h-48 w-full bg-black object-cover" />
                               ) : (
-                                <img src={url} alt={`Đánh giá ${review.id} media ${index + 1}`} className="h-48 w-full object-cover" />
+                                <img src={toReviewMediaSrc(url)} alt={`Đánh giá ${review.id} media ${index + 1}`} className="h-48 w-full object-cover" />
                               )}
                             </div>
                           ))}

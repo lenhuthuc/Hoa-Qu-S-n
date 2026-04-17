@@ -30,6 +30,7 @@ interface EditableFields {
   description: string;
   categoryId: number;
   suggested_price_per_kg: number;
+  priceVnd: number;
   unitWeightGrams: number;
   totalStockWeightKg: number;
   shelfLifeDays: number;
@@ -63,6 +64,11 @@ export default function CreatePostPage() {
   const [facebookPageId, setFacebookPageId] = useState("");
   const [facebookMessage, setFacebookMessage] = useState("");
   const [connectingFacebook, setConnectingFacebook] = useState(false);
+  const [unitWeightUnit, setUnitWeightUnit] = useState<"g" | "kg">("g");
+  const [totalStockUnit, setTotalStockUnit] = useState<"g" | "kg">("kg");
+  const [unitWeightInput, setUnitWeightInput] = useState("500");
+  const [totalStockInput, setTotalStockInput] = useState("100");
+  const [isPriceManuallyEdited, setIsPriceManuallyEdited] = useState(false);
   const prevPreviewRef = useRef<string | null>(null);
 
   const loadCategories = useCallback(async (maxRetries = 3) => {
@@ -157,6 +163,7 @@ export default function CreatePostPage() {
       setPreview(url);
       setResult(null);
       setEditable(null);
+      setIsPriceManuallyEdited(false);
     }
   }, []);
 
@@ -168,6 +175,7 @@ export default function CreatePostPage() {
       if (res.data.success) {
         const data: AIResult = res.data.data;
         setResult(data);
+        const defaultUnitWeightGrams = 500;
         // Auto-match AI category name to a categoryId
         const matchedCat = categories.find(
           (c) => c.name.toLowerCase() === data.category?.toLowerCase()
@@ -178,12 +186,16 @@ export default function CreatePostPage() {
           description: data.description,
           categoryId: matchedCat?.id || (categories[0]?.id ?? 0),
           suggested_price_per_kg: data.suggested_price_per_kg,
-          unitWeightGrams: 500,
+          priceVnd: Math.max(0, Math.round((data.suggested_price_per_kg * defaultUnitWeightGrams) / 1000)),
+          unitWeightGrams: defaultUnitWeightGrams,
           totalStockWeightKg: 100,
           shelfLifeDays: 30,
           batchId: "",
           origin: "",
         });
+        setIsPriceManuallyEdited(false);
+        setUnitWeightInput("500");
+        setTotalStockInput("100");
         toast.success("AI đã phân tích xong!");
       } else {
         toast.error(res.data.error || "Không thể phân tích ảnh");
@@ -202,8 +214,21 @@ export default function CreatePostPage() {
     return Math.floor((totalStockWeightKg * 1000) / unitWeightGrams);
   };
 
+  const calculateSuggestedUnitPrice = (pricePerKg: number, unitWeightGrams: number) => {
+    if (!pricePerKg || !unitWeightGrams || pricePerKg <= 0 || unitWeightGrams <= 0) {
+      return 0;
+    }
+    return Math.max(0, Math.round((pricePerKg * unitWeightGrams) / 1000));
+  };
+
   const handleSubmit = async () => {
     if (!editable || !image) return;
+    const resolvedCategoryId = editable.categoryId || categories[0]?.id || 0;
+    if (!resolvedCategoryId) {
+      toast.error("Không tìm thấy danh mục phù hợp. Vui lòng tải lại trang và thử lại.");
+      return;
+    }
+
     const computedQuantity = calculateInventoryQuantity(editable.unitWeightGrams, editable.totalStockWeightKg);
     if (computedQuantity <= 0) {
       toast.error("Thông số trọng lượng chưa hợp lệ để tạo tồn kho");
@@ -214,12 +239,12 @@ export default function CreatePostPage() {
     try {
       const payload = {
         productName: editable.product_name,
-        price: editable.suggested_price_per_kg,
+        price: editable.priceVnd,
         quantity: computedQuantity,
         unitWeightGrams: editable.unitWeightGrams,
         totalStockWeightKg: editable.totalStockWeightKg,
         shelfLifeDays: editable.shelfLifeDays,
-        categoryId: editable.categoryId,
+        categoryId: resolvedCategoryId,
         description: editable.description,
         batchId: editable.batchId || undefined,
         origin: editable.origin || undefined,
@@ -275,7 +300,7 @@ export default function CreatePostPage() {
           product_name: editable.product_name,
           description: editable.description,
           category: categories.find((c) => c.id === editable.categoryId)?.name || "",
-          price: editable.suggested_price_per_kg,
+          price: editable.priceVnd,
         });
         } catch {
           // Embedding is non-critical; product was already created
@@ -293,6 +318,69 @@ export default function CreatePostPage() {
 
   const formatPrice = (price: number) =>
     new Intl.NumberFormat("vi-VN", { style: "currency", currency: "VND" }).format(price);
+
+  const parseDecimalInput = (value: string) => {
+    const normalized = value.replace(",", ".").trim();
+    const parsed = Number(normalized);
+    return Number.isFinite(parsed) ? parsed : null;
+  };
+
+  const handleUnitWeightInputChange = (raw: string) => {
+    if (!/^\d*([.,]\d*)?$/.test(raw)) return;
+    setUnitWeightInput(raw);
+
+    if (raw.trim() === "") {
+      setEditable((prev) => prev ? { ...prev, unitWeightGrams: 0 } : prev);
+      return;
+    }
+
+    const parsed = parseDecimalInput(raw);
+    if (parsed === null || parsed < 0) return;
+
+    const grams = unitWeightUnit === "g" ? parsed : parsed * 1000;
+    setEditable((prev) => prev ? { ...prev, unitWeightGrams: Math.max(0, Math.round(grams)) } : prev);
+  };
+
+  const handleTotalStockInputChange = (raw: string) => {
+    if (!/^\d*([.,]\d*)?$/.test(raw)) return;
+    setTotalStockInput(raw);
+
+    if (raw.trim() === "") {
+      setEditable((prev) => prev ? { ...prev, totalStockWeightKg: 0 } : prev);
+      return;
+    }
+
+    const parsed = parseDecimalInput(raw);
+    if (parsed === null || parsed < 0) return;
+
+    const kilograms = totalStockUnit === "kg" ? parsed : parsed / 1000;
+    setEditable((prev) => prev ? { ...prev, totalStockWeightKg: Math.max(0, Number(kilograms.toFixed(3))) } : prev);
+  };
+
+  useEffect(() => {
+    if (!editable) return;
+    const displayed = unitWeightUnit === "g"
+      ? editable.unitWeightGrams
+      : editable.unitWeightGrams / 1000;
+    setUnitWeightInput(String(displayed));
+  }, [unitWeightUnit, editable?.unitWeightGrams]);
+
+  useEffect(() => {
+    if (!editable) return;
+    const displayed = totalStockUnit === "kg"
+      ? editable.totalStockWeightKg
+      : editable.totalStockWeightKg * 1000;
+    setTotalStockInput(String(displayed));
+  }, [totalStockUnit, editable?.totalStockWeightKg]);
+
+  useEffect(() => {
+    if (!editable || isPriceManuallyEdited) return;
+    const autoPrice = calculateSuggestedUnitPrice(editable.suggested_price_per_kg, editable.unitWeightGrams);
+    setEditable((prev) => {
+      if (!prev || prev.priceVnd === autoPrice) return prev;
+      return { ...prev, priceVnd: autoPrice };
+    });
+  }, [editable?.suggested_price_per_kg, editable?.unitWeightGrams, isPriceManuallyEdited]);
 
   return (
     <div className="min-h-screen relative overflow-hidden bg-blobs py-12 px-4 sm:px-6 lg:px-8">
@@ -385,34 +473,55 @@ export default function CreatePostPage() {
                 
                 {/* Form Fields */}
                 <div className="space-y-5">
-                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-5">
-                    <div className="group">
-                      <label className="flex items-center gap-2 text-sm font-medium text-slate-500 mb-1.5 uppercase tracking-wider">
-                         <BarChart3 className="w-4 h-4" /> Trọng lượng / sản phẩm (gram)
-                      </label>
+                  <div className="group">
+                    <label className="flex items-center gap-2 text-sm font-medium text-slate-500 mb-1.5 uppercase tracking-wider">
+                       <BarChart3 className="w-4 h-4" /> Trọng lượng / sản phẩm
+                    </label>
+                    <div className="grid grid-cols-[1fr_auto] gap-3">
                       <input
-                        type="number"
-                        min={1}
-                        value={editable?.unitWeightGrams ?? 500}
-                        onChange={(e) => setEditable((prev) => prev ? { ...prev, unitWeightGrams: parseInt(e.target.value) || 0 } : prev)}
+                        type="text"
+                        inputMode="decimal"
+                        value={unitWeightInput}
+                        onChange={(e) => handleUnitWeightInputChange(e.target.value)}
+                        placeholder={unitWeightUnit === "g" ? "VD: 500" : "VD: 0.5"}
                         className="w-full bg-white/60 border border-slate-200 rounded-xl px-4 py-3 text-slate-800 font-medium focus:ring-2 focus:ring-primary-400 focus:border-transparent outline-none transition-all shadow-sm"
                       />
+                      <select
+                        value={unitWeightUnit}
+                        onChange={(e) => setUnitWeightUnit(e.target.value as "g" | "kg")}
+                        className="w-28 bg-white/60 border border-slate-200 rounded-xl px-3 py-3 text-slate-700 font-medium focus:ring-2 focus:ring-primary-400 outline-none transition-all shadow-sm"
+                      >
+                        <option value="g">g</option>
+                        <option value="kg">kg</option>
+                      </select>
                     </div>
+                  </div>
 
-                    <div className="group">
-                      <label className="flex items-center gap-2 text-sm font-medium text-slate-500 mb-1.5 uppercase tracking-wider">
-                         <BarChart3 className="w-4 h-4" /> Tổng trọng lượng hàng có (kg)
-                      </label>
+                  <div className="group">
+                    <label className="flex items-center gap-2 text-sm font-medium text-slate-500 mb-1.5 uppercase tracking-wider">
+                       <BarChart3 className="w-4 h-4" /> Hàng tồn kho (theo trọng lượng)
+                    </label>
+                    <div className="grid grid-cols-[1fr_auto] gap-3">
                       <input
-                        type="number"
-                        min={0.1}
-                        step={0.1}
-                        value={editable?.totalStockWeightKg ?? 100}
-                        onChange={(e) => setEditable((prev) => prev ? { ...prev, totalStockWeightKg: parseFloat(e.target.value) || 0 } : prev)}
+                        type="text"
+                        inputMode="decimal"
+                        value={totalStockInput}
+                        onChange={(e) => handleTotalStockInputChange(e.target.value)}
+                        placeholder={totalStockUnit === "kg" ? "VD: 100" : "VD: 100000"}
                         className="w-full bg-white/60 border border-slate-200 rounded-xl px-4 py-3 text-slate-800 font-medium focus:ring-2 focus:ring-primary-400 focus:border-transparent outline-none transition-all shadow-sm"
                       />
+                      <select
+                        value={totalStockUnit}
+                        onChange={(e) => setTotalStockUnit(e.target.value as "g" | "kg")}
+                        className="w-28 bg-white/60 border border-slate-200 rounded-xl px-3 py-3 text-slate-700 font-medium focus:ring-2 focus:ring-primary-400 outline-none transition-all shadow-sm"
+                      >
+                        <option value="kg">kg</option>
+                        <option value="g">g</option>
+                      </select>
                     </div>
+                  </div>
 
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                     <div className="group">
                       <label className="flex items-center gap-2 text-sm font-medium text-slate-500 mb-1.5 uppercase tracking-wider">
                          <BarChart3 className="w-4 h-4" /> Tồn kho tự tính (đơn vị)
@@ -448,37 +557,30 @@ export default function CreatePostPage() {
                       className="w-full bg-white/60 border border-slate-200 rounded-xl px-4 py-3 text-slate-800 font-medium focus:ring-2 focus:ring-primary-400 focus:border-transparent outline-none transition-all shadow-sm"
                     />
                   </div>
+
+                  <div className="group">
+                    <label className="flex items-center gap-2 text-sm font-medium text-slate-500 mb-1.5 uppercase tracking-wider">
+                      <TrendingUp className="w-4 h-4" /> Giá bán (VND / sản phẩm)
+                    </label>
+                    <input
+                      type="number"
+                      min={0}
+                      step={100}
+                      value={editable?.priceVnd ?? 0}
+                      onChange={(e) => {
+                        const value = Number(e.target.value);
+                        setIsPriceManuallyEdited(true);
+                        setEditable((prev) => prev ? { ...prev, priceVnd: Number.isFinite(value) ? value : 0 } : prev);
+                      }}
+                      className="w-full bg-white/60 border border-slate-200 rounded-xl px-4 py-3 text-slate-800 font-medium focus:ring-2 focus:ring-primary-400 focus:border-transparent outline-none transition-all shadow-sm"
+                    />
+                    <p className="mt-1.5 text-xs text-slate-500">
+                      Mặc định tự tính từ giá AI theo kg và trọng lượng mỗi sản phẩm, bạn vẫn có thể sửa tay.
+                    </p>
+                  </div>
                 </div>
 
                   <div>
-
-                  <div className="grid grid-cols-2 gap-5">
-                    <div>
-                      <label className="flex items-center gap-2 text-sm font-medium text-slate-500 mb-1.5 uppercase tracking-wider">
-                         <Leaf className="w-4 h-4" /> Phân loại
-                      </label>
-                      <select
-                        value={editable?.categoryId ?? 0}
-                        onChange={(e) => setEditable((prev) => prev ? { ...prev, categoryId: Number(e.target.value) } : prev)}
-                        className="w-full bg-white/60 border border-slate-200 rounded-xl px-4 py-3 text-slate-700 focus:ring-2 focus:ring-primary-400 outline-none transition-all shadow-sm"
-                      >
-                        <option value={0}>Chọn danh mục</option>
-                        {categories.map((cat) => (
-                          <option key={cat.id} value={cat.id}>{cat.name}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="flex items-center gap-2 text-sm font-medium text-slate-500 mb-1.5 uppercase tracking-wider">
-                         <Sparkles className="w-4 h-4" /> Độ tươi
-                      </label>
-                      <input 
-                        defaultValue={result.freshness || ""} 
-                        readOnly
-                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-slate-700 outline-none cursor-default"
-                      />
-                    </div>
-                  </div>
 
                   <div>
                     <label className="flex items-center gap-2 text-sm font-medium text-slate-500 mb-1.5 uppercase tracking-wider">

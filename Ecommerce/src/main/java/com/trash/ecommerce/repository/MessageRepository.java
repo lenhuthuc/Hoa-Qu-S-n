@@ -9,10 +9,17 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
+
 @Repository
 public interface MessageRepository extends JpaRepository<Message, Long> {
 
     Page<Message> findByConversationIdOrderByCreatedAtDesc(Long conversationId, Pageable pageable);
+
+    Page<Message> findByConversationIdAndCreatedAtAfterOrderByCreatedAtDesc(
+            Long conversationId,
+            LocalDateTime createdAt,
+            Pageable pageable);
 
     @Modifying
     @Transactional
