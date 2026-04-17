@@ -2,6 +2,7 @@ const { Server } = require("socket.io");
 const { redisSub, redisPub, redisClient } = require("../config/redis");
 const jwt = require("jsonwebtoken");
 const axios = require("axios");
+const { sendToUser } = require("../routes/sse");
 
 const JWT_SECRET = process.env.JWT_SECRET || "hoaquason_secret_key_2026";
 const SPRING_URL = process.env.SPRING_URL || "http://localhost:8080";
@@ -99,12 +100,12 @@ function initSocket(server) {
           parsed.viewerCount = count;
           await redisClient.setex(`livestream:${roomId}`, 28800, JSON.stringify(parsed));
         }
-      } catch {}
+      } catch { }
 
       // ── Gửi tin nhắn ghim cho viewer mới ──
       redisClient.get(`pin:${roomId}`).then((pinned) => {
         if (pinned) socket.emit("chat-pin", JSON.parse(pinned));
-      }).catch(() => {});
+      }).catch(() => { });
 
       // ── Gửi lịch sử chat 50 tin nhắn gần nhất ──
       // Viewer mới vào phòng sẽ thấy ngay các tin nhắn trước đó
@@ -115,7 +116,7 @@ function initSocket(server) {
           const parsed = messages.map((m) => JSON.parse(m)).reverse();
           socket.emit("chat-history", parsed);
         }
-      } catch {}
+      } catch { }
 
       // ── Gửi trạng thái stream hiện tại ──
       try {
@@ -129,7 +130,7 @@ function initSocket(server) {
             products: parsed.products || [],
           });
         }
-      } catch {}
+      } catch { }
     });
 
     // ════════════════════════════════════════════════════════
@@ -205,7 +206,7 @@ function initSocket(server) {
             productName: product.name,
             quantity: 1,
             timestamp: new Date().toISOString(),
-          })).catch(() => {});
+          })).catch(() => { });
         } catch (err) {
           console.error("[Socket] /order error:", err.message);
           // ── Xử lý lỗi hết hàng (optimistic lock) ──
@@ -262,7 +263,7 @@ function initSocket(server) {
         await redisClient.lpush(cacheKey, JSON.stringify(payload));
         await redisClient.ltrim(cacheKey, 0, 99);
         await redisClient.expire(cacheKey, 86400);
-      } catch {}
+      } catch { }
     });
 
     // ════════════════════════════════════════════════════════
@@ -276,7 +277,7 @@ function initSocket(server) {
       const pinPayload = { user: data.user || socket.user.email, text: message, ts: Date.now() };
       redisClient
         .set(`pin:${roomId}`, JSON.stringify(pinPayload), "EX", 86400)
-        .catch(() => {});
+        .catch(() => { });
       liveNs.to(roomId).emit("chat-pin", pinPayload);
     });
 
@@ -284,7 +285,7 @@ function initSocket(server) {
     socket.on("chat-unpin", (data) => {
       const { roomId } = data;
       if (!socket.user) return;
-      redisClient.del(`pin:${roomId}`).catch(() => {});
+      redisClient.del(`pin:${roomId}`).catch(() => { });
       liveNs.to(roomId).emit("chat-unpin", {});
     });
 
@@ -369,7 +370,7 @@ function initSocket(server) {
           parsed.viewerCount = count;
           await redisClient.setex(`livestream:${roomId}`, 28800, JSON.stringify(parsed));
         }
-      } catch {}
+      } catch { }
     });
 
     socket.on("disconnect", async () => {
@@ -386,7 +387,7 @@ function initSocket(server) {
             parsed.viewerCount = count;
             await redisClient.setex(`livestream:${roomId}`, 28800, JSON.stringify(parsed));
           }
-        } catch {}
+        } catch { }
       }
       console.log(`[Socket] Live disconnect: ${socket.id}`);
     });
@@ -492,7 +493,7 @@ function initSocket(server) {
             "dm:message",
             JSON.stringify({ ...payload, _recipientId: Number(recipientId) })
           )
-          .catch(() => {});
+          .catch(() => { });
 
         // ── Xác nhận cho sender ──
         socket.emit("dm:sent", payload);
@@ -542,17 +543,22 @@ function initSocket(server) {
       // ── Cập nhật đơn hàng ──
       if (channel === "order:update") {
         orderNs.to(`user:${data.userId}`).emit("order-status", data);
+        sendToUser(data.userId, "order:update", data);
       }
 
       // ── Push notification ──
       if (channel === "notification:push") {
         notifNs.to(`user:${data.userId}`).emit("notification", data);
+        sendToUser(data.userId, "notification", data);
       }
 
       // ── DM message sync ──
       if (channel === "dm:message") {
         const { _recipientId, ...payload } = data;
-        if (_recipientId) dmNs.to(`user:${_recipientId}`).emit("dm:message", payload);
+        if (_recipientId) {
+          dmNs.to(`user:${_recipientId}`).emit("dm:message", payload);
+          sendToUser(_recipientId, "dm:message", payload);
+        }
       }
 
       // ── Stream status (LIVE/OFFLINE/ENDED) ──

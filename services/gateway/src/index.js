@@ -11,6 +11,7 @@ const { initSocket } = require("./socket");
 const authMiddleware = require("./middleware/auth");
 const livestreamRoutes = require("./routes/livestream");
 const uploadRoutes = require("./routes/upload");
+const { router: sseRouter } = require("./routes/sse");
 
 const app = express();
 const server = http.createServer(app);
@@ -139,6 +140,7 @@ app.get("/api/livestream/:streamKey/chat-history", optionalAuth, (req, res, next
 // ── Livestream protected routes (cần JWT) ──
 app.use("/api/livestream", authMiddleware, livestreamRoutes);
 app.use("/api/upload", authMiddleware, uploadRoutes);
+app.use("/api/sse", sseRouter); // auth handled inside route (supports ?token= for EventSource)
 
 // ─── 404 ───
 app.use((_req, res) => res.status(404).json({ success: false, error: "Route not found" }));

@@ -8,6 +8,7 @@ import {
   MessageCircle, TrendingUp, Menu, X, ChevronDown, Shield, Bell, Heart, BookOpen,
 } from "lucide-react";
 import { parseToken, notificationApi } from "@/lib/api";
+import { useSSE } from "@/hooks/useSSE";
 
 export default function Navbar() {
   const pathname = usePathname();
@@ -17,6 +18,7 @@ export default function Navbar() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [unreadDmCount, setUnreadDmCount] = useState(0);
 
   useEffect(() => {
     const token = localStorage.getItem("hqs_token");
@@ -32,8 +34,22 @@ export default function Navbar() {
       setIsAdmin(false);
       setIsSeller(false);
       setUnreadCount(0);
+      setUnreadDmCount(0);
     }
   }, [pathname]);
+
+  // Reset DM badge khi đang ở trang messages
+  useEffect(() => {
+    if (pathname === "/messages") setUnreadDmCount(0);
+  }, [pathname]);
+
+  // Real-time badge updates qua SSE
+  useSSE({
+    "notification": () => setUnreadCount((c) => c + 1),
+    "dm:message": () => {
+      if (pathname !== "/messages") setUnreadDmCount((c) => c + 1);
+    },
+  });
 
   const handleLogout = () => {
     localStorage.removeItem("hqs_token");
@@ -86,12 +102,17 @@ export default function Navbar() {
             <>
               <Link
                 href="/messages"
-                className={`p-2 rounded-lg transition ${
+                className={`relative p-2 rounded-lg transition ${
                   pathname === "/messages" ? "bg-primary-50 text-primary-700" : "text-gray-600 hover:text-primary-600 hover:bg-gray-50"
                 }`}
                 title="Tin nhắn"
               >
                 <MessageCircle className="w-5 h-5" />
+                {unreadDmCount > 0 && (
+                  <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center font-medium">
+                    {unreadDmCount > 9 ? "9+" : unreadDmCount}
+                  </span>
+                )}
               </Link>
               <Link
                 href="/wishlist"
@@ -242,7 +263,7 @@ export default function Navbar() {
                 <Bell className="w-4 h-4" /> Thông báo {unreadCount > 0 && <span className="bg-red-500 text-white text-xs rounded-full px-1.5">{unreadCount}</span>}
               </Link>
               <Link href="/messages" onClick={() => setMenuOpen(false)} className="flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm text-gray-700 hover:bg-gray-50">
-                <MessageCircle className="w-4 h-4" /> Tin nhắn
+                <MessageCircle className="w-4 h-4" /> Tin nhắn {unreadDmCount > 0 && <span className="bg-red-500 text-white text-xs rounded-full px-1.5">{unreadDmCount}</span>}
               </Link>
               <Link href="/orders" onClick={() => setMenuOpen(false)} className="flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm text-gray-700 hover:bg-gray-50">
                 <LayoutDashboard className="w-4 h-4" /> Đơn hàng
