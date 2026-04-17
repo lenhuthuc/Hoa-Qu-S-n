@@ -20,7 +20,6 @@ def web_search_price(product_name: str) -> str:
     # Bạn có thể tha hồ tùy chỉnh chuỗi này để có kết quả mượt nhất
     formatted_query = f"giá bán {product_name} tại Việt Nam"
     
-    print(f"\nQuery : '{formatted_query}'\n")
     
     try:
         # Gọi công cụ DuckDuckGo với query chuẩn
