@@ -9,10 +9,23 @@ from config import get_settings
 
 settings = get_settings()
 
-# 1. Định nghĩa Công cụ cào tin tức trên mạng
-search_tool = DuckDuckGoSearchResults(max_results=3)
-search_tool.name = "web_search_price"
-search_tool.description = "Dùng để tìm kiếm giá thị trường hiện tại của nông sản trên mạng Internet. Trả về các bài báo và tin tức mới nhất."
+_ddg_search = DuckDuckGoSearchResults(max_results=3)
+
+# ĐỊNH NGHĨA LẠI CÔNG CỤ TÌM KIẾM CHO AI
+@tool
+def web_search_price(product_name: str) -> str:
+    """Dùng để tìm kiếm giá thị trường hiện tại của nông sản trên mạng Internet. BẠN CHỈ CẦN TRUYỀN VÀO TÊN NÔNG SẢN."""
+    
+    # === ÉP KHUÔN QUERY Ở ĐÂY ===
+    # Bạn có thể tha hồ tùy chỉnh chuỗi này để có kết quả mượt nhất
+    formatted_query = f"giá bán {product_name} tại Việt Nam"
+    
+    
+    try:
+        # Gọi công cụ DuckDuckGo với query chuẩn
+        return _ddg_search.invoke(formatted_query)
+    except Exception as e:
+        return f"Lỗi tìm kiếm: {str(e)}"
 
 # 2. Định nghĩa Công cụ lấy giá từ Database (Spring Boot)
 @tool
@@ -32,7 +45,7 @@ def get_db_price(product_name: str) -> str:
         return f"Lỗi khi kết nối Database: {str(e)}"
 
 # Gom công cụ lại cho Agent
-tools = [search_tool, get_db_price]
+tools = [web_search_price, get_db_price]
 
 # 3. Khởi tạo Mô hình LLM (Bộ não suy luận)
 llm = ChatGroq(
@@ -46,8 +59,9 @@ prompt = ChatPromptTemplate.from_messages([
     ("system", """Bạn là Chuyên gia Định giá Nông sản Việt Nam. 
     Nhiệm vụ của bạn là đưa ra một mức giá bán đề xuất hợp lý (VNĐ/kg) cho sản phẩm mà người dùng cung cấp.
     Bạn BẮT BUỘC phải dùng công cụ 'get_db_price' để xem giá lịch sử, và 'web_search_price' để xem tin tức giá hôm nay.
-    
+    Bạn BẮT BUỘC phải trả về tên tiếng việt của loại hoa quả đó nếu có thể.
     QUAN TRỌNG: Bạn BẮT BUỘC phải trả về kết quả cuối cùng dưới định dạng JSON hợp lệ, tuân thủ chính xác cấu trúc sau:
+
     {{
         "suggested_price": 85000,
         "reason": "Dựa trên giá DB là 85k và thị trường dao động 80k-90k, mức giá 85k là hợp lý..."

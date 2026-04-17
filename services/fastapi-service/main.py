@@ -14,7 +14,7 @@ async def lifespan(app: FastAPI):
     # Initialize Qdrant collection on startup
     from services.embedding_service import EmbeddingService
     embedding_svc = EmbeddingService(settings)
-    await embedding_svc.ensure_collection()
+    embedding_svc.ensure_collection()
     app.state.embedding_service = embedding_svc
 
     # Initialize MongoDB connection

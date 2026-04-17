@@ -24,7 +24,7 @@ class EmbeddingService:
         self.model = SentenceTransformer(settings.embedding_model)
         self.vector_size = self.model.get_sentence_embedding_dimension()
 
-    async def ensure_collection(self):
+    def ensure_collection(self):
         """Create Qdrant collection if it doesn't exist."""
         collections = self.client.get_collections().collections
         exists = any(c.name == self.collection_name for c in collections)
@@ -36,6 +36,12 @@ class EmbeddingService:
                     distance=Distance.COSINE,
                 ),
             )
+            self.client.create_payload_index(
+                collection_name=self.collection_name,
+                field_name="category",
+                field_schema="keyword",
+            )
+
 
     def embed_text(self, text: str) -> list[float]:
         """Encode text to embedding vector. Prefix with 'query:' for e5 models."""
@@ -49,7 +55,7 @@ class EmbeddingService:
                        category: str, price: float, image: str = None):
         """Embed and store a product in Qdrant."""
         # Combine fields for richer embedding
-        combined_text = f"{product_name}. {description or ''}. Loại: {category or ''}"
+        combined_text = f"Tên sản phẩm: {product_name}. Phân loại: {category or 'Khác'}. Đặc điểm chi tiết: {description or 'Không có'}."
         vector = self.embed_passage(combined_text)
 
         self.client.upsert(
