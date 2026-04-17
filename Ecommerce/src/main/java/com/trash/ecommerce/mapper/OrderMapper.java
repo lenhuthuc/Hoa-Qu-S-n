@@ -87,6 +87,7 @@ public class OrderMapper {
             dto.setProductName(orderItem.getProduct().getProductName());
             dto.setImageUrl(orderItem.getProduct().getPrimaryImagePath() != null ? "/api/products/" + orderItem.getProduct().getId() + "/img" : null);
             if (orderItem.getProduct().getSeller() != null) {
+            dto.setSellerId(orderItem.getProduct().getSeller().getId());
                 String fallbackName = orderItem.getProduct().getSeller().getFullName() != null
                         && !orderItem.getProduct().getSeller().getFullName().isBlank()
                         ? orderItem.getProduct().getSeller().getFullName()

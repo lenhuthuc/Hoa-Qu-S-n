@@ -3,6 +3,126 @@
 Last Updated: 2026-04-17  
 Status: Complete and deployed
 
+## Update 2026-04-17 - Review Media Upload to Cloudflare R2
+
+What was implemented:
+- Migrated review media storage from local disk to Cloudflare R2 object storage.
+- Extended StorageService interface with `uploadReviewMedia()` and `downloadReviewMedia()` methods.
+- Implemented R2 media upload with validation:
+	- Images: 5MB each, max 2 per review (JPEG/PNG/WEBP/GIF)
+	- Videos: 25MB each, max 1 per review (MP4/WEBM/MOV/M4V)
+	- Total: 30MB per review
+- Automatic fallback to local storage if R2 fails (resilient design).
+- Refactored ReviewController to use StorageService instead of direct file I/O:
+	- Removed local file handling logic
+	- Centralized validation in StorageService
+	- Unified media retrieval endpoint for both R2 and local references
+- Upload path structure: `review-media/{userId}/{mediaType}/{timestamp}_{filename}`
+- Backward compatible: supports both R2 public URLs and local reference URLs (prefixed with `local:`).
+
+Files modified (related to this task):
+- Ecommerce/src/main/java/com/trash/ecommerce/service/StorageService.java
+- Ecommerce/src/main/java/com/trash/ecommerce/service/R2StorageServiceImpl.java
+- Ecommerce/src/main/java/com/trash/ecommerce/controller/ReviewController.java
+
+Verification Status:
+- Backend compile: pass (226 source files, warnings only).
+- No DB schema changes needed (URLs still stored as strings in review_attachments).
+
+Requirements:
+- Set environment variables: CLOUDFLARE_R2_ENDPOINT, S3_ACCESS_KEY, S3_SECRET_KEY, S3_BUCKET
+
+## Update 2026-04-17 - Review Media Display Compatibility (R2 + Local Legacy)
+
+What was implemented:
+- Restored missing review list and delete endpoints in ReviewController to recover review rendering on product page.
+- Added media proxy endpoint by URL (`GET /api/reviews/media?url=...`) so frontend can load review media through backend consistently.
+- Updated product detail review media rendering to use backend proxy instead of raw stored URLs.
+- Added backward compatibility for legacy review media formats:
+	- Legacy URL pattern `/api/reviews/media/{filename}`
+	- Plain filenames stored from old local upload flow
+	- Local key patterns under both `reviews/` and `review-media/`
+- Extended local file resolution candidates and improved media content-type detection for image/video extensions.
+
+Files modified (related to this task):
+- Ecommerce/src/main/java/com/trash/ecommerce/controller/ReviewController.java
+- Ecommerce/src/main/java/com/trash/ecommerce/service/R2StorageServiceImpl.java
+- frontend/src/app/product/[id]/page.tsx
+
+Verification Status:
+- Backend compile: pass.
+- Frontend build: pass.
+- Docker rebuild/restart: pass.
+
+## Update 2026-04-17 - DM Chat Naming Uses Shop Name
+
+What was implemented:
+- Fixed conversation/chat display naming source in direct messages.
+- `otherUserName` and `senderName` now resolve to seller `shopName` when seller has a SellerApplication.
+- Added safe fallback chain when shopName is unavailable: fullName -> username -> email.
+
+Files modified (related to this task):
+- Ecommerce/src/main/java/com/trash/ecommerce/controller/MessageController.java
+
+Verification Status:
+- Backend compile: pass.
+- Docker rebuild/restart: pass.
+
+## Update 2026-04-17 - Orders Contact Seller Direct Routing
+
+What was implemented:
+- Added `sellerId` field to order item response DTO so frontend can route to exact seller chat.
+- Mapped sellerId from product seller in OrderMapper for order list/detail payloads.
+- Updated orders page "Liên hệ người bán" button:
+	- Single seller order -> direct to `/messages?sellerId={sellerId}`
+	- Multi-seller/unknown -> fallback `/messages`
+
+Files modified (related to this task):
+- Ecommerce/src/main/java/com/trash/ecommerce/dto/CartItemDetailsResponseDTO.java
+- Ecommerce/src/main/java/com/trash/ecommerce/mapper/OrderMapper.java
+- frontend/src/app/orders/page.tsx
+
+Verification Status:
+- Backend compile: pass.
+- Frontend build: pass.
+
+## Update 2026-04-17 - Buy Now Display Mode (Cart UI, Isolated Data)
+
+What was implemented:
+- Separated buy-now display flow from normal cart data.
+- Product detail `Mua ngay` now stores temporary buy-now payload and navigates to cart with `mode=buy-now`.
+- Cart page now supports `buy-now` mode:
+	- Shows only the immediate selected product and quantity.
+	- Does not load or display existing cart items.
+	- Quantity updates affect buy-now payload only.
+	- Checkout button routes with `mode=buy-now` for next-step separation.
+- Wrapped cart page with Suspense boundary to satisfy Next.js `useSearchParams()` prerender requirement.
+
+Files modified (related to this task):
+- frontend/src/app/product/[id]/page.tsx
+- frontend/src/app/cart/page.tsx
+
+Verification Status:
+- Frontend build: pass.
+- Frontend container rebuild/restart: pass.
+
+## Update 2026-04-17 - Home Sell-Now Redirect by Seller Registration
+
+What was implemented:
+- Updated home page CTA button "Đăng bán ngay" to follow seller-channel role gating logic.
+- Redirect behavior:
+	- Logged-in seller/admin -> `/seller/create-post`
+	- Logged-in non-seller -> `/seller/register`
+	- Not logged in -> `/seller/register`
+- Replaced static link with click handler using token role parsing for consistent behavior with Navbar seller entry.
+
+Files modified (related to this task):
+- frontend/src/app/page.tsx
+
+Verification Status:
+- Frontend build: pass.
+- Frontend container rebuild/restart: pass.
+
 ## Update 2026-04-17 - User Profile + Product Detail UI + Shop Name Mapping
 
 ## Update 2026-04-17 - Review Feedback Hardening (N+1 + Validation + Upload Security)

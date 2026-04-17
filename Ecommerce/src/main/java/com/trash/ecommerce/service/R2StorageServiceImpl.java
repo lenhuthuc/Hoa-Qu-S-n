@@ -16,6 +16,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Set;
 import java.util.Set;
 import java.util.UUID;
@@ -23,6 +25,7 @@ import java.util.UUID;
 @Service
 public class R2StorageServiceImpl implements StorageService {
 
+    // ─── Seller Documents ───
     private static final long MAX_FILE_SIZE = 5 * 1024 * 1024;
     private static final Set<String> ALLOWED_MIME_TYPES = Set.of(
             "image/jpeg",
@@ -30,6 +33,12 @@ public class R2StorageServiceImpl implements StorageService {
             "image/png",
             "application/pdf"
     );
+
+    // ─── Review Media (images & videos) ───
+    private static final long MAX_IMAGE_SIZE_BYTES = 5L * 1024 * 1024;  // 5MB per image
+    private static final long MAX_VIDEO_SIZE_BYTES = 25L * 1024 * 1024; // 25MB per video
+    private static final Set<String> ALLOWED_IMAGE_MIME_TYPES = Set.of("image/jpeg", "image/jpg", "image/png", "image/webp", "image/gif");
+    private static final Set<String> ALLOWED_VIDEO_MIME_TYPES = Set.of("video/mp4", "video/webm", "video/quicktime", "video/x-m4v");
 
     private final S3Client s3Client;
     private final String bucket;
@@ -111,6 +120,106 @@ public class R2StorageServiceImpl implements StorageService {
         }
     }
 
+    @Override
+    public String uploadReviewMedia(Long userId, MultipartFile file, String mediaType) throws IOException {
+        if (file == null || file.isEmpty()) {
+            throw new IllegalArgumentException("Tệp tải lên không hợp lệ");
+        }
+
+        String originalName = file.getOriginalFilename() != null ? file.getOriginalFilename().replaceAll("[\\\\/:*?\"<>|]", "_") : "media";
+        String extension = getExtension(originalName);
+        
+        boolean isImage = "image".equals(mediaType);
+        if (isImage) {
+            if (file.getSize() > MAX_IMAGE_SIZE_BYTES) {
+                throw new IllegalArgumentException("Ảnh không được vượt quá 5MB");
+            }
+            String contentType = file.getContentType() != null ? file.getContentType().toLowerCase() : "";
+            if (!ALLOWED_IMAGE_MIME_TYPES.contains(contentType)) {
+                throw new IllegalArgumentException("Ảnh tải lên không hợp lệ. Chỉ hỗ trợ JPG, PNG, WEBP, GIF");
+            }
+        } else {
+            if (file.getSize() > MAX_VIDEO_SIZE_BYTES) {
+                throw new IllegalArgumentException("Video không được vượt quá 25MB");
+            }
+            String contentType = file.getContentType() != null ? file.getContentType().toLowerCase() : "";
+            if (!ALLOWED_VIDEO_MIME_TYPES.contains(contentType)) {
+                throw new IllegalArgumentException("Video tải lên không hợp lệ. Chỉ hỗ trợ MP4, WEBM, MOV, M4V");
+            }
+        }
+
+        String objectKey = "review-media/" + userId + "/" + mediaType + "/" + System.currentTimeMillis() + "_" + originalName;
+
+        PutObjectRequest request = PutObjectRequest.builder()
+                .bucket(bucket)
+                .key(objectKey)
+                .contentType(file.getContentType())
+                .build();
+
+        try {
+            s3Client.putObject(request, RequestBody.fromBytes(file.getBytes()));
+            return buildPublicUrl(objectKey);
+        } catch (Exception e) {
+            // Fallback: lưu local nếu R2 lỗi
+            Path path = Paths.get("uploads/" + objectKey);
+            Files.createDirectories(path.getParent());
+            Files.copy(file.getInputStream(), path, StandardCopyOption.REPLACE_EXISTING);
+            return "local:" + objectKey;
+        }
+    }
+
+    @Override
+    public DocumentFile downloadReviewMedia(String mediaUrl) {
+        if (mediaUrl == null || mediaUrl.isBlank()) {
+            throw new RuntimeException("Thiếu URL media");
+        }
+
+        if (mediaUrl.startsWith("local:")) {
+            String objKey = mediaUrl.substring("local:".length());
+            String fileName = objKey.contains("/") ? objKey.substring(objKey.lastIndexOf('/') + 1) : objKey;
+
+            List<Path> candidates = new ArrayList<>();
+            candidates.add(Paths.get("uploads/" + objKey));
+            candidates.add(Paths.get("uploads/reviews/" + fileName));
+            candidates.add(Paths.get("uploads/review-media/" + fileName));
+
+            for (Path path : candidates) {
+                if (Files.exists(path)) {
+                    try {
+                        byte[] content = Files.readAllBytes(path);
+                        String contentType = guessContentType(path.getFileName().toString());
+                        return new DocumentFile(content, contentType, fileName);
+                    } catch (IOException ignored) {
+                    }
+                }
+            }
+
+            throw new RuntimeException("Không thể đọc file local: " + objKey);
+        }
+
+        String objectKey = extractObjectKey(mediaUrl);
+        try {
+            GetObjectRequest request = GetObjectRequest.builder()
+                    .bucket(bucket)
+                    .key(objectKey)
+                    .build();
+            ResponseBytes<GetObjectResponse> response = s3Client.getObjectAsBytes(request);
+            String contentType = response.response().contentType();
+            if (contentType == null || contentType.isBlank()) {
+                contentType = guessContentType(objectKey);
+            }
+
+            String fileName = objectKey;
+            int idx = objectKey.lastIndexOf('/');
+            if (idx >= 0 && idx + 1 < objectKey.length()) {
+                fileName = objectKey.substring(idx + 1);
+            }
+            return new DocumentFile(response.asByteArray(), contentType, fileName);
+        } catch (Exception e) {
+            throw new RuntimeException("Không tải được media từ R2: " + e.getMessage());
+        }
+    }
+
     private void validate(MultipartFile file) {
         if (file == null || file.isEmpty()) {
             throw new RuntimeException("File tải lên không hợp lệ");
@@ -177,6 +286,21 @@ public class R2StorageServiceImpl implements StorageService {
         }
         if (lowered.endsWith(".webp")) {
             return "image/webp";
+        }
+        if (lowered.endsWith(".gif")) {
+            return "image/gif";
+        }
+        if (lowered.endsWith(".mp4")) {
+            return "video/mp4";
+        }
+        if (lowered.endsWith(".webm")) {
+            return "video/webm";
+        }
+        if (lowered.endsWith(".mov")) {
+            return "video/quicktime";
+        }
+        if (lowered.endsWith(".m4v")) {
+            return "video/x-m4v";
         }
         if (lowered.endsWith(".pdf")) {
             return "application/pdf";

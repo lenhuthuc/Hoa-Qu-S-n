@@ -2,9 +2,9 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Leaf, Search, Video, QrCode, TruckIcon, Sparkles, Loader2, ArrowRight } from "lucide-react";
-import { productApi } from "@/lib/api";
-import toast from "react-hot-toast";
+import { parseToken, productApi } from "@/lib/api";
 
 interface Product {
   id: number;
@@ -12,12 +12,24 @@ interface Product {
   price: number;
   description: string;
   imageUrl?: string;
-  categoryName?: string;
 }
 
 export default function Home() {
+  const router = useRouter();
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
+
+  const handleSellNow = () => {
+    const token = localStorage.getItem("hqs_token");
+    if (!token) {
+      router.push("/seller/register");
+      return;
+    }
+
+    const parsed = parseToken();
+    const hasSellerAccess = (parsed?.roles?.includes("SELLER") ?? false) || (parsed?.roles?.includes("ADMIN") ?? false);
+    router.push(hasSellerAccess ? "/seller/create-post" : "/seller/register");
+  };
 
   useEffect(() => {
     (async () => {
@@ -53,9 +65,12 @@ export default function Home() {
           <Link href="/search" className="px-6 py-3 bg-primary-600 text-white rounded-lg hover:bg-primary-700 font-medium">
             Khám phá sản phẩm
           </Link>
-          <Link href="/seller/create-post" className="px-6 py-3 border-2 border-primary-600 text-primary-600 rounded-lg hover:bg-primary-50 font-medium">
+          <button
+            onClick={handleSellNow}
+            className="px-6 py-3 border-2 border-primary-600 text-primary-600 rounded-lg hover:bg-primary-50 font-medium"
+          >
             Đăng bán ngay
-          </Link>
+          </button>
         </div>
       </section>
 
@@ -94,11 +109,6 @@ export default function Home() {
                     />
                   ) : (
                     <Leaf className="w-12 h-12 text-gray-300" />
-                  )}
-                  {p.categoryName && (
-                    <div className="absolute top-3 left-3 bg-white/90 backdrop-blur-sm px-2.5 py-1 rounded-full text-xs font-semibold text-primary-700 shadow-sm">
-                      {p.categoryName}
-                    </div>
                   )}
                 </div>
                 <div className="p-4 flex-1 flex flex-col">

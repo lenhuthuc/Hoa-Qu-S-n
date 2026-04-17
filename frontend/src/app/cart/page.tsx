@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { ShoppingCart, Trash2, Minus, Plus, Loader2, ShoppingBag, Leaf, ArrowRight } from "lucide-react";
 import { cartApi } from "@/lib/api";
 import toast from "react-hot-toast";
@@ -16,11 +16,22 @@ interface CartItem {
   subtotal: number;
 }
 
-export default function CartPage() {
+interface BuyNowItem {
+  productId: number;
+  productName: string;
+  price: number;
+  quantity: number;
+  imageUrl?: string;
+}
+
+function CartPageInner() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const isBuyNowMode = searchParams.get("mode") === "buy-now";
   const [items, setItems] = useState<CartItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState<number | null>(null);
+  const [buyNowItem, setBuyNowItem] = useState<BuyNowItem | null>(null);
 
   const fetchCart = async () => {
     try {
@@ -39,8 +50,46 @@ export default function CartPage() {
   };
 
   useEffect(() => {
+    if (isBuyNowMode) {
+      try {
+        const raw = localStorage.getItem("hqs_buy_now_item");
+        const parsed = raw ? JSON.parse(raw) : null;
+        if (!parsed?.productId || !parsed?.quantity) {
+          toast.error("Không tìm thấy sản phẩm mua ngay");
+          router.push("/search");
+          return;
+        }
+
+        const normalized: BuyNowItem = {
+          productId: Number(parsed.productId),
+          productName: String(parsed.productName || "Sản phẩm"),
+          price: Number(parsed.price || 0),
+          quantity: Math.max(1, Number(parsed.quantity || 1)),
+          imageUrl: parsed.imageUrl ? String(parsed.imageUrl) : undefined,
+        };
+
+        setBuyNowItem(normalized);
+        setItems([
+          {
+            productId: normalized.productId,
+            productName: normalized.productName,
+            price: normalized.price,
+            quantity: normalized.quantity,
+            imageUrl: normalized.imageUrl,
+            subtotal: normalized.price * normalized.quantity,
+          },
+        ]);
+      } catch {
+        toast.error("Dữ liệu mua ngay không hợp lệ");
+        router.push("/search");
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
+
     fetchCart();
-  }, []);
+  }, [isBuyNowMode, router]);
 
   const formatPrice = (price: number) =>
     new Intl.NumberFormat("vi-VN", { style: "currency", currency: "VND" }).format(price);
@@ -49,6 +98,24 @@ export default function CartPage() {
 
   const updateQty = async (productId: number, newQty: number) => {
     if (newQty < 1) return;
+
+    if (isBuyNowMode) {
+      setItems((prev) =>
+        prev.map((i) =>
+          i.productId === productId
+            ? { ...i, quantity: newQty, subtotal: i.price * newQty }
+            : i
+        )
+      );
+      setBuyNowItem((prev) => {
+        if (!prev || prev.productId !== productId) return prev;
+        const next = { ...prev, quantity: newQty };
+        localStorage.setItem("hqs_buy_now_item", JSON.stringify(next));
+        return next;
+      });
+      return;
+    }
+
     setUpdating(productId);
     try {
       await cartApi.updateItem(productId, newQty);
@@ -67,6 +134,14 @@ export default function CartPage() {
   };
 
   const removeItem = async (productId: number) => {
+    if (isBuyNowMode) {
+      localStorage.removeItem("hqs_buy_now_item");
+      setBuyNowItem(null);
+      setItems([]);
+      toast.success("Đã xóa sản phẩm mua ngay");
+      return;
+    }
+
     setUpdating(productId);
     try {
       await cartApi.removeItem(productId);
@@ -192,7 +267,7 @@ export default function CartPage() {
                 {/* Action Buttons */}
                 <div className="flex flex-col gap-3">
                   <Link
-                    href="/checkout"
+                    href={isBuyNowMode ? "/checkout?mode=buy-now" : "/checkout"}
                     className="block w-full bg-gradient-to-r from-green-700 to-green-800 text-white font-bold py-4 rounded-2xl shadow-lg shadow-green-700/20 hover:shadow-xl hover:from-green-800 hover:to-green-900 transition-all text-center"
                   >
                     <span className="inline-flex items-center justify-center gap-2">
@@ -242,5 +317,17 @@ export default function CartPage() {
         </div>
       </footer>
     </div>
+  );
+}
+
+export default function CartPage() {
+  return (
+    <Suspense fallback={
+      <div className="flex items-center justify-center min-h-[60vh]">
+        <Loader2 className="w-8 h-8 animate-spin text-green-700" />
+      </div>
+    }>
+      <CartPageInner />
+    </Suspense>
   );
 }
