@@ -486,7 +486,7 @@ function initSocket(server) {
         const msg = resp.data;
         const payload = { ...msg, conversationId: Number(conversationId) };
 
-        // ── Publish qua Redis cho multi-instance sync ──
+        // ── Publish qua Redis → subscriber sẽ gửi đến recipient ──
         redisPub
           .publish(
             "dm:message",
@@ -494,8 +494,6 @@ function initSocket(server) {
           )
           .catch(() => {});
 
-        // ── Gửi cho recipient trên instance này ──
-        dmNs.to(`user:${recipientId}`).emit("dm:message", payload);
         // ── Xác nhận cho sender ──
         socket.emit("dm:sent", payload);
       } catch (err) {

@@ -31,11 +31,11 @@ import { useRef, useState, useCallback, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import {
   Video, VideoOff, Mic, MicOff, Radio, Square, Users,
-  Settings2, Sparkles, Activity, Package, Plus, X, Tag,
-  Copy, ExternalLink,
+  Settings2, Sparkles, Activity, Package, X, Tag,
+  Copy, ExternalLink, Search, CheckSquare,
 } from "lucide-react";
 import toast from "react-hot-toast";
-import { livestreamApi, isLoggedIn } from "@/lib/api";
+import { livestreamApi, isLoggedIn, sellerApi } from "@/lib/api";
 import api from "@/lib/api";
 import LiveChat from "@/components/LiveChat";
 
@@ -43,6 +43,8 @@ interface LiveProduct {
   id: number;
   name: string;
   price: number;
+  imageUrl?: string;
+  stock?: number;
 }
 
 export default function GoLivePage() {
@@ -64,11 +66,11 @@ export default function GoLivePage() {
   const [viewerCount, setViewerCount] = useState(0);
 
   // ── Quản lý sản phẩm trong phiên live ──
-  const [products, setProducts] = useState<LiveProduct[]>([]);
-  const [addProductId, setAddProductId] = useState("");
-  const [addProductName, setAddProductName] = useState("");
-  const [addProductPrice, setAddProductPrice] = useState("");
+  const [products, setProducts] = useState<LiveProduct[]>([]);          // đang bán trong live
+  const [sellerProducts, setSellerProducts] = useState<LiveProduct[]>([]); // toàn bộ sp của seller
+  const [productSearch, setProductSearch] = useState("");
   const [showProductPanel, setShowProductPanel] = useState(false);
+  const [loadingProducts, setLoadingProducts] = useState(false);
 
   // ── Auth guard ──
   useEffect(() => {
@@ -76,6 +78,31 @@ export default function GoLivePage() {
       router.push("/login");
     }
   }, [router]);
+
+  // ── Load danh sách sản phẩm của seller ──
+  useEffect(() => {
+    const load = async () => {
+      setLoadingProducts(true);
+      try {
+        const res = await sellerApi.getProducts();
+        const items: { id: number; productName?: string; name?: string; price: number; imageUrl?: string; quantity?: number }[] = res.data || [];
+        setSellerProducts(
+          items.map((p) => ({
+            id: p.id,
+            name: p.productName ?? p.name ?? "",
+            price: p.price,
+            imageUrl: p.imageUrl,
+            stock: p.quantity ?? 0,
+          }))
+        );
+      } catch {
+        // ignore
+      } finally {
+        setLoadingProducts(false);
+      }
+    };
+    load();
+  }, []);
 
   // ── Timer đếm thời gian live ──
   useEffect(() => {
@@ -253,7 +280,7 @@ export default function GoLivePage() {
       const opusMatch = sdp.match(/a=rtpmap:(\d+) opus\/48000\/2/i);
       if (opusMatch) {
         const pt = opusMatch[1];
-        const opusParams = `minptime=10;useinbandfec=1;usedtx=0;stereo=1;sprop-stereo=1;maxaveragebitrate=510000`;
+        const opusParams = `minptime=10;useinbandfec=1;usedtx=0;stereo=1;sprop-stereo=1;maxaveragebitrate=192000`;
         const fmtpRe = new RegExp(`a=fmtp:${pt} [^\r\n]*`);
         if (fmtpRe.test(sdp)) {
           sdp = sdp.replace(fmtpRe, `a=fmtp:${pt} ${opusParams}`);
@@ -335,40 +362,19 @@ export default function GoLivePage() {
   // QUẢN LÝ SẢN PHẨM — Thêm/Xóa sản phẩm trong phiên live
   // PUT /api/livestream/:streamKey/products
   // ══════════════════════════════════════════════════════════════
-  const addProduct = async () => {
-    if (!addProductId || !addProductName || !addProductPrice) {
-      toast.error("Điền đầy đủ thông tin sản phẩm");
-      return;
-    }
-    const newProduct: LiveProduct = {
-      id: Number(addProductId),
-      name: addProductName,
-      price: Number(addProductPrice),
-    };
-    const updated = [...products, newProduct];
+  const toggleProduct = async (product: LiveProduct) => {
+    const isSelected = products.some((p) => p.id === product.id);
+    const updated = isSelected
+      ? products.filter((p) => p.id !== product.id)
+      : [...products, { id: product.id, name: product.name, price: product.price }];
     setProducts(updated);
-    setAddProductId("");
-    setAddProductName("");
-    setAddProductPrice("");
-
-    // Gửi lên server → broadcast đến tất cả viewer
     if (streamKey) {
       try {
         await api.put(`/api/livestream/${streamKey}/products`, { products: updated });
-        toast.success(`Đã thêm: ${newProduct.name}`);
+        toast.success(isSelected ? `Đã bỏ: ${product.name}` : `Đang bán: ${product.name}`);
       } catch {
         toast.error("Lỗi cập nhật sản phẩm");
       }
-    }
-  };
-
-  const removeProduct = async (productId: number) => {
-    const updated = products.filter((p) => p.id !== productId);
-    setProducts(updated);
-    if (streamKey) {
-      try {
-        await api.put(`/api/livestream/${streamKey}/products`, { products: updated });
-      } catch { /* ignore */ }
     }
   };
 
@@ -598,73 +604,108 @@ export default function GoLivePage() {
             </div>
 
             {/* ═══════════════════════════════════════════════════
-                PANEL QUẢN LÝ SẢN PHẨM — Thêm/Xóa SP trong live
-                Chỉ hiển thị khi đang live và bấm nút Package
+                PANEL QUẢN LÝ SẢN PHẨM — Chọn SP từ kho để bán live
                 ═══════════════════════════════════════════════════ */}
             {isLive && showProductPanel && (
-              <div className="dark-glass-panel rounded-2xl border border-white/10 p-5">
-                <h3 className="font-bold text-lg flex items-center gap-2 mb-4">
-                  <Tag className="w-5 h-5 text-accent-400" />
-                  Sản phẩm đang bán ({products.length})
-                </h3>
-
-                {/* ── Form thêm sản phẩm ── */}
-                <div className="flex flex-wrap gap-3 mb-4">
-                  <input
-                    value={addProductId}
-                    onChange={(e) => setAddProductId(e.target.value)}
-                    placeholder="Mã SP (số)"
-                    className="bg-black/30 border border-white/10 rounded-lg px-3 py-2 text-sm w-24 text-white placeholder-white/30 focus:outline-none focus:border-accent-400"
-                  />
-                  <input
-                    value={addProductName}
-                    onChange={(e) => setAddProductName(e.target.value)}
-                    placeholder="Tên sản phẩm"
-                    className="bg-black/30 border border-white/10 rounded-lg px-3 py-2 text-sm flex-1 min-w-[150px] text-white placeholder-white/30 focus:outline-none focus:border-accent-400"
-                  />
-                  <input
-                    value={addProductPrice}
-                    onChange={(e) => setAddProductPrice(e.target.value)}
-                    placeholder="Giá (VNĐ)"
-                    className="bg-black/30 border border-white/10 rounded-lg px-3 py-2 text-sm w-28 text-white placeholder-white/30 focus:outline-none focus:border-accent-400"
-                  />
-                  <button
-                    onClick={addProduct}
-                    className="bg-accent-500 hover:bg-accent-400 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-1 transition"
-                  >
-                    <Plus className="w-4 h-4" /> Thêm
+              <div className="dark-glass-panel rounded-2xl border border-white/10 p-5 flex flex-col gap-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="font-bold text-lg flex items-center gap-2">
+                    <Tag className="w-5 h-5 text-accent-400" />
+                    Chọn sản phẩm bán live
+                    {products.length > 0 && (
+                      <span className="bg-accent-500/20 text-accent-400 text-xs px-2 py-0.5 rounded-full border border-accent-500/30">
+                        {products.length} đang bán
+                      </span>
+                    )}
+                  </h3>
+                  <button onClick={() => setShowProductPanel(false)} className="text-slate-500 hover:text-white transition">
+                    <X className="w-4 h-4" />
                   </button>
                 </div>
 
-                {/* ── Danh sách sản phẩm đã thêm ── */}
-                {products.length > 0 ? (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    {products.map((p) => (
-                      <div
-                        key={p.id}
-                        className="flex items-center justify-between bg-white/5 rounded-lg px-3 py-2 border border-white/10"
-                      >
-                        <div>
-                          <span className="text-xs text-slate-500 font-mono">#{p.id}</span>
-                          <span className="ml-2 text-sm font-medium">{p.name}</span>
-                          <span className="ml-2 text-accent-400 text-sm font-bold">
-                            {Number(p.price).toLocaleString("vi-VN")}đ
-                          </span>
-                        </div>
-                        <button
-                          onClick={() => removeProduct(p.id)}
-                          className="text-slate-500 hover:text-red-400 transition"
-                          title="Xóa sản phẩm"
+                {/* ── Thanh tìm kiếm ── */}
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+                  <input
+                    value={productSearch}
+                    onChange={(e) => setProductSearch(e.target.value)}
+                    placeholder="Tìm sản phẩm..."
+                    className="w-full bg-black/30 border border-white/10 rounded-lg pl-9 pr-3 py-2 text-sm text-white placeholder-white/30 focus:outline-none focus:border-accent-400"
+                  />
+                </div>
+
+                {/* ── Danh sách sản phẩm để chọn ── */}
+                <div className="max-h-64 overflow-y-auto flex flex-col gap-1.5 pr-1">
+                  {loadingProducts ? (
+                    <p className="text-slate-500 text-sm text-center py-6">Đang tải sản phẩm...</p>
+                  ) : sellerProducts.filter((p) =>
+                      (p.name ?? "").toLowerCase().includes(productSearch.toLowerCase())
+                    ).length === 0 ? (
+                    <p className="text-slate-500 text-sm text-center py-6">Không tìm thấy sản phẩm</p>
+                  ) : (
+                    sellerProducts
+                      .filter((p) => (p.name ?? "").toLowerCase().includes(productSearch.toLowerCase()))
+                      .map((p) => {
+                        const selected = products.some((s) => s.id === p.id);
+                        return (
+                          <button
+                            key={p.id}
+                            onClick={() => toggleProduct(p)}
+                            className={`flex items-center gap-3 px-3 py-2.5 rounded-xl border transition-all text-left w-full ${
+                              selected
+                                ? "bg-accent-500/15 border-accent-500/40"
+                                : "bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/20"
+                            }`}
+                          >
+                            {/* Ảnh sản phẩm */}
+                            <div className="w-10 h-10 rounded-lg overflow-hidden bg-white/10 shrink-0 flex items-center justify-center">
+                              {p.imageUrl
+                                ? <img src={p.imageUrl} alt={p.name ?? ""} className="w-full h-full object-cover" />
+                                : <Package className="w-5 h-5 text-slate-400" />
+                              }
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-semibold truncate" style={{ color: "#fff" }}>
+                                {p.name}
+                              </p>
+                              <p className="text-xs" style={{ color: "#94a3b8" }}>
+                                {Number(p.price).toLocaleString("vi-VN")}đ
+                                {p.stock !== undefined && (
+                                  <span style={{ color: "#64748b" }}> • Tồn: {p.stock}</span>
+                                )}
+                              </p>
+                            </div>
+                            {selected
+                              ? <CheckSquare className="w-4 h-4 text-accent-400 shrink-0" />
+                              : <Square className="w-4 h-4 text-slate-500 shrink-0" />
+                            }
+                          </button>
+                        );
+                      })
+                  )}
+                </div>
+
+                {/* ── Tóm tắt đang bán ── */}
+                {products.length > 0 && (
+                  <div className="border-t border-white/10 pt-3">
+                    <p className="text-xs text-slate-500 mb-2">Đang hiển thị với viewer ({products.length} sản phẩm):</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {products.map((p) => (
+                        <span
+                          key={p.id}
+                          className="flex items-center gap-1.5 bg-accent-500/10 text-accent-300 text-xs px-2 py-1 rounded-full border border-accent-500/20"
                         >
-                          <X className="w-4 h-4" />
-                        </button>
-                      </div>
-                    ))}
+                          {p.imageUrl && (
+                            <img src={p.imageUrl} alt={p.name ?? ""} className="w-4 h-4 rounded-full object-cover shrink-0" />
+                          )}
+                          {p.name}
+                          <button onClick={() => toggleProduct(p)} className="hover:text-red-400 transition ml-0.5">
+                            <X className="w-3 h-3" />
+                          </button>
+                        </span>
+                      ))}
+                    </div>
                   </div>
-                ) : (
-                  <p className="text-slate-500 text-sm text-center py-4">
-                    Chưa có sản phẩm nào. Thêm sản phẩm để viewer có thể chốt đơn!
-                  </p>
                 )}
               </div>
             )}
