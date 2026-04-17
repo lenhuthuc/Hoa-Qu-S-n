@@ -75,7 +75,7 @@ async def generate_post(image: UploadFile = File(...)):
         # Lấy kết quả từ Agent
         pricing_data = await get_smart_pricing(product_name, freshness)
         
-        # Nhét ĐÚNG 2 CÁI TÊN mà Next.js đang cần vào ai_result
+   
         ai_result["suggested_price_per_kg"] = pricing_data.get("suggested_price_per_kg", 0)
         ai_result["price_reasoning"] = pricing_data.get("price_reasoning", "AI đang gặp chút vấn đề khi tư vấn giá.")
 

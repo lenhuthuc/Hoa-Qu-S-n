@@ -1,59 +1,40 @@
-"""
-Chatbot router — exposes the LangGraph chatbot agent.
-"""
-
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from langchain_core.messages import HumanMessage
+import logging
 
-from chatbot.agent import get_chatbot
-from config import get_settings
+
+from chatbot.agent import get_chatbot_brain 
 
 router = APIRouter()
-
+logger = logging.getLogger(__name__)
 
 class ChatRequest(BaseModel):
     message: str
-    history: list[dict] | None = None  # [{"role": "user"|"assistant", "content": "..."}]
 
-
-class ChatResponse(BaseModel):
-    reply: str
-    on_topic: bool
-
-
-@router.post("/message", response_model=dict)
-async def chat_message(body: ChatRequest):
-    """Send a message to the seller chatbot."""
-    settings = get_settings()
-    if not settings.groq_api_key:
-        raise HTTPException(status_code=500, detail="GROQ_API_KEY not configured")
-
-    # Build message history
-    messages = []
-    if body.history:
-        for msg in body.history[-10:]:  # Keep last 10 messages for context
-            if msg.get("role") == "user":
-                messages.append(HumanMessage(content=msg["content"]))
-            else:
-                from langchain_core.messages import AIMessage
-                messages.append(AIMessage(content=msg["content"]))
-
-    messages.append(HumanMessage(content=body.message))
-
+@router.post("/message")
+async def chat_endpoint(request: ChatRequest):
+    """
+    Endpoint này sẽ có URL đầy đủ là: POST /api/chatbot/chat
+    (Do main.py đã đặt prefix="/api/chatbot")
+    """
     try:
-        chatbot = get_chatbot()
-        result = chatbot.invoke({"messages": messages, "is_on_topic": True})
 
-        reply = result["messages"][-1].content
-        on_topic = result.get("is_on_topic", True)
+        brain = get_chatbot_brain()
 
+        result = brain.invoke({
+            "messages": [HumanMessage(content=request.message)]
+        })
+        
+ 
+        bot_reply = result["messages"][-1].content
+        
         return {
             "success": True,
             "data": {
-                "reply": reply,
-                "on_topic": on_topic,
-            },
+                "reply": bot_reply
+            }
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Chatbot error: {str(e)}")
+        logger.error(f"Chatbot Error: {str(e)}")
+        raise HTTPException(status_code=500, detail="Trợ lý AI đang đi vắng, vui lòng thử lại sau!")
