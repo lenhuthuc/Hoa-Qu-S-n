@@ -307,6 +307,7 @@ export const sellerOnboardingApi = {
 // ─── Reviews ───
 export const reviewApi = {
   getByProduct: (productId: number) => api.get(`/api/reviews/products/${productId}`),
+  getEligibility: (productId: number) => api.get(`/api/reviews/products/${productId}/eligibility`),
   create: (productId: number, data: { rating: number; comment: string }) =>
     api.post(`/api/reviews/products/${productId}`, data),
   createWithMedia: (productId: number, formData: FormData) =>

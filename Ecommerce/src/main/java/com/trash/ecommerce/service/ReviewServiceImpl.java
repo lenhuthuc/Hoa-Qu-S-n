@@ -20,10 +20,14 @@ import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 
 @Service
 public class ReviewServiceImpl implements ReviewService {
+    private static final int MAX_COMMENT_LENGTH = 1000;
+    private static final int MAX_MEDIA_ITEMS = 3;
+
     @Autowired
     private ReviewsMapper reviewsMapper;
     @Autowired
@@ -44,12 +48,7 @@ public class ReviewServiceImpl implements ReviewService {
     private EventPublisher eventPublisher;
     @Override
     public ReviewResponse createComment(Long userId, Long productId, ReviewRequest reviewRequest) {
-        if (reviewRequest == null) {
-            throw new IllegalArgumentException("Review request cannot be null");
-        }
-        if (reviewRequest.getRating() == null || reviewRequest.getRating() < 1 || reviewRequest.getRating() > 5) {
-            throw new IllegalArgumentException("Rating must be between 1 and 5");
-        }
+        validateReviewRequest(reviewRequest);
         
         Review review = reviewsMapper.mapReviewDTO(reviewRequest);
         Users users = userRepository.findById(userId)
@@ -57,10 +56,21 @@ public class ReviewServiceImpl implements ReviewService {
         Product product = productRepository.findById(productId)
                         .orElseThrow(() -> new ProductFingdingException("Product not found"));
         
-        boolean hasPurchased = orderRepository.existsByUserIdAndProductIdAndStatusPaid(userId, productId);
-        if (!hasPurchased) {
+        Map<String, Object> eligibility = getReviewEligibility(userId, productId);
+        boolean canReview = Boolean.TRUE.equals(eligibility.get("canReview"));
+        if (!canReview) {
+            long finishedOrderCount = (long) eligibility.getOrDefault("finishedOrderCount", 0L);
+            if (finishedOrderCount <= 0) {
+                throw new ReviewException("Bạn chỉ có thể đánh giá sản phẩm đã mua!");
+            }
+            throw new ReviewException("Bạn đã dùng hết lượt đánh giá cho sản phẩm này");
+        }
+
+        long finishedOrderCount = (long) eligibility.getOrDefault("finishedOrderCount", 0L);
+        if (finishedOrderCount <= 0) {
             throw new ReviewException("Bạn chỉ có thể đánh giá sản phẩm đã mua!");
         }
+
         if (users.getReviews() == null) {
             users.setReviews(new ArrayList<>());
         }
@@ -95,6 +105,29 @@ public class ReviewServiceImpl implements ReviewService {
         return reviewsMapper.mapReview(review);
     }
 
+    private void validateReviewRequest(ReviewRequest reviewRequest) {
+        if (reviewRequest == null) {
+            throw new IllegalArgumentException("Review request cannot be null");
+        }
+        if (reviewRequest.getRating() == null || reviewRequest.getRating() < 1 || reviewRequest.getRating() > 5) {
+            throw new IllegalArgumentException("Rating must be between 1 and 5");
+        }
+
+        String content = reviewRequest.getContent() != null ? reviewRequest.getContent().trim() : "";
+        if (content.isBlank()) {
+            throw new IllegalArgumentException("Nội dung đánh giá không được để trống");
+        }
+        if (content.length() > MAX_COMMENT_LENGTH) {
+            throw new IllegalArgumentException("Nội dung đánh giá không được vượt quá " + MAX_COMMENT_LENGTH + " ký tự");
+        }
+
+        if (reviewRequest.getMediaUrls() != null && reviewRequest.getMediaUrls().size() > MAX_MEDIA_ITEMS) {
+            throw new IllegalArgumentException("Tối đa " + MAX_MEDIA_ITEMS + " tệp đính kèm cho mỗi đánh giá");
+        }
+
+        reviewRequest.setContent(content);
+    }
+
     @Override
     public void deleteComment(Long userId, Long productId, Long reviewId) {
         Review review = reviewRepository.findById(reviewId)
@@ -118,5 +151,19 @@ public class ReviewServiceImpl implements ReviewService {
                 .map(review -> (ReviewResponse) reviewsMapper.mapReview(review))
                 .toList();
         return reviews;
+    }
+
+    @Override
+    public Map<String, Object> getReviewEligibility(Long userId, Long productId) {
+        long finishedOrderCount = orderRepository.countFinishedOrdersByUserIdAndProductId(userId, productId);
+        long reviewedCount = reviewRepository.countByUserIdAndProductId(userId, productId);
+        long remainingReviews = Math.max(0L, finishedOrderCount - reviewedCount);
+
+        return Map.of(
+                "finishedOrderCount", finishedOrderCount,
+                "reviewedCount", reviewedCount,
+                "remainingReviews", remainingReviews,
+                "canReview", remainingReviews > 0
+        );
     }
 }

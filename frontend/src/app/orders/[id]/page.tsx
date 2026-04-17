@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { Package, Loader2, ChevronLeft, Leaf, CreditCard, Truck, CheckCircle, MapPin, Star, X, ImageIcon, Film, Trash2 } from "lucide-react";
@@ -36,6 +36,11 @@ type SelectedReviewFile = {
   previewUrl: string;
 };
 
+type ReviewEligibility = {
+  canReview?: boolean;
+  remainingReviews?: number;
+};
+
 const statusMap: Record<string, { label: string; color: string; step: number }> = {
   PENDING: { label: "Chờ xác nhận", color: "text-amber-600", step: 1 },
   PLACED: { label: "Đã đặt hàng", color: "text-blue-600", step: 1 },
@@ -64,6 +69,8 @@ export default function OrderDetailPage() {
   const [profilePhone, setProfilePhone] = useState<string>("");
   const [reviewImages, setReviewImages] = useState<SelectedReviewFile[]>([]);
   const [reviewVideo, setReviewVideo] = useState<SelectedReviewFile | null>(null);
+  const reviewImageInputRef = useRef<HTMLInputElement | null>(null);
+  const reviewVideoInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -73,11 +80,33 @@ export default function OrderDetailPage() {
           userApi.getProfile().catch(() => null),
         ]);
 
-        setOrder(orderRes.data?.data || orderRes.data);
+        const orderData = orderRes.data?.data || orderRes.data;
+        setOrder(orderData);
 
         const profile = profileRes?.data?.data || profileRes?.data;
         if (profile?.phone) {
           setProfilePhone(String(profile.phone));
+        }
+
+        const orderItems: Array<{ productId: number }> = Array.isArray(orderData?.items) ? orderData.items : [];
+        if (orderData?.status === "FINISHED" && orderData?.viewerRole !== "SELLER" && orderItems.length > 0) {
+          const uniqueProductIds = Array.from(new Set(orderItems.map((item) => item.productId)));
+          const eligibilityResults = await Promise.allSettled(
+            uniqueProductIds.map((productId) => reviewApi.getEligibility(productId))
+          );
+
+          const noRemainingIds: number[] = [];
+          eligibilityResults.forEach((result, index) => {
+            if (result.status !== "fulfilled") return;
+            const payload: ReviewEligibility = result.value.data?.data || result.value.data || {};
+            const canReview = Boolean(payload.canReview);
+            const remaining = Number(payload.remainingReviews ?? 0);
+            if (!canReview || remaining <= 0) {
+              noRemainingIds.push(uniqueProductIds[index]);
+            }
+          });
+
+          setReviewedProductIds(noRemainingIds);
         }
       } catch {
         toast.error("Không tìm thấy đơn hàng");
@@ -145,6 +174,10 @@ export default function OrderDetailPage() {
   };
 
   const openReviewModal = (productId: number, productName: string) => {
+    if (reviewedProductIds.includes(productId)) {
+      toast("Sản phẩm này đã được đánh giá. Bạn có thể xem lại đánh giá.");
+      return;
+    }
     setReviewTarget({ productId, productName });
     setReviewRating(5);
     setReviewComment("");
@@ -163,6 +196,8 @@ export default function OrderDetailPage() {
     setReviewComment("");
     setReviewImages([]);
     setReviewVideo(null);
+    if (reviewImageInputRef.current) reviewImageInputRef.current.value = "";
+    if (reviewVideoInputRef.current) reviewVideoInputRef.current.value = "";
   };
 
   const handleReviewImagesChange = (files: FileList | null) => {
@@ -193,6 +228,7 @@ export default function OrderDetailPage() {
       if (removed?.previewUrl) URL.revokeObjectURL(removed.previewUrl);
       return next;
     });
+    if (reviewImageInputRef.current) reviewImageInputRef.current.value = "";
   };
 
   const removeReviewVideo = () => {
@@ -200,6 +236,7 @@ export default function OrderDetailPage() {
       if (prev?.previewUrl) URL.revokeObjectURL(prev.previewUrl);
       return null;
     });
+    if (reviewVideoInputRef.current) reviewVideoInputRef.current.value = "";
   };
 
   const handleSubmitReview = async () => {
@@ -363,10 +400,13 @@ export default function OrderDetailPage() {
                       <p className="text-lg font-bold text-gray-900">{formatPrice(item.price * item.quantity)}</p>
                       {order.status === "FINISHED" && order.viewerRole !== "SELLER" && (
                         reviewedProductIds.includes(item.productId) ? (
-                          <div className="mt-3 inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700">
+                          <Link
+                            href={`/product/${item.productId}#reviews`}
+                            className="mt-3 inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-100"
+                          >
                             <Star className="w-3.5 h-3.5 fill-current" />
-                            Đã đánh giá
-                          </div>
+                            Xem đánh giá
+                          </Link>
                         ) : (
                           <button
                             onClick={() => openReviewModal(item.productId, item.productName)}
@@ -549,8 +589,8 @@ export default function OrderDetailPage() {
 
       {reviewTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
-          <div className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl">
-            <div className="flex items-start justify-between gap-4 mb-5">
+          <div className="flex max-h-[90vh] w-full max-w-lg flex-col overflow-hidden rounded-3xl bg-white p-6 shadow-2xl">
+            <div className="mb-5 flex items-start justify-between gap-4">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-600">Đánh giá sản phẩm</p>
                 <h2 className="mt-2 text-xl font-bold text-gray-900">{reviewTarget.productName}</h2>
@@ -564,103 +604,113 @@ export default function OrderDetailPage() {
               </button>
             </div>
 
-            <div className="mb-5">
-              <p className="mb-3 text-sm font-medium text-gray-700">Mức độ hài lòng</p>
-              <div className="flex items-center gap-2">
-                {[1, 2, 3, 4, 5].map((value) => {
-                  const active = value <= reviewRating;
-                  return (
-                    <button
-                      key={value}
-                      type="button"
-                      onClick={() => setReviewRating(value)}
-                      className="transition hover:scale-105"
-                      aria-label={`Đánh giá ${value} sao`}
-                    >
-                      <Star className={`w-8 h-8 ${active ? "fill-amber-400 text-amber-400" : "text-gray-300"}`} />
-                    </button>
-                  );
-                })}
-                <span className="ml-2 text-sm font-semibold text-gray-600">{reviewRating}/5</span>
-              </div>
-            </div>
-
-            <div className="mb-6">
-              <label className="mb-2 block text-sm font-medium text-gray-700">Nhận xét</label>
-              <textarea
-                value={reviewComment}
-                onChange={(e) => setReviewComment(e.target.value)}
-                rows={5}
-                placeholder="Chia sẻ trải nghiệm của bạn về sản phẩm..."
-                className="w-full rounded-2xl border border-gray-200 px-4 py-3 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
-              />
-            </div>
-
-            <div className="mb-6 space-y-4">
-              <div>
-                <div className="mb-2 flex items-center justify-between gap-3">
-                  <label className="block text-sm font-medium text-gray-700">Ảnh đính kèm</label>
-                  <span className="text-xs text-gray-500">Tối đa 2 ảnh</span>
+            <div className="overflow-y-auto pr-1">
+              <div className="mb-5">
+                <p className="mb-3 text-sm font-medium text-gray-700">Mức độ hài lòng</p>
+                <div className="flex items-center gap-2">
+                  {[1, 2, 3, 4, 5].map((value) => {
+                    const active = value <= reviewRating;
+                    return (
+                      <button
+                        key={value}
+                        type="button"
+                        onClick={() => setReviewRating(value)}
+                        className="transition hover:scale-105"
+                        aria-label={`Đánh giá ${value} sao`}
+                      >
+                        <Star className={`h-8 w-8 ${active ? "fill-amber-400 text-amber-400" : "text-gray-300"}`} />
+                      </button>
+                    );
+                  })}
+                  <span className="ml-2 text-sm font-semibold text-gray-600">{reviewRating}/5</span>
                 </div>
-                <label className="flex cursor-pointer items-center justify-center gap-2 rounded-2xl border border-dashed border-gray-300 bg-gray-50 px-4 py-3 text-sm font-medium text-gray-600 transition hover:border-emerald-400 hover:bg-emerald-50 hover:text-emerald-700">
-                  <ImageIcon className="w-4 h-4" />
-                  Chọn ảnh
-                  <input
-                    type="file"
-                    accept="image/*"
-                    multiple
-                    onChange={(e) => handleReviewImagesChange(e.target.files)}
-                    className="hidden"
-                  />
-                </label>
-                {reviewImages.length > 0 && (
-                  <div className="mt-3 grid grid-cols-2 gap-3">
-                    {reviewImages.map((item, index) => (
-                      <div key={`${item.previewUrl}-${index}`} className="relative overflow-hidden rounded-2xl border border-gray-200 bg-gray-50">
-                        <img src={item.previewUrl} alt={`Ảnh đánh giá ${index + 1}`} className="h-32 w-full object-cover" />
-                        <button
-                          type="button"
-                          onClick={() => removeReviewImage(index)}
-                          className="absolute right-2 top-2 rounded-full bg-black/60 p-1 text-white transition hover:bg-black/75"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
+              </div>
+
+              <div className="mb-6">
+                <label className="mb-2 block text-sm font-medium text-gray-700">Nhận xét</label>
+                <textarea
+                  value={reviewComment}
+                  onChange={(e) => setReviewComment(e.target.value)}
+                  rows={5}
+                  placeholder="Chia sẻ trải nghiệm của bạn về sản phẩm..."
+                  className="w-full rounded-2xl border border-gray-200 px-4 py-3 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
+                />
+              </div>
+
+              <div className="mb-6 space-y-4">
+                <div>
+                  <div className="mb-2 flex items-center justify-between gap-3">
+                    <label className="block text-sm font-medium text-gray-700">Ảnh đính kèm</label>
+                    <span className="text-xs text-gray-500">Tối đa 2 ảnh</span>
+                  </div>
+                  <label className="flex cursor-pointer items-center justify-center gap-2 rounded-2xl border border-dashed border-gray-300 bg-gray-50 px-4 py-3 text-sm font-medium text-gray-600 transition hover:border-emerald-400 hover:bg-emerald-50 hover:text-emerald-700">
+                    <ImageIcon className="w-4 h-4" />
+                    Chọn ảnh
+                    <input
+                      ref={reviewImageInputRef}
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      onChange={(e) => {
+                        handleReviewImagesChange(e.target.files);
+                        e.currentTarget.value = "";
+                      }}
+                      className="hidden"
+                    />
+                  </label>
+                  {reviewImages.length > 0 && (
+                    <div className="mt-3 grid grid-cols-2 gap-3">
+                      {reviewImages.map((item, index) => (
+                        <div key={`${item.previewUrl}-${index}`} className="relative overflow-hidden rounded-2xl border border-gray-200 bg-gray-50">
+                          <img src={item.previewUrl} alt={`Ảnh đánh giá ${index + 1}`} className="h-32 w-full object-cover" />
+                          <button
+                            type="button"
+                            onClick={() => removeReviewImage(index)}
+                            className="absolute right-2 top-2 rounded-full bg-black/60 p-1 text-white transition hover:bg-black/75"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div>
+                  <div className="mb-2 flex items-center justify-between gap-3">
+                    <label className="block text-sm font-medium text-gray-700">Video đính kèm</label>
+                    <span className="text-xs text-gray-500">Tối đa 1 video</span>
+                  </div>
+                  <label className="flex cursor-pointer items-center justify-center gap-2 rounded-2xl border border-dashed border-gray-300 bg-gray-50 px-4 py-3 text-sm font-medium text-gray-600 transition hover:border-emerald-400 hover:bg-emerald-50 hover:text-emerald-700">
+                    <Film className="w-4 h-4" />
+                    Chọn video
+                    <input
+                      ref={reviewVideoInputRef}
+                      type="file"
+                      accept="video/*"
+                      onChange={(e) => {
+                        handleReviewVideoChange(e.target.files?.[0] || null);
+                        e.currentTarget.value = "";
+                      }}
+                      className="hidden"
+                    />
+                  </label>
+                  {reviewVideo && (
+                    <div className="mt-3 overflow-hidden rounded-2xl border border-gray-200 bg-gray-50">
+                      <video src={reviewVideo.previewUrl} controls className="h-56 w-full object-cover" />
+                      <div className="flex items-center justify-between gap-3 px-3 py-2 text-xs text-gray-600">
+                        <span className="truncate">{reviewVideo.file.name}</span>
+                        <button type="button" onClick={removeReviewVideo} className="font-semibold text-emerald-700">
+                          Xóa video
                         </button>
                       </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              <div>
-                <div className="mb-2 flex items-center justify-between gap-3">
-                  <label className="block text-sm font-medium text-gray-700">Video đính kèm</label>
-                  <span className="text-xs text-gray-500">Tối đa 1 video</span>
-                </div>
-                <label className="flex cursor-pointer items-center justify-center gap-2 rounded-2xl border border-dashed border-gray-300 bg-gray-50 px-4 py-3 text-sm font-medium text-gray-600 transition hover:border-emerald-400 hover:bg-emerald-50 hover:text-emerald-700">
-                  <Film className="w-4 h-4" />
-                  Chọn video
-                  <input
-                    type="file"
-                    accept="video/*"
-                    onChange={(e) => handleReviewVideoChange(e.target.files?.[0] || null)}
-                    className="hidden"
-                  />
-                </label>
-                {reviewVideo && (
-                  <div className="mt-3 overflow-hidden rounded-2xl border border-gray-200 bg-gray-50">
-                    <video src={reviewVideo.previewUrl} controls className="h-56 w-full object-cover" />
-                    <div className="flex items-center justify-between gap-3 px-3 py-2 text-xs text-gray-600">
-                      <span className="truncate">{reviewVideo.file.name}</span>
-                      <button type="button" onClick={removeReviewVideo} className="font-semibold text-emerald-700">
-                        Xóa video
-                      </button>
                     </div>
-                  </div>
-                )}
+                  )}
+                </div>
               </div>
             </div>
 
-            <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
+            <div className="mt-auto flex flex-col gap-3 border-t border-gray-100 bg-white pt-4 sm:flex-row sm:justify-end">
               <button
                 onClick={closeReviewModal}
                 disabled={submittingReview}

@@ -154,8 +154,9 @@ export default function ProductDetailPage() {
   const shippingMethod = shippingInfo?.availableMethods?.[0];
   const estimatedShippingDays = shippingMethod?.estimatedDays;
   const sellerRoute = product?.sellerId ? `/shop/${product.sellerId}` : "/search";
-  const sellerInitials = product?.sellerName
-    ? product.sellerName.split(" ").filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("")
+  const displayShopName = product?.shopName || product?.sellerName || "Người bán";
+  const sellerInitials = displayShopName
+    ? displayShopName.split(" ").filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("")
     : "NB";
   const isVideoUrl = (url: string) => /\.(mp4|webm|mov|m4v)(\?|#|$)/i.test(url);
 
@@ -311,7 +312,7 @@ export default function ProductDetailPage() {
                   <h2 className="mt-1 text-lg font-bold text-gray-900">Gian hàng</h2>
                 </div>
                 <div className="rounded-2xl bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">
-                  {product.shopName || product.sellerName || "Người bán"}
+                  {displayShopName}
                 </div>
               </div>
 
@@ -329,7 +330,7 @@ export default function ProductDetailPage() {
                   </div>
                   <div className="min-w-0">
                     <p className="truncate text-base font-bold text-gray-900 transition group-hover:text-emerald-700">
-                      {product.shopName || product.sellerName || "Người bán"}
+                      {displayShopName}
                     </p>
                     <p className="text-sm text-gray-500">Xem hồ sơ người bán</p>
                   </div>
@@ -376,8 +377,8 @@ export default function ProductDetailPage() {
               )}
             </div>
 
-            <div className="grid gap-6 lg:grid-cols-[0.9fr_1.1fr]">
-              <div className="rounded-2xl bg-emerald-50 p-5 ring-1 ring-emerald-100">
+            <div className="grid gap-6 lg:grid-cols-3 lg:items-start">
+              <div className="w-full max-w-[420px] self-start rounded-2xl bg-emerald-50 p-5 ring-1 ring-emerald-100 lg:col-span-1">
                 <div className="mb-4 flex items-center gap-2 text-sm font-semibold text-gray-700">
                   <Star className="w-4 h-4 text-amber-400 fill-amber-400" />
                   Tổng điểm sao
@@ -406,7 +407,7 @@ export default function ProductDetailPage() {
                 </div>
               </div>
 
-              <div className="space-y-4">
+              <div className="space-y-4 lg:col-span-2">
                 {reviews.length === 0 ? (
                   <div className="rounded-2xl border border-dashed border-gray-200 bg-gray-50 p-8 text-center text-gray-500">
                     Chưa có đánh giá nào. Hãy là người đầu tiên!
