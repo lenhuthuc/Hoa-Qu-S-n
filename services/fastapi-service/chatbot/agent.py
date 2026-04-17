@@ -1,6 +1,6 @@
 """
 Feature 3: Seller Chatbot
-LangGraph state graph + LLaMA 3.1 70B via Groq — RAG from platform FAQ knowledge base
+LangGraph state Llama via Groq — RAG from platform FAQ knowledge base
 """
 
 from typing import TypedDict, Annotated, Sequence
@@ -9,9 +9,7 @@ from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, System
 from langchain_core.prompts import ChatPromptTemplate
 from langgraph.graph import StateGraph, END
 import operator
-
 from config import get_settings
-
 # ─── FAQ Knowledge Base ───
 FAQ_KNOWLEDGE = """
 ## Hoa Quả Sơn — Câu Hỏi Thường Gặp
@@ -76,66 +74,66 @@ class ChatState(TypedDict):
     messages: Annotated[Sequence[BaseMessage], operator.add]
     is_on_topic: bool
 
-
 def create_chatbot_graph():
-    """Create LangGraph state graph for chatbot with guardrails."""
     settings = get_settings()
 
-    llm = ChatGroq(
+
+    # 1. Model nhẹ để điều hướng (Classify/Guardrails) - Dùng Llama 3.1 8B (Groq)
+    classifier_llm = ChatGroq(
         api_key=settings.groq_api_key,
-        model_name="llama-3.3-70b-versatile",
-        temperature=0.3,
-        max_tokens=512,
+        model_name="llama-3.1-8b-instant",
+        temperature=0
     )
 
-    # ─── Node: Check if query is on-topic ───
-    def check_guardrails(state: ChatState) -> ChatState:
-        last_message = state["messages"][-1]
-        if not isinstance(last_message, HumanMessage):
-            return {**state, "is_on_topic": True}
+    # 2. Model mạnh để trả lời (Generate) - Dùng Llama 3.3 70B (Groq)
+    generator_llm = ChatGroq(
+        api_key=settings.groq_api_key,
+        model_name="llama-3.3-70b-versatile",
+        temperature=0.4
+    )
 
+    def check_guardrails(state: ChatState):
+        last_message = state["messages"][-1]
+        
         check_prompt = ChatPromptTemplate.from_messages([
-            ("system", "Bạn là bộ lọc. Trả lời 'YES' nếu câu hỏi liên quan đến nền tảng thương mại điện tử nông sản. Trả lời 'NO' nếu không liên quan."),
+            ("system", "Bạn là bộ lọc. Trả lời 'YES' nếu câu hỏi liên quan đến nông sản hoặc nền tảng thương mại điện tử Hoa Quả Sơn. Ngược lại trả lời 'NO'."),
             ("human", "{question}"),
         ])
-        result = llm.invoke(check_prompt.format_messages(question=last_message.content))
+        
+        result = classifier_llm.invoke(check_prompt.format_messages(question=last_message.content))
         is_on_topic = "YES" in result.content.upper()
-        return {"messages": [], "is_on_topic": is_on_topic}
+        
+  
+        return {"is_on_topic": is_on_topic}
 
-    # ─── Node: Generate response ───
-    def generate_response(state: ChatState) -> ChatState:
+    def generate_response(state: ChatState):
+
         messages = [SystemMessage(content=SYSTEM_PROMPT)] + list(state["messages"])
-        response = llm.invoke(messages)
-        return {"messages": [response], "is_on_topic": state["is_on_topic"]}
+        response = generator_llm.invoke(messages)
+        return {"messages": [response]}
 
-    # ─── Node: Reject off-topic ───
-    def reject_query(state: ChatState) -> ChatState:
-        msg = AIMessage(content="Xin lỗi, tôi chỉ hỗ trợ các câu hỏi liên quan đến nền tảng Hoa Quả Sơn. Bạn có thể hỏi về cách đăng bán sản phẩm, quản lý đơn hàng, livestream, thanh toán, hoặc truy xuất nguồn gốc.")
-        return {"messages": [msg], "is_on_topic": False}
+    def reject_query(state: ChatState):
+        msg = AIMessage(content="Xin lỗi, tôi chỉ hỗ trợ các câu hỏi liên quan đến nền tảng Hoa Quả Sơn. Bạn có thể hỏi về cách đăng bán, đơn hàng, hoặc kỹ thuật cây trồng.")
+        return {"messages": [msg]}
 
-    # ─── Routing ───
-    def route_after_guardrails(state: ChatState) -> str:
+    def route_after_guardrails(state: ChatState):
         return "generate" if state["is_on_topic"] else "reject"
 
-    # ─── Build Graph ───
     graph = StateGraph(ChatState)
     graph.add_node("guardrails", check_guardrails)
     graph.add_node("generate", generate_response)
     graph.add_node("reject", reject_query)
 
     graph.set_entry_point("guardrails")
-    graph.add_conditional_edges("guardrails", route_after_guardrails, {"generate": "generate", "reject": "reject"})
+    graph.add_conditional_edges("guardrails", route_after_guardrails)
     graph.add_edge("generate", END)
     graph.add_edge("reject", END)
 
     return graph.compile()
 
-
-# Singleton graph instance
 _chatbot_graph = None
 
-
-def get_chatbot():
+def get_chatbot_brain(): 
     global _chatbot_graph
     if _chatbot_graph is None:
         _chatbot_graph = create_chatbot_graph()
