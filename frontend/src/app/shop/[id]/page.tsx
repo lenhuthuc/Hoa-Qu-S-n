@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { cartApi, shopApi, storyApi } from "@/lib/api";
 import Link from "next/link";
-import { ChevronDown, MapPin, MessageCircle, Play, X } from "lucide-react";
+import { ChevronDown, MapPin, MessageCircle, X } from "lucide-react";
 import toast from "react-hot-toast";
 
 interface ShopProfile {
@@ -459,11 +459,6 @@ export default function ShopPage() {
                       className="h-full w-full object-cover"
                     />
                     <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/20 to-black/30" />
-                    <div className="absolute inset-0 flex items-center justify-center">
-                      <span className="inline-flex h-14 w-14 items-center justify-center rounded-full bg-white/20 text-white backdrop-blur-sm">
-                        <Play className="ml-1 h-7 w-7" />
-                      </span>
-                    </div>
                   </div>
                 )}
               </div>

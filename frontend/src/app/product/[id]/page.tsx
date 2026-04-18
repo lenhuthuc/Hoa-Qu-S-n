@@ -25,6 +25,9 @@ interface Product {
   sellerId?: number;
   sellerName?: string;
   shopName?: string;
+  shopAvatar?: string;
+  sellerAvatar?: string;
+  avatar?: string;
 }
 
 interface Review {
@@ -46,6 +49,16 @@ interface ShippingMethod {
 interface ShippingInfo {
   availableMethods?: ShippingMethod[];
   disabledMethods?: Array<{ serviceName: string; reason: string }>;
+}
+
+function normalizeAvatarUrl(raw: unknown): string | null {
+  const value = typeof raw === "string" ? raw.trim() : "";
+  if (!value) return null;
+  if (value.startsWith("/api/reviews/media")) return value;
+  if (value.startsWith("local:") || value.startsWith("review-media/") || value.startsWith("reviews/") || value.includes(".r2.cloudflarestorage.com/")) {
+    return `/api/reviews/media?url=${encodeURIComponent(value)}`;
+  }
+  return value;
 }
 
 function RatingStars({ value, sizeClass = "w-4 h-4" }: { value: number; sizeClass?: string }) {
@@ -73,6 +86,7 @@ export default function ProductDetailPage() {
   const [addingToCart, setAddingToCart] = useState(false);
   const [shippingInfo, setShippingInfo] = useState<ShippingInfo | null>(null);
   const [displayUnit, setDisplayUnit] = useState<"g" | "kg">("kg");
+  const [shopAvatarBroken, setShopAvatarBroken] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -159,8 +173,13 @@ export default function ProductDetailPage() {
   const sellerInitials = displayShopName
     ? displayShopName.split(" ").filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("")
     : "NB";
+  const shopAvatarUrl = normalizeAvatarUrl(product?.shopAvatar || product?.sellerAvatar || product?.avatar);
   const isVideoUrl = (url: string) => /\.(mp4|webm|mov|m4v)(\?|#|$)/i.test(url);
   const toReviewMediaSrc = (url: string) => `/api/reviews/media?url=${encodeURIComponent(url)}`;
+
+  useEffect(() => {
+    setShopAvatarBroken(false);
+  }, [shopAvatarUrl]);
 
   if (loading) {
     return (
@@ -341,7 +360,14 @@ export default function ProductDetailPage() {
                   className="group flex min-w-0 flex-1 items-center gap-4 rounded-2xl p-2 transition hover:bg-emerald-50"
                 >
                   <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-full bg-emerald-100 text-emerald-700 ring-1 ring-emerald-200 transition group-hover:scale-105">
-                    {product.sellerId ? (
+                    {shopAvatarUrl && !shopAvatarBroken ? (
+                      <img
+                        src={shopAvatarUrl}
+                        alt={displayShopName}
+                        className="h-full w-full object-cover"
+                        onError={() => setShopAvatarBroken(true)}
+                      />
+                    ) : product.sellerId ? (
                       <span className="text-sm font-bold">{sellerInitials}</span>
                     ) : (
                       <User className="w-6 h-6" />

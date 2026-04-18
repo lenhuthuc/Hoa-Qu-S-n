@@ -15,6 +15,8 @@ interface Conversation {
   id: number;
   otherUserId: number;
   otherUserName: string;
+  otherUserAvatar?: string | null;
+  myAvatar?: string | null;
   lastMessage: string;
   lastMessageAt: string;
   unreadCount: number;
@@ -25,6 +27,7 @@ interface Message {
   conversationId: number;
   senderId: number;
   senderName: string;
+  senderAvatar?: string | null;
   content: string;
   isRead: boolean;
   createdAt: string;
@@ -247,6 +250,7 @@ function MessagesInner() {
         conversationId: activeConv.id,
         senderId: Number(userId),
         senderName: "Bạn",
+        senderAvatar: activeConv.myAvatar || null,
         content,
         isRead: false,
         createdAt: nowIso,
@@ -309,6 +313,24 @@ function MessagesInner() {
     return palettes[seed % palettes.length];
   }
 
+  function renderAvatar(name: string | undefined, avatarUrl: string | null | undefined, sizeClass: string, textClass: string, ringClass = "") {
+    if (avatarUrl) {
+      return (
+        <img
+          src={avatarUrl}
+          alt={name || "Avatar"}
+          className={`${sizeClass} shrink-0 rounded-full object-cover shadow-sm ${ringClass}`}
+        />
+      );
+    }
+
+    return (
+      <div className={`flex ${sizeClass} shrink-0 items-center justify-center rounded-full bg-gradient-to-br ${getAvatarStyle(name)} ${textClass} font-bold text-white shadow-sm ${ringClass}`}>
+        {getInitials(name)}
+      </div>
+    );
+  }
+
   function goToShopProfile(sellerId: number, e: React.MouseEvent) {
     e.preventDefault();
     e.stopPropagation();
@@ -353,12 +375,8 @@ function MessagesInner() {
                     onClick={() => openConversation(conv)}
                     className={`mb-2 flex w-full items-center gap-3 rounded-[22px] px-4 py-3 text-left transition-all duration-200 ${activeConv?.id === conv.id ? "bg-[#1b4332] text-white shadow-lg shadow-emerald-900/15" : "bg-transparent hover:bg-emerald-50"}`}
                   >
-                    <div
-                      onClick={(e) => goToShopProfile(conv.otherUserId, e)}
-                      title="Xem trang nông hộ"
-                      className={`flex h-12 w-12 shrink-0 cursor-pointer items-center justify-center rounded-full bg-gradient-to-br ${getAvatarStyle(conv.otherUserName)} text-sm font-bold text-white shadow-md ring-2 ring-white/70`}
-                    >
-                      {getInitials(conv.otherUserName)}
+                    <div onClick={(e) => goToShopProfile(conv.otherUserId, e)} title="Xem trang nông hộ" className="cursor-pointer">
+                      {renderAvatar(conv.otherUserName, conv.otherUserAvatar, "h-12 w-12", "text-sm", "ring-2 ring-white/70")}
                     </div>
                     <div className="min-w-0 flex-1">
                       <div className="flex items-start justify-between gap-3">
@@ -400,12 +418,8 @@ function MessagesInner() {
                     <button onClick={() => { setActiveConv(null); setMessages([]); }} className="shrink-0 rounded-full p-2 text-slate-500 transition hover:bg-slate-100 lg:hidden">
                       <ArrowLeft className="h-5 w-5" />
                     </button>
-                    <div
-                      onClick={(e) => goToShopProfile(activeConv.otherUserId, e)}
-                      title="Xem trang nông hộ"
-                      className={`flex h-12 w-12 shrink-0 cursor-pointer items-center justify-center rounded-full bg-gradient-to-br ${getAvatarStyle(activeConv.otherUserName)} text-sm font-bold text-white shadow-md`}
-                    >
-                      {getInitials(activeConv.otherUserName)}
+                    <div onClick={(e) => goToShopProfile(activeConv.otherUserId, e)} title="Xem trang nông hộ" className="cursor-pointer">
+                      {renderAvatar(activeConv.otherUserName, activeConv.otherUserAvatar, "h-12 w-12", "text-sm")}
                     </div>
                     <div className="min-w-0">
                       <p
@@ -450,9 +464,7 @@ function MessagesInner() {
                       return (
                         <div key={msg.id ?? i} className={`flex items-end gap-3 ${isMine ? "justify-end" : "justify-start"}`}>
                           {!isMine && (
-                            <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br ${getAvatarStyle(msg.senderName)} text-[11px] font-bold text-white shadow-sm`}>
-                              {getInitials(msg.senderName)}
-                            </div>
+                            renderAvatar(msg.senderName, msg.senderAvatar, "h-9 w-9", "text-[11px]")
                           )}
                           <div className={`max-w-[min(70%,34rem)] rounded-[24px] px-4 py-3 shadow-sm ${isMine ? "rounded-br-md bg-[#1b4332] text-white" : "rounded-bl-md bg-white text-slate-800 ring-1 ring-slate-200"} ${msg.isPending ? "opacity-80" : "opacity-100"}`}>
                             <p className="whitespace-pre-wrap text-sm leading-6">{msg.content}</p>
@@ -468,9 +480,7 @@ function MessagesInner() {
                             </div>
                           </div>
                           {isMine && (
-                            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-emerald-500 to-[#1b4332] text-[11px] font-bold text-white shadow-sm">
-                              Bạn
-                            </div>
+                            renderAvatar("Bạn", activeConv?.myAvatar, "h-9 w-9", "text-[11px]")
                           )}
                         </div>
                       );

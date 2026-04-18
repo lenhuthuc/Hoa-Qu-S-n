@@ -186,7 +186,7 @@ export default function StoryViewer({ stories, initialIndex, onClose, onViewed }
                   src={current.mediaUrl}
                   autoPlay
                   muted
-                  controls
+                  controls={false}
                   playsInline
                   preload="auto"
                   className="h-full w-full object-contain"

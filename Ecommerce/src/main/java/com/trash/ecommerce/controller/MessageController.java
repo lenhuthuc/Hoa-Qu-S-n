@@ -15,6 +15,8 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -44,8 +46,11 @@ public class MessageController {
                 Map<String, Object> map = new LinkedHashMap<>();
                 map.put("id", c.getId());
                 Users other = c.getBuyer().getId().equals(userId) ? c.getSeller() : c.getBuyer();
+                Users me = c.getBuyer().getId().equals(userId) ? c.getBuyer() : c.getSeller();
                 map.put("otherUserId", other.getId());
                 map.put("otherUserName", resolveDisplayName(other));
+                map.put("otherUserAvatar", resolveChatAvatarForParticipant(c, other));
+                map.put("myAvatar", resolveChatAvatarForParticipant(c, me));
                 map.put("lastMessage", c.getLastMessage());
                 map.put("lastMessageAt", c.getLastMessageAt());
                 int unread = c.getBuyer().getId().equals(userId) ? c.getBuyerUnread() : c.getSellerUnread();
@@ -77,7 +82,8 @@ public class MessageController {
 
             return ResponseEntity.ok(Map.of(
                     "conversationId", conv.getId(),
-                    "otherUserName", resolveDisplayName(otherUser)));
+                    "otherUserName", resolveDisplayName(otherUser),
+                    "otherUserAvatar", resolveChatAvatarForParticipant(conv, otherUser)));
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(Map.of("message", e.getMessage()));
         }
@@ -118,6 +124,7 @@ public class MessageController {
                 map.put("id", m.getId());
                 map.put("senderId", m.getSender().getId());
                 map.put("senderName", resolveDisplayName(m.getSender()));
+                map.put("senderAvatar", resolveChatAvatarForParticipant(conv, m.getSender()));
                 map.put("content", m.getContent());
                 map.put("isRead", m.getIsRead());
                 map.put("createdAt", m.getCreatedAt());
@@ -175,6 +182,7 @@ public class MessageController {
             result.put("id", msg.getId());
             result.put("senderId", sender.getId());
             result.put("senderName", resolveDisplayName(sender));
+            result.put("senderAvatar", resolveChatAvatarForParticipant(conv, sender));
             result.put("content", msg.getContent());
             result.put("createdAt", msg.getCreatedAt());
             return ResponseEntity.ok(result);
@@ -242,5 +250,53 @@ public class MessageController {
         }
 
         return "Người dùng";
+    }
+
+    private String resolveChatAvatarForParticipant(Conversation conversation, Users participant) {
+        if (participant == null) {
+            return null;
+        }
+
+        boolean isSellerInConversation =
+                conversation != null &&
+                conversation.getSeller() != null &&
+                conversation.getSeller().getId() != null &&
+                conversation.getSeller().getId().equals(participant.getId());
+
+        String rawAvatar;
+        if (isSellerInConversation) {
+            SellerApplication sellerApplication = sellerApplicationRepository.findByUserId(participant.getId()).orElse(null);
+            rawAvatar = sellerApplication != null && sellerApplication.getShopAvatar() != null && !sellerApplication.getShopAvatar().isBlank()
+                    ? sellerApplication.getShopAvatar().trim()
+                    : participant.getAvatar();
+        } else {
+            rawAvatar = participant.getAvatar();
+        }
+
+        return resolveMediaUrlForClient(rawAvatar);
+    }
+
+    private String resolveMediaUrlForClient(String rawUrl) {
+        if (rawUrl == null || rawUrl.isBlank()) {
+            return null;
+        }
+
+        String value = rawUrl.trim();
+        if (value.startsWith("/api/reviews/media")) {
+            return value;
+        }
+        if (value.contains(".r2.cloudflarestorage.com/")) {
+            return "/api/reviews/media?url=" + URLEncoder.encode(value, StandardCharsets.UTF_8);
+        }
+        if (value.startsWith("http://") || value.startsWith("https://")) {
+            return value;
+        }
+        if (value.startsWith("local:")) {
+            return "/api/reviews/media?url=" + URLEncoder.encode(value, StandardCharsets.UTF_8);
+        }
+        if (value.startsWith("review-media/") || value.startsWith("reviews/")) {
+            return "/api/reviews/media?url=" + URLEncoder.encode("local:" + value, StandardCharsets.UTF_8);
+        }
+        return value;
     }
 }

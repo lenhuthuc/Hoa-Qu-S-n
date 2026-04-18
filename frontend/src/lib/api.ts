@@ -237,6 +237,15 @@ export const orderApi = {
     toWardCode?: string;
   }) =>
     api.get("/api/orders/preview", { params }),
+  previewBuyNow: (params: {
+    productId: number;
+    quantity: number;
+    discountVoucherCode?: string;
+    shippingVoucherCode?: string;
+    deliveryType?: "STANDARD" | "EXPRESS";
+    toDistrictId?: string;
+    toWardCode?: string;
+  }) => api.get("/api/orders/buy-now/preview", { params }),
   create: (
     paymentMethod: number,
     voucherCode?: string,
@@ -248,6 +257,26 @@ export const orderApi = {
   ) =>
     api.post(
       `/api/orders/create?paymentMethod=${paymentMethod}` +
+      `${voucherCode ? `&voucherCode=${encodeURIComponent(voucherCode)}` : ""}` +
+      `${discountVoucherCode ? `&discountVoucherCode=${encodeURIComponent(discountVoucherCode)}` : ""}` +
+      `${shippingVoucherCode ? `&shippingVoucherCode=${encodeURIComponent(shippingVoucherCode)}` : ""}` +
+      `${deliveryType ? `&deliveryType=${encodeURIComponent(deliveryType)}` : ""}` +
+      `${toDistrictId ? `&toDistrictId=${encodeURIComponent(toDistrictId)}` : ""}` +
+      `${toWardCode ? `&toWardCode=${encodeURIComponent(toWardCode)}` : ""}`
+    ),
+  createBuyNow: (
+    productId: number,
+    quantity: number,
+    paymentMethod: number,
+    voucherCode?: string,
+    discountVoucherCode?: string,
+    shippingVoucherCode?: string,
+    deliveryType: "STANDARD" | "EXPRESS" = "STANDARD",
+    toDistrictId?: string,
+    toWardCode?: string
+  ) =>
+    api.post(
+      `/api/orders/buy-now/create?productId=${productId}&quantity=${quantity}&paymentMethod=${paymentMethod}` +
       `${voucherCode ? `&voucherCode=${encodeURIComponent(voucherCode)}` : ""}` +
       `${discountVoucherCode ? `&discountVoucherCode=${encodeURIComponent(discountVoucherCode)}` : ""}` +
       `${shippingVoucherCode ? `&shippingVoucherCode=${encodeURIComponent(shippingVoucherCode)}` : ""}` +
@@ -271,6 +300,13 @@ export const categoryApi = {
 // ─── User Profile ───
 export const userApi = {
   getProfile: () => api.get("/api/user/profile"),
+  uploadAvatar: (file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return api.post("/api/user/profile/avatar", form, {
+      headers: { "Content-Type": "multipart/form-data" },
+    });
+  },
   update: (id: number, data: {
     fullName?: string;
     phone?: string;
