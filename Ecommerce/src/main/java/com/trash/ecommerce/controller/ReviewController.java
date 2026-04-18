@@ -8,6 +8,7 @@ import com.trash.ecommerce.service.StorageService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -17,6 +18,7 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
+import java.util.Arrays;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -129,34 +131,112 @@ public class ReviewController {
     }
 
     @GetMapping("/media/{filename}")
-    public ResponseEntity<Resource> getReviewMedia(@PathVariable String filename) {
+    public ResponseEntity<Resource> getReviewMedia(
+            @PathVariable String filename,
+            @RequestHeader(value = HttpHeaders.RANGE, required = false) String rangeHeader) {
         try {
             String mediaUrl = normalizeMediaUrlForRead(filename);
             StorageService.DocumentFile docFile = storageService.downloadReviewMedia(mediaUrl);
-            
-            Resource resource = new org.springframework.core.io.ByteArrayResource(docFile.content());
-            return ResponseEntity.ok()
-                    .contentType(org.springframework.http.MediaType.parseMediaType(docFile.contentType()))
-                    .header("Content-Disposition", "inline; filename=\"" + docFile.fileName() + "\"")
-                    .body(resource);
+
+            return buildMediaResponse(docFile, rangeHeader);
         } catch (Exception e) {
             return ResponseEntity.notFound().build();
         }
     }
 
     @GetMapping("/media")
-    public ResponseEntity<Resource> getReviewMediaByUrl(@RequestParam("url") String mediaUrl) {
+    public ResponseEntity<Resource> getReviewMediaByUrl(
+            @RequestParam("url") String mediaUrl,
+            @RequestHeader(value = HttpHeaders.RANGE, required = false) String rangeHeader) {
         try {
             String normalizedMediaUrl = normalizeMediaUrlForRead(mediaUrl);
             StorageService.DocumentFile docFile = storageService.downloadReviewMedia(normalizedMediaUrl);
 
-            Resource resource = new ByteArrayResource(docFile.content());
-            return ResponseEntity.ok()
-                    .contentType(MediaType.parseMediaType(docFile.contentType()))
-                    .header("Content-Disposition", "inline; filename=\"" + docFile.fileName() + "\"")
-                    .body(resource);
+            return buildMediaResponse(docFile, rangeHeader);
         } catch (Exception e) {
             return ResponseEntity.notFound().build();
+        }
+    }
+
+    private ResponseEntity<Resource> buildMediaResponse(StorageService.DocumentFile docFile, String rangeHeader) {
+        byte[] content = docFile.content();
+        long totalLength = content.length;
+
+        MediaType mediaType;
+        try {
+            mediaType = MediaType.parseMediaType(docFile.contentType());
+        } catch (Exception ignored) {
+            mediaType = MediaType.APPLICATION_OCTET_STREAM;
+        }
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.set(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"" + docFile.fileName() + "\"");
+        headers.set(HttpHeaders.ACCEPT_RANGES, "bytes");
+
+        if (rangeHeader == null || !rangeHeader.startsWith("bytes=")) {
+            headers.setContentLength(totalLength);
+            return ResponseEntity.ok()
+                    .headers(headers)
+                    .contentType(mediaType)
+                    .body(new ByteArrayResource(content));
+        }
+
+        long[] range = parseRange(rangeHeader, totalLength);
+        if (range == null) {
+            headers.set(HttpHeaders.CONTENT_RANGE, "bytes */" + totalLength);
+            return ResponseEntity.status(HttpStatus.REQUESTED_RANGE_NOT_SATISFIABLE)
+                    .headers(headers)
+                    .contentType(mediaType)
+                    .build();
+        }
+
+        int start = (int) range[0];
+        int end = (int) range[1];
+        byte[] partial = Arrays.copyOfRange(content, start, end + 1);
+
+        headers.set(HttpHeaders.CONTENT_RANGE, "bytes " + start + "-" + end + "/" + totalLength);
+        headers.setContentLength(partial.length);
+
+        return ResponseEntity.status(HttpStatus.PARTIAL_CONTENT)
+                .headers(headers)
+                .contentType(mediaType)
+                .body(new ByteArrayResource(partial));
+    }
+
+    private long[] parseRange(String rangeHeader, long totalLength) {
+        try {
+            String spec = rangeHeader.substring("bytes=".length()).trim();
+            if (spec.contains(",")) {
+                spec = spec.split(",")[0].trim();
+            }
+
+            String[] parts = spec.split("-", 2);
+            String startPart = parts.length > 0 ? parts[0].trim() : "";
+            String endPart = parts.length > 1 ? parts[1].trim() : "";
+
+            long start;
+            long end;
+
+            if (startPart.isEmpty()) {
+                long suffixLength = Long.parseLong(endPart);
+                if (suffixLength <= 0) {
+                    return null;
+                }
+                start = Math.max(0, totalLength - suffixLength);
+                end = totalLength - 1;
+            } else {
+                start = Long.parseLong(startPart);
+                end = endPart.isEmpty() ? totalLength - 1 : Long.parseLong(endPart);
+            }
+
+            if (start < 0 || end < start || start >= totalLength) {
+                return null;
+            }
+
+            end = Math.min(end, totalLength - 1);
+            return new long[]{start, end};
+        } catch (Exception ignored) {
+            return null;
         }
     }
 

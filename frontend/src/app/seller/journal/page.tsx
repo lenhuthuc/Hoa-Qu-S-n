@@ -1,368 +1,367 @@
-"use client";
+﻿"use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { BookOpen, Plus, Trash2, Image as ImageIcon, Calendar, Loader2, QrCode, ExternalLink, ChevronDown, ChevronUp } from "lucide-react";
+import { BookOpen, Clock3, Loader2, Plus, Trash2, Upload, Video } from "lucide-react";
 import toast from "react-hot-toast";
-import Link from "next/link";
-import { farmingApi, traceApi, isLoggedIn } from "@/lib/api";
+import { hasRole, isLoggedIn, storyApi } from "@/lib/api";
+import { formatDateTimeVi, parseBackendDate } from "@/lib/datetime";
 
-interface LogEntry {
-  id: string;
-  batchId: string;
-  note: string;
-  imageUrl?: string;
-  activityType: string;
-  weatherCondition?: string;
-  gpsLat?: number;
-  gpsLng?: number;
-  capturedAt: string;
+interface StoryItem {
+  id: number;
+  title: string;
+  content: string;
+  mediaUrl: string | null;
+  mediaType: "IMAGE" | "VIDEO";
   createdAt: string;
+  expiresAt?: string;
+  metadataMissing?: boolean;
 }
 
-const activityOptions = [
-  { value: "PLANTING", label: "Gieo trồng" },
-  { value: "WATERING", label: "Tưới nước" },
-  { value: "FERTILIZING", label: "Bón phân" },
-  { value: "SPRAYING", label: "Phun thuốc" },
-  { value: "HARVESTING", label: "Thu hoạch" },
-  { value: "PACKING", label: "Đóng gói" },
-  { value: "OTHER", label: "Khác" },
-];
+function formatLeftTime(expiresAt?: string): string {
+  if (!expiresAt) return "Không rõ";
+  const diffMs = parseBackendDate(expiresAt).getTime() - Date.now();
+  if (diffMs <= 0) return "Đã hết hạn";
+  const hours = Math.floor(diffMs / (1000 * 60 * 60));
+  const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+  return `${hours}h ${minutes}m`;
+}
 
-export default function JournalPage() {
+export default function SellerJournalPage() {
   const router = useRouter();
-  const [entries, setEntries] = useState<LogEntry[]>([]);
+
+  const [stories, setStories] = useState<StoryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
-  // Form state
-  const [batchId, setBatchId] = useState("");
-  const [note, setNote] = useState("");
+  const [title, setTitle] = useState("");
+  const [content, setContent] = useState("");
   const [activityType, setActivityType] = useState("OTHER");
-  const [weatherCondition, setWeatherCondition] = useState("");
-  const [image, setImage] = useState<File | null>(null);
-  const [imagePreview, setImagePreview] = useState<string | null>(null);
-  const [qrCodes, setQrCodes] = useState<Record<string, string>>({});
-  const [qrLoading, setQrLoading] = useState<string | null>(null);
-  const [expandedBatches, setExpandedBatches] = useState<Record<string, boolean>>({});
+  const [mediaFile, setMediaFile] = useState<File | null>(null);
+  const [mediaPreview, setMediaPreview] = useState<string | null>(null);
 
-  const fetchEntries = async () => {
+  useEffect(() => {
+    if (!isLoggedIn()) {
+      router.replace("/login");
+      return;
+    }
+    if (!hasRole("SELLER") && !hasRole("ADMIN")) {
+      router.replace("/seller/register");
+      return;
+    }
+    void loadStories();
+  }, [router]);
+
+  async function loadStories() {
+    setLoading(true);
     try {
-      const res = await farmingApi.getMyEntries();
-      setEntries(res.data?.data || res.data || []);
+      const res = await storyApi.getMyStories();
+      const list = Array.isArray(res.data) ? res.data : [];
+      setStories(
+        list
+          .map((s: any): StoryItem => ({
+            id: Number(s?.id || 0),
+            title: typeof s?.title === "string" ? s.title : "",
+            content: typeof s?.content === "string" ? s.content : "",
+            mediaUrl:
+              typeof s?.mediaUrl === "string"
+                ? s.mediaUrl
+                : typeof s?.imageUrl === "string"
+                  ? s.imageUrl
+                  : typeof s?.videoUrl === "string"
+                    ? s.videoUrl
+                    : null,
+              mediaType: String(s?.mediaType || (s?.videoUrl ? "VIDEO" : "IMAGE")).toUpperCase() === "VIDEO" ? "VIDEO" : "IMAGE",
+            createdAt: typeof s?.createdAt === "string" ? s.createdAt : new Date().toISOString(),
+            expiresAt: typeof s?.expiresAt === "string" ? s.expiresAt : undefined,
+            metadataMissing: Boolean(s?.metadataMissing),
+          }))
+          .filter((s: StoryItem) => s.id > 0)
+      );
     } catch {
-      setEntries([]);
+      toast.error("Không thể tải danh sách nhật ký");
+      setStories([]);
     } finally {
       setLoading(false);
     }
-  };
+  }
 
-  useEffect(() => {
-    if (!isLoggedIn()) { router.push("/login"); return; }
-    fetchEntries();
-  }, []);
-
-  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      setImage(file);
-      setImagePreview(URL.createObjectURL(file));
+  async function validateVideo(file: File): Promise<void> {
+    const url = URL.createObjectURL(file);
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const video = document.createElement("video");
+        video.preload = "metadata";
+        video.src = url;
+        video.onloadedmetadata = () => {
+          const duration = Number(video.duration);
+          if (!Number.isFinite(duration) || duration < 10 || duration > 30) {
+            reject(new Error("Video phải có thời lượng từ 10 đến 30 giây"));
+            return;
+          }
+          resolve();
+        };
+        video.onerror = () => reject(new Error("Không thể đọc metadata video"));
+      });
+    } finally {
+      URL.revokeObjectURL(url);
     }
-  };
+  }
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  async function handleMediaChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      if (file.type.startsWith("video/")) {
+        if (file.type !== "video/mp4") {
+          throw new Error("Chỉ hỗ trợ video MP4");
+        }
+        await validateVideo(file);
+      } else if (file.type !== "image/jpeg" && file.type !== "image/png") {
+        throw new Error("Chỉ hỗ trợ ảnh JPG/PNG hoặc video MP4");
+      }
+
+      if (mediaPreview) {
+        URL.revokeObjectURL(mediaPreview);
+      }
+      setMediaFile(file);
+      setMediaPreview(URL.createObjectURL(file));
+    } catch (err: any) {
+      toast.error(err?.message || "Media không hợp lệ");
+      e.target.value = "";
+    }
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!batchId.trim() || !note.trim()) {
-      toast.error("Vui lòng nhập mã lô và ghi chú");
+    if (!title.trim()) {
+      toast.error("Vui lòng nhập tiêu đề");
+      return;
+    }
+    if (!mediaFile) {
+      toast.error("Vui lòng chọn 1 ảnh hoặc 1 video");
       return;
     }
 
     setSubmitting(true);
     try {
       const formData = new FormData();
-      formData.append("batchId", batchId);
-      formData.append("note", note);
+      formData.append("title", title.trim());
+      formData.append("media", mediaFile);
+      formData.append("content", content.trim());
       formData.append("activityType", activityType);
-      if (weatherCondition) formData.append("weatherCondition", weatherCondition);
-      if (image) formData.append("image", image);
 
-      await farmingApi.createEntry(formData);
-      toast.success("Đã thêm nhật ký!");
-      setBatchId("");
-      setNote("");
+      await storyApi.create(formData);
+      toast.success("Đăng nhật ký thành công");
+      setTitle("");
+      setContent("");
       setActivityType("OTHER");
-      setWeatherCondition("");
-      setImage(null);
-      setImagePreview(null);
+      setMediaFile(null);
+      if (mediaPreview) {
+        URL.revokeObjectURL(mediaPreview);
+      }
+      setMediaPreview(null);
       setShowForm(false);
-      fetchEntries();
-    } catch {
-      toast.error("Lỗi khi tạo nhật ký");
+      await loadStories();
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || "Không thể đăng nhật ký");
     } finally {
       setSubmitting(false);
     }
-  };
+  }
 
-  const handleDelete = async (id: string) => {
-    if (!confirm("Xóa mục nhật ký này?")) return;
+  async function handleDelete(id: number) {
+    if (!confirm("Xóa nhật ký này?")) return;
     try {
-      await farmingApi.deleteEntry(id);
-      toast.success("Đã xóa");
-      setEntries((prev) => prev.filter((e) => e.id !== id));
+      await storyApi.delete(id);
+      setStories((prev) => prev.filter((s) => s.id !== id));
+      toast.success("Đã xóa nhật ký");
     } catch {
-      toast.error("Lỗi khi xóa");
+      toast.error("Không thể xóa nhật ký");
     }
-  };
+  }
 
-  const handleGenerateQr = async (batchId: string) => {
-    setQrLoading(batchId);
-    try {
-      const res = await traceApi.getQrCode(batchId);
-      const qrData = res.data?.data || res.data;
-      setQrCodes((prev) => ({ ...prev, [batchId]: qrData }));
-      toast.success("Đã tạo mã QR!");
-    } catch {
-      toast.error("Lỗi khi tạo mã QR");
-    } finally {
-      setQrLoading(null);
-    }
-  };
-
-  const toggleBatch = (batchId: string) => {
-    setExpandedBatches((prev) => ({ ...prev, [batchId]: !prev[batchId] }));
-  };
-
-  // Group entries by batchId
-  const groupedEntries = entries.reduce<Record<string, LogEntry[]>>((acc, entry) => {
-    if (!acc[entry.batchId]) acc[entry.batchId] = [];
-    acc[entry.batchId].push(entry);
-    return acc;
-  }, {});
+  const grouped = useMemo(() => {
+    const active: StoryItem[] = [];
+    const expired: StoryItem[] = [];
+    stories.forEach((s) => {
+      if (s.expiresAt && new Date(s.expiresAt).getTime() <= Date.now()) {
+        expired.push(s);
+      } else {
+        active.push(s);
+      }
+    });
+    return { active, expired };
+  }, [stories]);
 
   return (
-    <div className="max-w-4xl mx-auto px-4 py-8">
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
-          <BookOpen className="w-6 h-6 text-green-600" />
+    <div className="mx-auto max-w-5xl px-4 py-8">
+      <div className="mb-6 flex items-center justify-between gap-3">
+        <h1 className="flex items-center gap-2 text-2xl font-bold text-slate-800">
+          <BookOpen className="h-6 w-6 text-green-600" />
           Nhật ký canh tác
         </h1>
         <button
-          onClick={() => setShowForm(!showForm)}
-          className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition flex items-center gap-2 text-sm font-medium"
+          type="button"
+          onClick={() => setShowForm((v) => !v)}
+          className="inline-flex items-center gap-2 rounded-full bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-700"
         >
-          <Plus className="w-4 h-4" /> Thêm mới
+          <Plus className="h-4 w-4" />
+          {showForm ? "Đóng" : "Thêm mới"}
         </button>
       </div>
 
-      {/* Create Form */}
       {showForm && (
-        <form onSubmit={handleSubmit} className="bg-white rounded-xl border p-6 mb-6 space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Mã lô hàng *</label>
+        <form onSubmit={handleSubmit} className="mb-6 space-y-4 rounded-2xl border bg-white p-5 shadow-sm">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <label className="space-y-1">
+              <span className="text-sm font-semibold text-slate-700">Tiêu đề *</span>
               <input
-                value={batchId}
-                onChange={(e) => setBatchId(e.target.value)}
-                placeholder="VD: LO-VAITHIEU-2024-001"
-                maxLength={50}
-                className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                maxLength={120}
+                className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-green-500"
+                placeholder="Ví dụ: Tưới nước vườn xoài"
               />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Hoạt động</label>
+            </label>
+
+            <label className="space-y-1">
+              <span className="text-sm font-semibold text-slate-700">Hoạt động</span>
               <select
                 value={activityType}
                 onChange={(e) => setActivityType(e.target.value)}
-                className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-green-500"
               >
-                {activityOptions.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
+                <option value="PLANTING">Gieo trồng</option>
+                <option value="WATERING">Tưới nước</option>
+                <option value="FERTILIZING">Bón phân</option>
+                <option value="SPRAYING">Phun thuốc</option>
+                <option value="HARVESTING">Thu hoạch</option>
+                <option value="PACKING">Đóng gói</option>
+                <option value="OTHER">Khác</option>
               </select>
-            </div>
+            </label>
           </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Ghi chú *</label>
+          <label className="space-y-1">
+            <span className="text-sm font-semibold text-slate-700">Mô tả ngắn</span>
             <textarea
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
+              value={content}
+              onChange={(e) => setContent(e.target.value)}
               rows={3}
-              maxLength={1000}
-              placeholder="Mô tả hoạt động canh tác hôm nay..."
-              className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+              className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-green-500"
+              placeholder="Mô tả thêm cho nhật ký..."
             />
+          </label>
+
+          <div className="space-y-2">
+            <span className="text-sm font-semibold text-slate-700">Phương tiện *</span>
+            <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-dashed border-green-300 bg-green-50/40 px-4 py-3 text-sm text-green-700">
+              <Upload className="h-4 w-4" />
+              Chọn 1 ảnh JPG/PNG hoặc 1 video MP4 (10-30 giây)
+              <input type="file" accept="image/jpeg,image/png,video/mp4" onChange={handleMediaChange} className="hidden" />
+            </label>
+
+            {mediaPreview && mediaFile && (
+              <div className="overflow-hidden rounded-xl border bg-slate-50 p-2">
+                {mediaFile.type.startsWith("video/") ? (
+                  <video src={mediaPreview} controls className="max-h-64 w-full rounded-lg object-contain" />
+                ) : (
+                  <img src={mediaPreview} alt="Preview" className="max-h-64 w-full rounded-lg object-contain" />
+                )}
+              </div>
+            )}
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Thời tiết</label>
-              <input
-                value={weatherCondition}
-                onChange={(e) => setWeatherCondition(e.target.value)}
-                placeholder="VD: Nắng, 32°C"
-                maxLength={100}
-                className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Ảnh</label>
-              <input
-                type="file"
-                accept="image/*"
-                onChange={handleImageChange}
-                className="w-full text-sm text-gray-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:bg-green-50 file:text-green-700 file:font-medium file:text-sm hover:file:bg-green-100"
-              />
-              {imagePreview && (
-                <img src={imagePreview} alt="preview" className="mt-2 rounded-lg max-h-32 object-cover" />
-              )}
-            </div>
-          </div>
-
-          <div className="flex gap-3 justify-end">
-            <button
-              type="button"
-              onClick={() => setShowForm(false)}
-              className="px-4 py-2 border rounded-lg text-sm text-gray-600 hover:bg-gray-50 transition"
-            >
-              Hủy
-            </button>
-            <button
-              type="submit"
-              disabled={submitting}
-              className="bg-green-600 text-white px-6 py-2 rounded-lg hover:bg-green-700 disabled:opacity-50 transition text-sm font-medium"
-            >
-              {submitting ? "Đang lưu..." : "Lưu nhật ký"}
-            </button>
-          </div>
+          <button
+            type="submit"
+            disabled={submitting}
+            className="inline-flex items-center gap-2 rounded-full bg-green-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-70"
+          >
+            {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Video className="h-4 w-4" />}
+            {submitting ? "Đang đăng..." : "Đăng nhật ký"}
+          </button>
         </form>
       )}
 
-      {/* Entries grouped by Batch */}
       {loading ? (
-        <div className="text-center py-20">
-          <Loader2 className="w-8 h-8 animate-spin text-green-600 mx-auto" />
-        </div>
-      ) : entries.length === 0 ? (
-        <div className="text-center py-20">
-          <BookOpen className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-          <p className="text-gray-500">Chưa có nhật ký nào. Bắt đầu ghi nhận hoạt động canh tác!</p>
+        <div className="flex min-h-[40vh] items-center justify-center">
+          <Loader2 className="h-8 w-8 animate-spin text-green-600" />
         </div>
       ) : (
-        <div className="space-y-6">
-          {Object.entries(groupedEntries).map(([batch, batchEntries]) => (
-            <div key={batch} className="bg-white rounded-xl border overflow-hidden">
-              {/* Batch Header */}
-              <div className="p-4 bg-gradient-to-r from-green-50 to-emerald-50 border-b">
-                <div className="flex items-center justify-between">
-                  <button 
-                    onClick={() => toggleBatch(batch)}
-                    className="flex items-center gap-3 flex-1 text-left"
-                  >
-                    <div className="w-10 h-10 bg-green-600 text-white rounded-lg flex items-center justify-center text-sm font-bold">
-                      {batchEntries.length}
-                    </div>
-                    <div>
-                      <h3 className="font-semibold text-gray-800 font-mono text-sm">{batch}</h3>
-                      <p className="text-xs text-gray-500">
-                        {batchEntries.map(e => activityOptions.find(o => o.value === e.activityType)?.label || e.activityType).join(" → ")}
-                      </p>
-                    </div>
-                    {expandedBatches[batch] ? (
-                      <ChevronUp className="w-5 h-5 text-gray-400 ml-auto" />
-                    ) : (
-                      <ChevronDown className="w-5 h-5 text-gray-400 ml-auto" />
+        <div className="space-y-8">
+          <section>
+            <h2 className="mb-3 text-lg font-bold text-slate-800">Nhật ký đang hiển thị ({grouped.active.length})</h2>
+            {grouped.active.length === 0 ? (
+              <div className="rounded-xl border bg-white p-5 text-sm text-slate-500">Chưa có nhật ký nào đang hiển thị.</div>
+            ) : (
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                {grouped.active.map((story) => (
+                  <article key={story.id} className="overflow-hidden rounded-xl border bg-white shadow-sm">
+                    {story.mediaUrl && (
+                      <div className="h-48 bg-slate-100">
+                        {story.mediaType === "VIDEO" ? (
+                          <video src={story.mediaUrl} controls className="h-full w-full object-cover" />
+                        ) : (
+                          <img src={story.mediaUrl} alt={story.title} className="h-full w-full object-cover" />
+                        )}
+                      </div>
                     )}
-                  </button>
-                  <div className="flex items-center gap-2 ml-3">
-                    <Link
-                      href={`/trace/${batch}`}
-                      className="text-green-600 hover:text-green-700 text-xs font-medium px-3 py-1.5 rounded-lg border border-green-200 hover:bg-green-50 transition flex items-center gap-1"
-                    >
-                      <ExternalLink className="w-3.5 h-3.5" /> Xem timeline
-                    </Link>
-                    <button
-                      onClick={() => handleGenerateQr(batch)}
-                      disabled={qrLoading === batch}
-                      className="bg-green-600 text-white text-xs font-medium px-3 py-1.5 rounded-lg hover:bg-green-700 disabled:opacity-50 transition flex items-center gap-1"
-                    >
-                      {qrLoading === batch ? (
-                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      ) : (
-                        <QrCode className="w-3.5 h-3.5" />
+                    <div className="p-4">
+                      <h3 className="text-base font-semibold text-slate-800">{story.title}</h3>
+                      <p className="mt-1 line-clamp-2 text-sm text-slate-600">{story.content || "Không có mô tả"}</p>
+                      <div className="mt-3 flex items-center justify-between text-xs text-slate-500">
+                        <span>{formatDateTimeVi(story.createdAt)}</span>
+                        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 font-medium text-emerald-700">
+                          <Clock3 className="h-3 w-3" />
+                          còn {formatLeftTime(story.expiresAt)}
+                        </span>
+                      </div>
+                      {story.metadataMissing && (
+                        <p className="mt-2 text-xs text-amber-600">Nhật ký này thiếu một phần metadata (GPS/thời gian chụp).</p>
                       )}
-                      Tạo QR
+                      <button
+                        type="button"
+                        onClick={() => handleDelete(story.id)}
+                        className="mt-3 inline-flex items-center gap-1 rounded-lg border border-rose-200 px-2.5 py-1.5 text-xs font-medium text-rose-600 hover:bg-rose-50"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                        Xóa
+                      </button>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
+          </section>
+
+          <section>
+            <h2 className="mb-3 text-lg font-bold text-slate-800">Lịch sử đã hết hạn ({grouped.expired.length})</h2>
+            {grouped.expired.length === 0 ? (
+              <div className="rounded-xl border bg-white p-5 text-sm text-slate-500">Chưa có nhật ký nào hết hạn.</div>
+            ) : (
+              <div className="space-y-3">
+                {grouped.expired.map((story) => (
+                  <div key={story.id} className="flex items-center justify-between rounded-xl border bg-white px-4 py-3">
+                    <div>
+                      <p className="text-sm font-semibold text-slate-700">{story.title}</p>
+                      <p className="text-xs text-slate-500">Đăng lúc {formatDateTimeVi(story.createdAt)}</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleDelete(story.id)}
+                      className="inline-flex items-center gap-1 rounded-lg border border-rose-200 px-2.5 py-1.5 text-xs font-medium text-rose-600 hover:bg-rose-50"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                      Xóa
                     </button>
                   </div>
-                </div>
-
-                {/* QR Code Display */}
-                {qrCodes[batch] && (
-                  <div className="mt-4 flex items-center gap-4 p-3 bg-white rounded-lg border border-green-200">
-                    <img src={qrCodes[batch]} alt="QR Code" className="w-28 h-28 rounded-lg border" />
-                    <div className="text-sm text-gray-600">
-                      <p className="font-medium text-gray-800 mb-1">Mã QR truy xuất nguồn gốc</p>
-                      <p className="text-xs text-gray-500 mb-2">Người mua quét mã này để xem lịch sử canh tác</p>
-                      <a
-                        href={qrCodes[batch]}
-                        download={`QR-${batch}.png`}
-                        className="text-green-600 hover:text-green-700 text-xs font-medium underline"
-                      >
-                        Tải xuống mã QR
-                      </a>
-                    </div>
-                  </div>
-                )}
+                ))}
               </div>
-
-              {/* Batch Entries */}
-              {(expandedBatches[batch] !== false) && (
-                <div className="divide-y">
-                  {batchEntries.map((entry) => (
-                    <div key={entry.id} className="p-4 hover:bg-gray-50/50 transition">
-                      <div className="flex items-start justify-between">
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2 mb-1.5">
-                            <span className="bg-green-100 text-green-700 text-xs font-medium px-2 py-0.5 rounded-full">
-                              {activityOptions.find((o) => o.value === entry.activityType)?.label || entry.activityType}
-                            </span>
-                          </div>
-                          <p className="text-gray-700 text-sm">{entry.note}</p>
-                          <div className="flex gap-3 mt-2 text-xs text-gray-400">
-                            <span className="flex items-center gap-1">
-                              <Calendar className="w-3 h-3" />
-                              {new Date(entry.createdAt).toLocaleDateString("vi-VN")}
-                            </span>
-                            {entry.weatherCondition && <span>🌤 {entry.weatherCondition}</span>}
-                            {entry.gpsLat && entry.gpsLng && (
-                              <span>📍 {entry.gpsLat.toFixed(4)}, {entry.gpsLng.toFixed(4)}</span>
-                            )}
-                          </div>
-                        </div>
-
-                        <div className="flex items-center gap-2 ml-4">
-                          {entry.imageUrl && (
-                            <img src={entry.imageUrl} alt="" className="w-16 h-16 rounded-lg object-cover" />
-                          )}
-                          <button
-                            onClick={() => handleDelete(entry.id)}
-                            className="text-gray-400 hover:text-red-500 p-1 transition"
-                            title="Xóa"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          ))}
+            )}
+          </section>
         </div>
       )}
     </div>

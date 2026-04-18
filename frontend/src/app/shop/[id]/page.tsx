@@ -55,6 +55,16 @@ const ACTIVITY_FALLBACK: Record<string, string> = {
   OTHER: "Nhật ký",
 };
 
+function normalizeAvatarUrl(raw: unknown): string | null {
+  const value = typeof raw === "string" ? raw.trim() : "";
+  if (!value) return null;
+  if (value.startsWith("/api/reviews/media")) return value;
+  if (value.startsWith("local:") || value.startsWith("review-media/") || value.startsWith("reviews/") || value.includes(".r2.cloudflarestorage.com/")) {
+    return `/api/reviews/media?url=${encodeURIComponent(value)}`;
+  }
+  return value;
+}
+
 export default function ShopPage() {
   const router = useRouter();
   const params = useParams();
@@ -100,7 +110,7 @@ export default function ShopPage() {
           sellerId: Number(rawShop.sellerId || sellerId),
           sellerName: typeof rawShop.sellerName === "string" ? rawShop.sellerName : "Nông hộ",
           shopName: typeof rawShop.shopName === "string" && rawShop.shopName.trim() ? rawShop.shopName.trim() : (typeof rawShop.sellerName === "string" ? rawShop.sellerName : "Nông hộ"),
-          avatar: typeof rawShop.avatar === "string" ? rawShop.avatar : null,
+          avatar: normalizeAvatarUrl(rawShop.avatar),
           phone: typeof rawShop.phone === "string" ? rawShop.phone : null,
           province: typeof rawShop.province === "string" ? rawShop.province : null,
           district: typeof rawShop.district === "string" ? rawShop.district : null,

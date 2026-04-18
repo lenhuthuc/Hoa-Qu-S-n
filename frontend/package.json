@@ -15,6 +15,7 @@
     "hls.js": "^1.5.15",
     "socket.io-client": "^4.8.0",
     "lucide-react": "^0.451.0",
+    "framer-motion": "^12.9.4",
     "axios": "^1.7.7",
     "zustand": "^5.0.0",
     "date-fns": "^4.1.0",
