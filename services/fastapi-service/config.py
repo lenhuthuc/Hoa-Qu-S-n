@@ -6,6 +6,8 @@ class Settings(BaseSettings):
     # AI APIs
     gemini_api_key: str = ""
     groq_api_key: str = ""
+    openrouter_api_key: str = ""
+    cerebras_api_key: str = ""
 
     # Qdrant
     qdrant_host: str = "localhost"

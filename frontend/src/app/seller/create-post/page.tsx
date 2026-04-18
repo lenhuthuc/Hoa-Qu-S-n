@@ -339,6 +339,8 @@ export default function CreatePostPage() {
 
     const grams = unitWeightUnit === "g" ? parsed : parsed * 1000;
     setEditable((prev) => prev ? { ...prev, unitWeightGrams: Math.max(0, Math.round(grams)) } : prev);
+    // Trọng lượng thay đổi → giá/sản phẩm phải tính lại từ giá AI/kg
+    setIsPriceManuallyEdited(false);
   };
 
   const handleTotalStockInputChange = (raw: string) => {

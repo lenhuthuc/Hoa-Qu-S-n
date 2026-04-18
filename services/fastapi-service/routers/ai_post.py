@@ -1,87 +1,70 @@
-import base64
-import json
-from fastapi import APIRouter, UploadFile, File, HTTPException
-from groq import Groq
-from config import get_settings
-from core.pricing_agent import get_smart_pricing 
+from typing import List
+from fastapi import APIRouter, UploadFile, File, HTTPException, Request
 
-VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
+from models import GeneratePostResponse, PostData, VisionResult, PricingResult, PostResult
+
 router = APIRouter()
 
-# 
-MARKET_PRICES_PROMPT = """
-Bạn là chuyên gia phân tích hình ảnh nông sản Việt Nam.
 
-QUAN TRỌNG: Tất cả các trường trong JSON phải viết bằng TIẾNG VIỆT.
-Đặc biệt "product_name" PHẢI là tên tiếng Việt (ví dụ: "Xoài", "Dưa leo", "Rau muống").
-NGHIÊM CẤM dùng tiếng Anh cho "product_name".
+@router.post("/generate-post", response_model=GeneratePostResponse)
+async def generate_post(
+    request: Request,
+    images: List[UploadFile] = File(...),
+) -> GeneratePostResponse:
+    if not images:
+        raise HTTPException(status_code=400, detail="Cần ít nhất 1 ảnh")
 
-Trả về JSON (KHÔNG markdown, KHÔNG giải thích thêm):
-{
-  "product_name": "Tên sản phẩm TIẾNG VIỆT",
-  "title": "Tiêu đề bài đăng bán hấp dẫn (15-30 từ, tiếng Việt)",
-  "description": "Mô tả chi tiết sản phẩm cho bài đăng (tiếng Việt)",
-  "category": "Trái cây HOẶC Rau củ",
-  "freshness": "Rất tươi HOẶC Tươi HOẶC Bình thường"
-}
+    image_files = []
+    for img in images[:5]:
+        data = await img.read()
+        if len(data) > 20 * 1024 * 1024:
+            raise HTTPException(status_code=400, detail=f"Ảnh {img.filename} quá lớn (tối đa 20MB)")
+        image_files.append((data, img.content_type or "image/jpeg"))
 
-Nếu ảnh không phải nông sản: {"error": "Ảnh không phải sản phẩm nông sản"}
-"""
-
-@router.post("/generate-post", response_model=dict)
-async def generate_post(image: UploadFile = File(...)):
-    settings = get_settings()
-    if not settings.groq_api_key:
-        raise HTTPException(status_code=500, detail="GROQ_API_KEY not configured")
-
-    image_bytes = await image.read()
-    if len(image_bytes) > 20 * 1024 * 1024:
-        raise HTTPException(status_code=400, detail="Image too large (max 20MB)")
-
-    image_b64 = base64.b64encode(image_bytes).decode("utf-8")
-    mime = image.content_type or "image/jpeg"
-    groq_client = Groq(api_key=settings.groq_api_key)
+    from core.pipeline import get_pipeline
+    pipeline = get_pipeline()
 
     try:
-        # --- VISION MODEL ---
-        response = groq_client.chat.completions.create(
-            model=VISION_MODEL,
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": MARKET_PRICES_PROMPT},
-                        {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{image_b64}"}},
-                    ],
-                }
-            ],
-            temperature=0.2,
-            max_tokens=1024,
-        )
+        result = await pipeline.ainvoke({
+            "images": image_files,
+            "embedding_service": request.app.state.embedding_service,
+            "vision_result": None,
+            "pricing_result": None,
+            "post_result": None,
+            "error": None,
+        })
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Lỗi pipeline: {str(exc)}")
 
-        text = response.choices[0].message.content.strip()
-        if text.startswith("```"):
-            text = text.split("\n", 1)[1].rsplit("```", 1)[0].strip()
+    if result.get("error"):
+        return GeneratePostResponse(success=False, error=result["error"])
 
-        ai_result = json.loads(text)
+    vision: VisionResult = result.get("vision_result")
+    if vision is None or vision.error:
+        error_msg = vision.error if vision else "Không phân tích được ảnh"
+        return GeneratePostResponse(success=False, error=error_msg)
 
-        if "error" in ai_result:
-            return {"success": False, "error": ai_result["error"]}
+    pricing: PricingResult = result["pricing_result"]
+    post: PostResult = result["post_result"]
 
-        # --- GỌI LANGCHAIN AGENT ---
-        product_name = ai_result.get("product_name", "Nông sản không rõ tên")
-        freshness = ai_result.get("freshness", "Bình thường")
-        
-        # Lấy kết quả từ Agent
-        pricing_data = await get_smart_pricing(product_name, freshness)
-        
-   
-        ai_result["suggested_price_per_kg"] = pricing_data.get("suggested_price_per_kg", 0)
-        ai_result["price_reasoning"] = pricing_data.get("price_reasoning", "AI đang gặp chút vấn đề khi tư vấn giá.")
-
-        return {"success": True, "data": ai_result}
-
-    except json.JSONDecodeError:
-        raise HTTPException(status_code=500, detail="AI returned invalid JSON")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"AI API error: {str(e)}")
+    return GeneratePostResponse(
+        success=True,
+        data=PostData(
+            product_name=vision.product_name,
+            grade=vision.grade,
+            category=vision.category,
+            freshness=vision.freshness,
+            defects=vision.defects,
+            certifications=vision.certifications,
+            confidence=vision.confidence,
+            provider=vision.provider,
+            title=post.title,
+            description=post.description,
+            hashtags=post.hashtags,
+            suggested_price_per_kg=pricing.suggested_price_per_kg,
+            price_breakdown=pricing.breakdown,
+            similar_products=pricing.market.similar_products,
+            market_avg=pricing.market.market_avg,
+            price_reasoning=pricing.market.note,
+        ),
+    )
