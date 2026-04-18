@@ -1,14 +1,16 @@
 from typing import List
 from fastapi import APIRouter, UploadFile, File, HTTPException, Request
 
+from models import GeneratePostResponse, PostData, VisionResult, PricingResult, PostResult
+
 router = APIRouter()
 
 
-@router.post("/generate-post", response_model=dict)
+@router.post("/generate-post", response_model=GeneratePostResponse)
 async def generate_post(
     request: Request,
     images: List[UploadFile] = File(...),
-):
+) -> GeneratePostResponse:
     if not images:
         raise HTTPException(status_code=400, detail="Cần ít nhất 1 ảnh")
 
@@ -35,33 +37,34 @@ async def generate_post(
         raise HTTPException(status_code=500, detail=f"Lỗi pipeline: {str(exc)}")
 
     if result.get("error"):
-        return {"success": False, "error": result["error"]}
+        return GeneratePostResponse(success=False, error=result["error"])
 
-    vision = result.get("vision_result") or {}
-    if "error" in vision:
-        return {"success": False, "error": vision["error"]}
+    vision: VisionResult = result.get("vision_result")
+    if vision is None or vision.error:
+        error_msg = vision.error if vision else "Không phân tích được ảnh"
+        return GeneratePostResponse(success=False, error=error_msg)
 
-    pricing = result["pricing_result"]
-    post = result["post_result"]
+    pricing: PricingResult = result["pricing_result"]
+    post: PostResult = result["post_result"]
 
-    return {
-        "success": True,
-        "data": {
-            "product_name": vision.get("product_name"),
-            "grade": vision.get("grade"),
-            "category": vision.get("category"),
-            "freshness": vision.get("freshness"),
-            "defects": vision.get("defects", []),
-            "certifications": vision.get("certifications", []),
-            "confidence": vision.get("confidence", 0.8),
-            "provider": vision.get("provider", "gemini"),
-            "title": post["title"],
-            "description": post["description"],
-            "hashtags": post.get("hashtags", []),
-            "suggested_price_per_kg": pricing["suggested_price_per_kg"],
-            "price_breakdown": pricing["breakdown"],
-            "similar_products": pricing["market"]["similar_products"],
-            "market_avg": pricing["market"]["market_avg"],
-            "price_reasoning": pricing["market"]["note"],
-        },
-    }
+    return GeneratePostResponse(
+        success=True,
+        data=PostData(
+            product_name=vision.product_name,
+            grade=vision.grade,
+            category=vision.category,
+            freshness=vision.freshness,
+            defects=vision.defects,
+            certifications=vision.certifications,
+            confidence=vision.confidence,
+            provider=vision.provider,
+            title=post.title,
+            description=post.description,
+            hashtags=post.hashtags,
+            suggested_price_per_kg=pricing.suggested_price_per_kg,
+            price_breakdown=pricing.breakdown,
+            similar_products=pricing.market.similar_products,
+            market_avg=pricing.market.market_avg,
+            price_reasoning=pricing.market.note,
+        ),
+    )

@@ -14,12 +14,12 @@ async def validate_input(state: PostGenState) -> Dict[str, Any]:
     # Validate image sizes
     for img_bytes, content_type in images:
         if len(img_bytes) > 20 * 1024 * 1024:  # 20MB
-            return {"error": f"Ảnh quá lớn (tối đa 20MB)"}
+            return {"error": "Ảnh quá lớn (tối đa 20MB)"}
 
         if content_type not in ["image/jpeg", "image/png", "image/webp"]:
             return {"error": "Chỉ chấp nhận ảnh JPEG, PNG, WEBP"}
 
-    return {}
+    return {"validation_result": {"passed": True, "stage": "input"}}
 
 
 async def post_validator(state: PostGenState) -> Dict[str, Any]:
@@ -35,4 +35,4 @@ async def post_validator(state: PostGenState) -> Dict[str, Any]:
     if len(post.get("description", "")) < 50:
         return {"error": "Description quá ngắn"}
 
-    return {}
+    return {"validation_result": {"passed": True, "stage": "post"}}

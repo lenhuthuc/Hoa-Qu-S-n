@@ -7,6 +7,8 @@ import os
 import yaml
 from datetime import datetime
 
+from models import PricingResult, PriceBreakdown, PriceMultiplier, MarketInfo, SimilarProduct
+
 _KB_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "pricing_kb.yaml")
 _kb_cache: dict | None = None
 
@@ -31,7 +33,6 @@ def _find_base_price(product_name: str, grade: str) -> tuple[int, str]:
                 price = data["base_prices"].get("loại 2", 20000)
             return price, key
 
-    # Fallback by first word match
     first_word = name_lower.split()[0] if name_lower else ""
     for key, data in kb.get("products", {}).items():
         if first_word and first_word in key:
@@ -47,7 +48,7 @@ def _grade_mult(grade: str) -> float:
         return 1.0
     if "3" in g:
         return 0.60
-    return 0.82  # loại 2 default
+    return 0.82
 
 
 def _defect_mult(defects: list[str]) -> tuple[float, str]:
@@ -108,6 +109,60 @@ def _freshness_mult(freshness: str) -> tuple[float, str]:
     return 1.0, "Tươi ×1.00"
 
 
+def _build_feature_text(
+    product_name: str,
+    grade: str,
+    freshness: str,
+    defects: list[str],
+    certifications: list[str],
+    category: str = "",
+) -> str:
+    """Build rich feature text from all vision outputs for embedding search."""
+    parts = [f"Sản phẩm: {product_name}"]
+    if grade:
+        parts.append(f"Chất lượng: {grade}")
+    if freshness:
+        parts.append(f"Độ tươi: {freshness}")
+    if certifications:
+        parts.append(f"Chứng nhận: {', '.join(certifications)}")
+    if defects:
+        parts.append(f"Khuyết tật: {', '.join(defects)}")
+    else:
+        parts.append("Không có khuyết tật")
+    if category:
+        parts.append(f"Loại: {category}")
+    return ". ".join(parts)
+
+
+_KNN_MIN_SAMPLES = 5  # kNN không đáng tin nếu ít hơn ngưỡng này
+
+
+def _iqr_filter(items: list[SimilarProduct]) -> list[SimilarProduct]:
+    """Loại outlier bằng IQR. Cần ít nhất 4 phần tử để có IQR có nghĩa."""
+    if len(items) < 4:
+        return items
+    prices = sorted(p.price for p in items)
+    n = len(prices)
+    q1, q3 = prices[n // 4], prices[(3 * n) // 4]
+    iqr = q3 - q1
+    lo, hi = q1 - 1.5 * iqr, q3 + 1.5 * iqr
+    cleaned = [p for p in items if lo <= p.price <= hi]
+    return cleaned if len(cleaned) >= 3 else items
+
+
+def _weighted_knn_avg(similar: list[SimilarProduct]) -> int | None:
+    """
+    Weighted average theo cosine score.
+    Chỉ tính nếu đủ _KNN_MIN_SAMPLES mẫu sau IQR filter.
+    """
+    candidates = _iqr_filter([p for p in similar if p.price > 0 and p.score > 0])
+    if len(candidates) < _KNN_MIN_SAMPLES:
+        return None
+    total_w = sum(p.score for p in candidates)
+    raw = sum(p.price * p.score for p in candidates) / total_w
+    return round(raw / 1000) * 1000
+
+
 async def calculate_price(
     product_name: str,
     grade: str,
@@ -115,7 +170,8 @@ async def calculate_price(
     certifications: list[str],
     freshness: str,
     embedding_service=None,
-) -> dict:
+    category: str = "",
+) -> PricingResult:
     base_price, matched_key = _find_base_price(product_name, grade)
 
     gm = _grade_mult(grade)
@@ -126,47 +182,54 @@ async def calculate_price(
 
     rule_price = round(base_price * gm * dm * cm * sm * fm / 1000) * 1000
 
-    similar_products: list[dict] = []
+    similar_products: list[SimilarProduct] = []
     market_avg: int | None = None
 
     if embedding_service:
         try:
-            results = embedding_service.search(query=product_name, limit=8)
+            feature_text = _build_feature_text(
+                product_name, grade, freshness, defects, certifications, category
+            )
+            results = embedding_service.search(
+                query=feature_text,
+                limit=30,
+                category=category or None,
+            )
             similar_products = [
-                {
-                    "product_name": r["product_name"],
-                    "price": int(r["price"]),
-                    "score": r["score"],
-                }
+                SimilarProduct(
+                    product_name=r["product_name"],
+                    price=int(r["price"]),
+                    score=r["score"],
+                )
                 for r in results
                 if r.get("price", 0) > 0
             ]
-            prices = [r["price"] for r in similar_products]
-            if prices:
-                market_avg = round(sum(prices) / len(prices) / 1000) * 1000
+            market_avg = _weighted_knn_avg(similar_products)
         except Exception:
             pass
 
+    n_valid = len([p for p in similar_products if p.price > 0])
     if market_avg and market_avg > 0:
         suggested = round((rule_price * 0.6 + market_avg * 0.4) / 1000) * 1000
-        note = f"Kết hợp: {rule_price:,}đ (rule-based) + {market_avg:,}đ (thị trường)"
+        note = f"{n_valid} sản phẩm tương tự (kNN weighted avg {market_avg:,}đ) + rule-based {rule_price:,}đ"
     else:
         suggested = rule_price
-        note = f"Rule-based: {rule_price:,}đ (chưa có dữ liệu thị trường)"
+        reason = f"chỉ {n_valid} mẫu, cần ≥{_KNN_MIN_SAMPLES}" if n_valid else "Qdrant chưa có dữ liệu"
+        note = f"Rule-based: {rule_price:,}đ ({reason})"
 
-    return {
-        "suggested_price_per_kg": suggested,
-        "breakdown": {
-            "base_price": base_price,
-            "grade": {"label": grade or "Loại 2", "multiplier": gm},
-            "defect": {"label": dl, "multiplier": dm},
-            "certification": {"label": cl, "multiplier": cm},
-            "seasonal": {"label": sl, "multiplier": sm},
-            "freshness": {"label": fl, "multiplier": fm},
-        },
-        "market": {
-            "similar_products": similar_products,
-            "market_avg": market_avg,
-            "note": note,
-        },
-    }
+    return PricingResult(
+        suggested_price_per_kg=suggested,
+        breakdown=PriceBreakdown(
+            base_price=base_price,
+            grade=PriceMultiplier(label=grade or "Loại 2", multiplier=gm),
+            defect=PriceMultiplier(label=dl, multiplier=dm),
+            certification=PriceMultiplier(label=cl, multiplier=cm),
+            seasonal=PriceMultiplier(label=sl, multiplier=sm),
+            freshness=PriceMultiplier(label=fl, multiplier=fm),
+        ),
+        market=MarketInfo(
+            similar_products=similar_products,
+            market_avg=market_avg,
+            note=note,
+        ),
+    )

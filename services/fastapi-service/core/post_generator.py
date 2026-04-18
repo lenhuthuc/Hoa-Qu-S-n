@@ -6,6 +6,8 @@ Falls back to building a basic post from vision data if Cerebras is unavailable.
 import json
 import httpx
 
+from models import PostResult
+
 POST_PROMPT = """Bạn là chuyên gia viết bài đăng bán nông sản Việt Nam trên mạng xã hội.
 
 Dựa trên thông tin sản phẩm dưới đây, hãy viết bài đăng hấp dẫn bằng TIẾNG VIỆT.
@@ -21,7 +23,7 @@ THÔNG TIN SẢN PHẨM:
 {product_info}"""
 
 
-async def generate_post(product_info: dict) -> dict:
+async def generate_post(product_info: dict) -> PostResult:
     from config import get_settings
     settings = get_settings()
 
@@ -54,12 +56,12 @@ async def generate_post(product_info: dict) -> dict:
                 text = resp.json()["choices"][0]["message"]["content"].strip()
                 if text.startswith("```"):
                     text = text.split("\n", 1)[1].rsplit("```", 1)[0].strip()
-                result = json.loads(text)
-                return {
-                    "title": result.get("title", product_info.get("title", "")),
-                    "description": result.get("description", product_info.get("description", "")),
-                    "hashtags": result.get("hashtags", []),
-                }
+                data = json.loads(text)
+                return PostResult(
+                    title=data.get("title") or product_info.get("title", ""),
+                    description=data.get("description") or product_info.get("description", ""),
+                    hashtags=data.get("hashtags", []),
+                )
         except Exception:
             pass
 
@@ -74,8 +76,8 @@ async def generate_post(product_info: dict) -> dict:
         "ThucPhamSach",
         "NongSanTuoi",
     ]
-    return {
-        "title": product_info.get("title", f"🌿 {name} {grade}{cert_tag} — Tươi ngon, giá tốt!"),
-        "description": product_info.get("description", f"{name} {grade} chất lượng cao, đảm bảo tươi ngon."),
-        "hashtags": hashtags,
-    }
+    return PostResult(
+        title=product_info.get("title") or f"🌿 {name} {grade}{cert_tag} — Tươi ngon, giá tốt!",
+        description=product_info.get("description") or f"{name} {grade} chất lượng cao, đảm bảo tươi ngon.",
+        hashtags=hashtags,
+    )
