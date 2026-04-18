@@ -83,12 +83,13 @@ export const productApi = {
 
 // ─── AI Post ───
 export const aiApi = {
-  generatePost: (image: File) => {
+  generatePost: (images: File | File[]) => {
     const form = new FormData();
-    form.append("image", image);
+    const files = Array.isArray(images) ? images : [images];
+    files.forEach((f) => form.append("images", f));
     return api.post("/api/ai/generate-post", form, {
       headers: { "Content-Type": "multipart/form-data" },
-      timeout: 60000,
+      timeout: 90000,
     });
   },
   createProduct: (
