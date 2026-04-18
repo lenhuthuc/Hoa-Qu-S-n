@@ -1,20 +1,42 @@
 fastapi==0.104.1
 uvicorn[standard]==0.24.0
 python-multipart==0.0.6
-pydantic==2.5.0
-langgraph==0.0.40
-langchain==0.1.0
-langchain-community==0.0.13
-qdrant-client==1.7.1
+pydantic>=2.7.0,<3.0.0          
+pydantic-settings>=2.6.1
+
+# --- LangChain ecosystem: ---
+langgraph>=0.2.0
+langchain>=0.3.0
+langchain-community>=0.3.0
+langchain-core>=0.3.15,<0.4.0
+langsmith>=0.1.0,<0.2.0
+
+# --- Integrations ---
+langchain-google-genai>=2.0.4
+langchain-groq>=0.2.1
+
+# --- Vector DB / Storage ---
+qdrant-client
 minio==7.2.0
+
+# --- Database ---
 psycopg2-binary==2.9.9
 asyncpg==0.29.0
+
+# --- Utilities ---
 pyyaml==6.0.1
 httpx==0.25.2
+packaging>=24.0                 
+
+# --- AI / Search ---
 openai>=1.50.0
 google-generativeai>=0.7.0
-duckduckgo-search>=6.0.0
+ddgs>=6.0.0
+
+# --- Async DB ---
 motor==3.3.2
 redis==5.0.1
+
+# --- Testing ---
 pytest==7.4.3
 pytest-asyncio==0.21.1
