@@ -1,8 +1,8 @@
 "use client";
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowRight, Save, Loader2, Tag, Leaf, QrCode, ImageIcon, Upload, BarChart3, Sparkles } from "lucide-react";
-import { sellerApi, categoryApi, aiApi, facebookApi } from "@/lib/api";
+import { sellerApi, categoryApi, aiApi, facebookApi, batchApi } from "@/lib/api";
 import toast from "react-hot-toast";
 
 interface CategoryOption {
@@ -16,6 +16,12 @@ interface FacebookPage {
   connectedAt: string;
 }
 
+interface BatchOption {
+  batchId: string;
+  batchName: string;
+  cropType?: string;
+}
+
 export default function ManualCreateProductPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
@@ -25,6 +31,8 @@ export default function ManualCreateProductPage() {
   const [facebookPageId, setFacebookPageId] = useState("");
   const [facebookMessage, setFacebookMessage] = useState("");
   const [connectingFacebook, setConnectingFacebook] = useState(false);
+  const [batchOptions, setBatchOptions] = useState<BatchOption[]>([]);
+  const [batchSearch, setBatchSearch] = useState("");
   const [image, setImage] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [unitWeightUnit, setUnitWeightUnit] = useState<"g" | "kg">("g");
@@ -41,7 +49,6 @@ export default function ManualCreateProductPage() {
     categoryId: 0,
     description: "",
     batchId: "",
-    origin: "",
     shelfLifeDays: 30
   });
 
@@ -108,6 +115,21 @@ export default function ManualCreateProductPage() {
 
   useEffect(() => {
     void loadCategories();
+    batchApi.getMyBatches()
+      .then((res) => {
+        const list = res.data?.data || res.data || [];
+        const normalized = Array.isArray(list)
+          ? list
+              .map((b: any): BatchOption => ({
+                batchId: typeof b?.batchId === "string" ? b.batchId : "",
+                batchName: typeof b?.batchName === "string" && b.batchName.trim() ? b.batchName.trim() : "Luống",
+                cropType: typeof b?.cropType === "string" ? b.cropType : undefined,
+              }))
+              .filter((b: BatchOption) => b.batchId)
+          : [];
+        setBatchOptions(normalized);
+      })
+      .catch(() => setBatchOptions([]));
 
     facebookApi.getPages()
       .then((res) => {
@@ -121,6 +143,16 @@ export default function ManualCreateProductPage() {
       })
       .catch(() => {});
   }, [loadCategories]);
+
+  const filteredBatchOptions = useMemo(() => {
+    const q = batchSearch.trim().toLowerCase();
+    if (!q) return batchOptions;
+    return batchOptions.filter((b) =>
+      b.batchName.toLowerCase().includes(q) ||
+      b.batchId.toLowerCase().includes(q) ||
+      (b.cropType ? b.cropType.toLowerCase().includes(q) : false)
+    );
+  }, [batchOptions, batchSearch]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -175,6 +207,14 @@ export default function ManualCreateProductPage() {
       toast.error("Vui lòng nhập đầy đủ thông tin bắt buộc");
       return;
     }
+    if (!formData.batchId) {
+      toast.error("Vui lòng chọn luống (mã lô hàng) cho sản phẩm");
+      return;
+    }
+    if (!batchOptions.some((b) => b.batchId === formData.batchId)) {
+      toast.error("Luống đã chọn không hợp lệ. Vui lòng chọn lại");
+      return;
+    }
     if (formData.unitWeightGrams <= 0 || formData.totalStockWeightKg <= 0 || calculatedQuantity <= 0) {
       toast.error("Thông tin trọng lượng chưa hợp lệ để tạo tồn kho");
       return;
@@ -187,8 +227,7 @@ export default function ManualCreateProductPage() {
         price: parsedPrice,
         categoryId: resolvedCategoryId,
         quantity: calculatedQuantity,
-        batchId: formData.batchId || undefined,
-        origin: formData.origin || undefined
+        batchId: formData.batchId
       };
 
       if (postToFacebook) {
@@ -505,28 +544,40 @@ export default function ManualCreateProductPage() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                 <div className="group">
                   <label className="flex items-center gap-2 text-sm font-medium text-slate-500 mb-1.5 uppercase tracking-wider">
-                    <QrCode className="w-4 h-4" /> Mã lô hàng
+                    <QrCode className="w-4 h-4" /> Luống / Mã lô hàng *
                   </label>
-                  <input
-                    type="text"
-                    value={formData.batchId}
-                    onChange={(e) => setFormData({ ...formData, batchId: e.target.value })}
-                    placeholder="Mã truy xuất (tùy chọn)"
-                    className="w-full bg-white/60 border border-slate-200 rounded-xl px-4 py-3 text-slate-700 focus:ring-2 focus:ring-primary-400 outline-none transition-all shadow-sm"
-                  />
-                </div>
-
-                <div className="group">
-                  <label className="flex items-center gap-2 text-sm font-medium text-slate-500 mb-1.5 uppercase tracking-wider">
-                    <Leaf className="w-4 h-4" /> Xuất xứ
-                  </label>
-                  <input
-                    type="text"
-                    value={formData.origin}
-                    onChange={(e) => setFormData({ ...formData, origin: e.target.value })}
-                    placeholder="Vùng trồng (tùy chọn)"
-                    className="w-full bg-white/60 border border-slate-200 rounded-xl px-4 py-3 text-slate-700 focus:ring-2 focus:ring-primary-400 outline-none transition-all shadow-sm"
-                  />
+                  <div className="space-y-2">
+                    <input
+                      type="text"
+                      value={batchSearch}
+                      onChange={(e) => setBatchSearch(e.target.value)}
+                      placeholder="Tìm luống theo tên/mã..."
+                      className="w-full bg-white/60 border border-slate-200 rounded-xl px-4 py-2.5 text-slate-700 focus:ring-2 focus:ring-primary-400 outline-none transition-all shadow-sm"
+                    />
+                    <div className="max-h-56 overflow-auto rounded-xl border border-slate-200 bg-white/80 shadow-sm">
+                      {filteredBatchOptions.length > 0 ? (
+                        filteredBatchOptions.map((b) => (
+                          <button
+                            key={b.batchId}
+                            type="button"
+                            onClick={() => setFormData({ ...formData, batchId: b.batchId })}
+                            className={`w-full text-left px-4 py-3 border-b border-slate-100 last:border-b-0 transition-colors ${formData.batchId === b.batchId ? "bg-primary-50 text-primary-700" : "hover:bg-slate-50 text-slate-700"}`}
+                          >
+                            <div className="font-medium">{b.batchName}</div>
+                            {b.cropType ? <div className="text-xs text-slate-500 mt-0.5">{b.cropType}</div> : null}
+                          </button>
+                        ))
+                      ) : (
+                        <div className="px-4 py-3 text-sm text-slate-500">Không tìm thấy luống phù hợp</div>
+                      )}
+                    </div>
+                    {formData.batchId ? (
+                      <p className="text-xs text-primary-700">Đã chọn luống: {batchOptions.find((b) => b.batchId === formData.batchId)?.batchName || ""}</p>
+                    ) : null}
+                    {batchOptions.length === 0 && (
+                      <p className="text-xs text-amber-600">Bạn chưa có luống nào. Hãy vào Nhật ký canh tác để tạo luống trước.</p>
+                    )}
+                  </div>
                 </div>
               </div>
 

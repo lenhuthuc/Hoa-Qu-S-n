@@ -190,6 +190,16 @@ export const traceApi = {
   getQrCode: (batchId: string) => api.get(`/api/traceability/${batchId}/qr-base64`),
 };
 
+// ─── Seller Batches ───
+export const batchApi = {
+  getMyBatches: () => api.get("/api/seller/batches"),
+  create: (payload: {
+    batchName: string;
+    cropType?: string;
+    startDate?: string;
+  }) => api.post("/api/seller/batches", payload),
+};
+
 // ─── Shipping ───
 export const shippingApi = {
   provinces: () => api.get("/api/shipping/provinces"),

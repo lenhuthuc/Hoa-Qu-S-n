@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { Upload, Sparkles, Loader2, Check, ArrowRight, ImageIcon, Leaf, Tag, TrendingUp, BarChart3, QrCode } from "lucide-react";
-import { aiApi, searchApi, categoryApi, facebookApi, isLoggedIn } from "@/lib/api";
+import { aiApi, searchApi, categoryApi, facebookApi, isLoggedIn, batchApi } from "@/lib/api";
 import toast from "react-hot-toast";
 
 interface AIResult {
@@ -35,7 +35,6 @@ interface EditableFields {
   totalStockWeightKg: number;
   shelfLifeDays: number;
   batchId: string;
-  origin: string;
 }
 
 interface CategoryOption {
@@ -48,6 +47,12 @@ interface FacebookPage {
   pageId: string;
   pageName: string;
   connectedAt: string;
+}
+
+interface BatchOption {
+  batchId: string;
+  batchName: string;
+  cropType?: string;
 }
 
 export default function CreatePostPage() {
@@ -64,6 +69,8 @@ export default function CreatePostPage() {
   const [facebookPageId, setFacebookPageId] = useState("");
   const [facebookMessage, setFacebookMessage] = useState("");
   const [connectingFacebook, setConnectingFacebook] = useState(false);
+  const [batchOptions, setBatchOptions] = useState<BatchOption[]>([]);
+  const [batchSearch, setBatchSearch] = useState("");
   const [unitWeightUnit, setUnitWeightUnit] = useState<"g" | "kg">("g");
   const [totalStockUnit, setTotalStockUnit] = useState<"g" | "kg">("kg");
   const [unitWeightInput, setUnitWeightInput] = useState("500");
@@ -92,6 +99,21 @@ export default function CreatePostPage() {
   useEffect(() => {
     if (!isLoggedIn()) { router.push("/login"); }
     void loadCategories();
+    batchApi.getMyBatches()
+      .then((res) => {
+        const list = res.data?.data || res.data || [];
+        const normalized = Array.isArray(list)
+          ? list
+              .map((b: any): BatchOption => ({
+                batchId: typeof b?.batchId === "string" ? b.batchId : "",
+                batchName: typeof b?.batchName === "string" && b.batchName.trim() ? b.batchName.trim() : "Luống",
+                cropType: typeof b?.cropType === "string" ? b.cropType : undefined,
+              }))
+              .filter((b: BatchOption) => b.batchId)
+          : [];
+        setBatchOptions(normalized);
+      })
+      .catch(() => setBatchOptions([]));
 
     facebookApi.getPages()
       .then((res) => {
@@ -105,6 +127,16 @@ export default function CreatePostPage() {
       })
       .catch(() => {});
   }, [router, loadCategories]);
+
+  const filteredBatchOptions = useMemo(() => {
+    const q = batchSearch.trim().toLowerCase();
+    if (!q) return batchOptions;
+    return batchOptions.filter((b) =>
+      b.batchName.toLowerCase().includes(q) ||
+      b.batchId.toLowerCase().includes(q) ||
+      (b.cropType ? b.cropType.toLowerCase().includes(q) : false)
+    );
+  }, [batchOptions, batchSearch]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -191,7 +223,6 @@ export default function CreatePostPage() {
           totalStockWeightKg: 100,
           shelfLifeDays: 30,
           batchId: "",
-          origin: "",
         });
         setIsPriceManuallyEdited(false);
         setUnitWeightInput("500");
@@ -234,6 +265,14 @@ export default function CreatePostPage() {
       toast.error("Thông số trọng lượng chưa hợp lệ để tạo tồn kho");
       return;
     }
+    if (!editable.batchId) {
+      toast.error("Vui lòng chọn luống (mã lô hàng) cho sản phẩm");
+      return;
+    }
+    if (!batchOptions.some((b) => b.batchId === editable.batchId)) {
+      toast.error("Luống đã chọn không hợp lệ. Vui lòng chọn lại");
+      return;
+    }
 
     setSubmitting(true);
     try {
@@ -246,8 +285,7 @@ export default function CreatePostPage() {
         shelfLifeDays: editable.shelfLifeDays,
         categoryId: resolvedCategoryId,
         description: editable.description,
-        batchId: editable.batchId || undefined,
-        origin: editable.origin || undefined,
+        batchId: editable.batchId,
       };
 
       let productId = Date.now();
@@ -600,25 +638,40 @@ export default function CreatePostPage() {
                   <div className="grid grid-cols-2 gap-5">
                     <div>
                       <label className="flex items-center gap-2 text-sm font-medium text-slate-500 mb-1.5 uppercase tracking-wider">
-                        <QrCode className="w-4 h-4" /> Mã lô hàng
+                        <QrCode className="w-4 h-4" /> Luống / Mã lô hàng *
                       </label>
-                      <input
-                        value={editable?.batchId ?? ""}
-                        onChange={(e) => setEditable((prev) => prev ? { ...prev, batchId: e.target.value } : prev)}
-                        placeholder="VD: LO-DUAHAU-2026-001"
-                        className="w-full bg-white/60 border border-slate-200 rounded-xl px-4 py-3 text-slate-700 focus:ring-2 focus:ring-primary-400 outline-none transition-all shadow-sm"
-                      />
-                    </div>
-                    <div>
-                      <label className="flex items-center gap-2 text-sm font-medium text-slate-500 mb-1.5 uppercase tracking-wider">
-                        <Leaf className="w-4 h-4" /> Xuất xứ
-                      </label>
-                      <input
-                        value={editable?.origin ?? ""}
-                        onChange={(e) => setEditable((prev) => prev ? { ...prev, origin: e.target.value } : prev)}
-                        placeholder="VD: Bình Dương, Việt Nam"
-                        className="w-full bg-white/60 border border-slate-200 rounded-xl px-4 py-3 text-slate-700 focus:ring-2 focus:ring-primary-400 outline-none transition-all shadow-sm"
-                      />
+                      <div className="space-y-2">
+                        <input
+                          type="text"
+                          value={batchSearch}
+                          onChange={(e) => setBatchSearch(e.target.value)}
+                          placeholder="Tìm luống theo tên..."
+                          className="w-full bg-white/60 border border-slate-200 rounded-xl px-4 py-2.5 text-slate-700 focus:ring-2 focus:ring-primary-400 outline-none transition-all shadow-sm"
+                        />
+                        <div className="max-h-56 overflow-auto rounded-xl border border-slate-200 bg-white/80 shadow-sm">
+                          {filteredBatchOptions.length > 0 ? (
+                            filteredBatchOptions.map((b) => (
+                              <button
+                                key={b.batchId}
+                                type="button"
+                                onClick={() => setEditable((prev) => prev ? { ...prev, batchId: b.batchId } : prev)}
+                                className={`w-full text-left px-4 py-3 border-b border-slate-100 last:border-b-0 transition-colors ${editable?.batchId === b.batchId ? "bg-primary-50 text-primary-700" : "hover:bg-slate-50 text-slate-700"}`}
+                              >
+                                <div className="font-medium">{b.batchName}</div>
+                                {b.cropType ? <div className="text-xs text-slate-500 mt-0.5">{b.cropType}</div> : null}
+                              </button>
+                            ))
+                          ) : (
+                            <div className="px-4 py-3 text-sm text-slate-500">Không tìm thấy luống phù hợp</div>
+                          )}
+                        </div>
+                        {editable?.batchId ? (
+                          <p className="text-xs text-primary-700">Đã chọn luống: {batchOptions.find((b) => b.batchId === editable.batchId)?.batchName || ""}</p>
+                        ) : null}
+                        {batchOptions.length === 0 && (
+                          <p className="text-xs text-amber-600">Bạn chưa có luống nào. Hãy vào Nhật ký canh tác để tạo luống trước.</p>
+                        )}
+                      </div>
                     </div>
                   </div>
 

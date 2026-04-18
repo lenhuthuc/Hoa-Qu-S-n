@@ -1,19 +1,23 @@
 package com.trash.ecommerce.controller;
 
 import com.trash.ecommerce.entity.Story;
+import com.trash.ecommerce.entity.TraceabilityMilestone;
 import com.trash.ecommerce.entity.Users;
 import com.trash.ecommerce.repository.StoryRepository;
+import com.trash.ecommerce.repository.TraceabilityMilestoneRepository;
 import com.trash.ecommerce.repository.SellerApplicationRepository;
 import com.trash.ecommerce.repository.UserRepository;
 import com.trash.ecommerce.service.JwtService;
 import com.trash.ecommerce.service.StorageService;
 import com.trash.ecommerce.service.StoryMediaMetadataService;
+import com.trash.ecommerce.service.TraceabilityBatchService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -47,6 +51,10 @@ public class StoryController {
     private StorageService storageService;
     @Autowired
     private StoryMediaMetadataService metadataService;
+    @Autowired
+    private TraceabilityBatchService traceabilityBatchService;
+    @Autowired
+    private TraceabilityMilestoneRepository traceabilityMilestoneRepository;
 
     @GetMapping("/api/stories")
     public ResponseEntity<?> getPublicStories(
@@ -96,12 +104,14 @@ public class StoryController {
     }
 
     @PostMapping(value = "/api/seller/stories", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+        @Transactional
     public ResponseEntity<?> createStory(
             @RequestHeader("Authorization") String token,
             @RequestPart("title") String title,
             @RequestPart("media") MultipartFile media,
             @RequestPart(value = "content", required = false) String content,
-            @RequestPart(value = "activityType", required = false) String activityType) {
+            @RequestPart(value = "activityType", required = false) String activityType,
+            @RequestPart(value = "batchId", required = false) String batchId) {
         try {
             Long userId = jwtService.extractId(token);
             Users seller = userRepository.findById(userId)
@@ -143,11 +153,18 @@ public class StoryController {
             String uploadedUrl = storageService.uploadReviewMedia(userId, media, mediaType.equals("IMAGE") ? "image" : "video");
             String normalizedMediaUrl = resolveMediaUrlForClient(uploadedUrl);
 
+            String normalizedBatchId = null;
+            if (batchId != null && !batchId.trim().isBlank()) {
+                normalizedBatchId = batchId.trim();
+                traceabilityBatchService.requireOwnedBatch(normalizedBatchId, userId);
+            }
+
             Story story = new Story();
             story.setSeller(seller);
             story.setTitle(title.trim());
             story.setContent(content == null ? "" : content.trim());
             story.setActivityType(activityType == null ? null : activityType.trim());
+            story.setBatchId(normalizedBatchId);
 
             story.setMediaType(mediaType);
             story.setMediaUrl(uploadedUrl);
@@ -162,6 +179,25 @@ public class StoryController {
             story.setExpiresAt(LocalDateTime.now().plusHours(24));
 
             storyRepository.save(story);
+
+            if (normalizedBatchId != null) {
+                TraceabilityMilestone milestone = new TraceabilityMilestone();
+                milestone.setBatchId(normalizedBatchId);
+                milestone.setStoryId(story.getId());
+                milestone.setSellerId(userId);
+                milestone.setTitle(story.getTitle());
+                milestone.setNote(story.getContent());
+                milestone.setActivityType(story.getActivityType());
+                milestone.setMediaUrl(uploadedUrl);
+                milestone.setMediaType(story.getMediaType());
+                milestone.setCapturedAt(story.getCapturedAt());
+                milestone.setGpsLat(story.getLatitude());
+                milestone.setGpsLng(story.getLongitude());
+                milestone.setMetadataMissing(story.getMetadataMissing());
+                milestone.setHasAudio(story.getHasAudio());
+                traceabilityMilestoneRepository.save(milestone);
+            }
+
             Map<String, Object> response = mapStory(story);
             response.put("mediaUrl", normalizedMediaUrl);
             response.put("imageUrl", mediaType.equals("IMAGE") ? normalizedMediaUrl : null);

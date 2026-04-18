@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { BookOpen, Clock3, Loader2, Plus, Trash2, Upload, Video } from "lucide-react";
 import toast from "react-hot-toast";
-import { hasRole, isLoggedIn, storyApi } from "@/lib/api";
+import { batchApi, hasRole, isLoggedIn, storyApi } from "@/lib/api";
 import { formatDateTimeVi, parseBackendDate } from "@/lib/datetime";
 
 interface StoryItem {
@@ -16,6 +16,13 @@ interface StoryItem {
   createdAt: string;
   expiresAt?: string;
   metadataMissing?: boolean;
+}
+
+interface BatchItem {
+  batchId: string;
+  batchName: string;
+  cropType?: string;
+  startDate?: string;
 }
 
 function formatLeftTime(expiresAt?: string): string {
@@ -40,6 +47,12 @@ export default function SellerJournalPage() {
   const [activityType, setActivityType] = useState("OTHER");
   const [mediaFile, setMediaFile] = useState<File | null>(null);
   const [mediaPreview, setMediaPreview] = useState<string | null>(null);
+  const [batches, setBatches] = useState<BatchItem[]>([]);
+  const [selectedBatchId, setSelectedBatchId] = useState("");
+  const [showBatchCreate, setShowBatchCreate] = useState(false);
+  const [creatingBatch, setCreatingBatch] = useState(false);
+  const [newBatchName, setNewBatchName] = useState("");
+  const [newBatchCropType, setNewBatchCropType] = useState("");
 
   useEffect(() => {
     if (!isLoggedIn()) {
@@ -50,8 +63,63 @@ export default function SellerJournalPage() {
       router.replace("/seller/register");
       return;
     }
-    void loadStories();
+    void Promise.all([loadStories(), loadBatches()]);
   }, [router]);
+
+  async function loadBatches() {
+    try {
+      const res = await batchApi.getMyBatches();
+      const list = res.data?.data || res.data || [];
+      const normalized = Array.isArray(list)
+        ? list
+            .map((b: any): BatchItem => ({
+              batchId: typeof b?.batchId === "string" ? b.batchId : "",
+              batchName: typeof b?.batchName === "string" ? b.batchName : "Luống",
+              cropType: typeof b?.cropType === "string" ? b.cropType : undefined,
+              startDate: typeof b?.startDate === "string" ? b.startDate : undefined,
+            }))
+            .filter((b: BatchItem) => b.batchId)
+        : [];
+      setBatches(normalized);
+    } catch {
+      setBatches([]);
+    }
+  }
+
+  async function handleCreateBatchInline() {
+    if (!newBatchName.trim()) {
+      toast.error("Vui lòng nhập tên luống");
+      return;
+    }
+    setCreatingBatch(true);
+    try {
+      const res = await batchApi.create({
+        batchName: newBatchName.trim(),
+        cropType: newBatchCropType.trim() || undefined,
+      });
+      const created = res.data?.data || res.data;
+      if (created?.batchId) {
+        const createdBatch: BatchItem = {
+          batchId: String(created.batchId),
+          batchName: String(created.batchName || "Luống mới"),
+          cropType: created.cropType ? String(created.cropType) : undefined,
+          startDate: created.startDate ? String(created.startDate) : undefined,
+        };
+        setBatches((prev) => [createdBatch, ...prev]);
+        setSelectedBatchId(createdBatch.batchId);
+      } else {
+        await loadBatches();
+      }
+      setNewBatchName("");
+      setNewBatchCropType("");
+      setShowBatchCreate(false);
+      toast.success("Tạo luống thành công");
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || "Không thể tạo luống mới");
+    } finally {
+      setCreatingBatch(false);
+    }
+  }
 
   async function loadStories() {
     setLoading(true);
@@ -152,12 +220,16 @@ export default function SellerJournalPage() {
       formData.append("media", mediaFile);
       formData.append("content", content.trim());
       formData.append("activityType", activityType);
+      if (selectedBatchId) {
+        formData.append("batchId", selectedBatchId);
+      }
 
       await storyApi.create(formData);
       toast.success("Đăng nhật ký thành công");
       setTitle("");
       setContent("");
       setActivityType("OTHER");
+      setSelectedBatchId("");
       setMediaFile(null);
       if (mediaPreview) {
         URL.revokeObjectURL(mediaPreview);
@@ -244,6 +316,65 @@ export default function SellerJournalPage() {
               </select>
             </label>
           </div>
+
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <label className="space-y-1">
+              <span className="text-sm font-semibold text-slate-700">Luống canh tác (tuỳ chọn)</span>
+              <select
+                value={selectedBatchId}
+                onChange={(e) => setSelectedBatchId(e.target.value)}
+                className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-green-500"
+              >
+                <option value="">Không gắn luống (story thường)</option>
+                {batches.map((batch) => (
+                  <option key={batch.batchId} value={batch.batchId}>
+                    {batch.batchName}{batch.cropType ? ` - ${batch.cropType}` : ""}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <div className="space-y-1">
+              <span className="text-sm font-semibold text-slate-700">Tạo luống mới</span>
+              <button
+                type="button"
+                onClick={() => setShowBatchCreate((v) => !v)}
+                className="w-full rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-2.5 text-sm font-semibold text-emerald-700 hover:bg-emerald-100"
+              >
+                {showBatchCreate ? "Đóng tạo luống" : "Tạo luống"}
+              </button>
+            </div>
+          </div>
+
+          {showBatchCreate && (
+            <div className="rounded-xl border border-emerald-200 bg-emerald-50/40 p-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <input
+                  value={newBatchName}
+                  onChange={(e) => setNewBatchName(e.target.value)}
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-green-500"
+                  placeholder="Tên luống (VD: Luống Xà Lách 1)"
+                />
+                <input
+                  value={newBatchCropType}
+                  onChange={(e) => setNewBatchCropType(e.target.value)}
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-green-500"
+                  placeholder="Loại cây (tuỳ chọn)"
+                />
+              </div>
+              <div className="mt-3 flex justify-end">
+                <button
+                  type="button"
+                  disabled={creatingBatch}
+                  onClick={handleCreateBatchInline}
+                  className="inline-flex items-center gap-2 rounded-full bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-70"
+                >
+                  {creatingBatch && <Loader2 className="h-4 w-4 animate-spin" />}
+                  Lưu luống
+                </button>
+              </div>
+            </div>
+          )}
 
           <label className="space-y-1">
             <span className="text-sm font-semibold text-slate-700">Mô tả ngắn</span>

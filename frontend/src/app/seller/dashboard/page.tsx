@@ -16,7 +16,6 @@ import {
   RotateCcw,
   ClipboardList,
   Star,
-  Tag,
   Store,
 } from "lucide-react";
 import { sellerApi, trustScoreApi, isLoggedIn, parseToken, hasRole, userApi } from "@/lib/api";
@@ -100,8 +99,6 @@ export default function SellerDashboard() {
     { href: "/seller/create-post", icon: Sparkles, label: "Tạo bài với AI", color: "text-purple-600 bg-purple-50" },
     { href: "/seller/go-live", icon: Radio, label: "Phát sóng trực tiếp", color: "text-red-600 bg-red-50" },
     { href: "/seller/journal", icon: BookOpen, label: "Nhật ký canh tác", color: "text-green-600 bg-green-50" },
-    { href: "/seller/stories", icon: BookOpen, label: "Câu chuyện nhà nông", color: "text-teal-600 bg-teal-50" },
-    { href: "/seller/vouchers", icon: Tag, label: "Quản lý Voucher", color: "text-orange-600 bg-orange-50" },
     { href: "/search", icon: TrendingUp, label: "Tìm kiếm ngữ nghĩa", color: "text-blue-600 bg-blue-50" },
     { href: "/seller/shop-settings", icon: Store, label: "Chỉnh sửa thông tin shop", color: "text-emerald-700 bg-emerald-50" },
   ];
@@ -251,7 +248,7 @@ export default function SellerDashboard() {
       </div>
 
       {/* Quick Links */}
-      <h2 className="text-lg font-semibold text-gray-800 mb-3 uppercase tracking-wider text-sm opacity-60">Các chức năng khác</h2>
+      <h2 className="text-sm font-semibold text-gray-800 mb-3 uppercase tracking-wider opacity-60">Các chức năng khác</h2>
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
         {quickLinks.map((l) => (
           <Link
