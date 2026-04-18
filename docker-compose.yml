@@ -112,8 +112,15 @@ services:
       MEDIAMTX_API: http://mediamtx:9997
       REDIS_URL: redis://:${REDIS_PASSWORD:-redis123}@redis:6379
     depends_on:
+      spring-service:
+        condition: service_healthy
       redis:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/health >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
     networks:
       - hoaquason_network
 
@@ -152,6 +159,11 @@ services:
         condition: service_healthy
       mongodb:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
     volumes:
       - spring_uploads:/app/uploads
     networks:
@@ -202,7 +214,8 @@ services:
       INTERNAL_API_URL: http://gateway:3000
       NEXT_PUBLIC_WHIP_URL: http://localhost:8889
     depends_on:
-      - gateway
+      gateway:
+        condition: service_healthy
     networks:
       - hoaquason_network
 

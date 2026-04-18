@@ -393,6 +393,25 @@ export const returnApi = {
 // ─── Seller ───
 export const sellerApi = {
   getDashboard: () => api.get("/api/seller/dashboard"),
+  getShopSettings: () => api.get("/api/seller/shop-settings"),
+  uploadShopAvatar: (file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return api.post("/api/seller/shop-settings/avatar", form, {
+      headers: { "Content-Type": "multipart/form-data" },
+    });
+  },
+  updateShopSettings: (data: {
+    shopName: string;
+    avatar?: string;
+    province?: string;
+    district?: string;
+    ward?: string;
+    streetDetail?: string;
+    ghnProvinceId?: number | null;
+    ghnDistrictId?: number | null;
+    ghnWardCode?: string | null;
+  }) => api.put("/api/seller/shop-settings", data),
   getProducts: () => api.get("/api/seller/products"),
   deleteProduct: (id: number) => api.delete(`/api/seller/products/${id}`),
   updateStock: (id: number, quantity: number) =>
@@ -466,10 +485,12 @@ export const coinApi = {
 export const storyApi = {
   getAll: (page = 0, size = 20) => api.get(`/api/stories?page=${page}&size=${size}`),
   getBySeller: (sellerId: number) => api.get(`/api/stories/seller/${sellerId}`),
-  getMyStories: () => api.get("/api/stories/my-stories"),
-  create: (data: { title: string; content: string; imageUrl?: string; videoUrl?: string; batchId?: string; farmingLogId?: string; activityType?: string }) =>
-    api.post("/api/stories", data),
-  delete: (id: number) => api.delete(`/api/stories/${id}`),
+  getMyStories: () => api.get("/api/seller/stories/my"),
+  create: (data: FormData) =>
+    api.post("/api/seller/stories", data, {
+      headers: { "Content-Type": "multipart/form-data" },
+    }),
+  delete: (id: number) => api.delete(`/api/seller/stories/${id}`),
 };
 
 // ─── Admin Analytics ───

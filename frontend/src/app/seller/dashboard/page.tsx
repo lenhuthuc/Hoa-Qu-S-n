@@ -17,6 +17,7 @@ import {
   ClipboardList,
   Star,
   Tag,
+  Store,
 } from "lucide-react";
 import { sellerApi, trustScoreApi, isLoggedIn, parseToken, hasRole, userApi } from "@/lib/api";
 
@@ -102,6 +103,7 @@ export default function SellerDashboard() {
     { href: "/seller/stories", icon: BookOpen, label: "Câu chuyện nhà nông", color: "text-teal-600 bg-teal-50" },
     { href: "/seller/vouchers", icon: Tag, label: "Quản lý Voucher", color: "text-orange-600 bg-orange-50" },
     { href: "/search", icon: TrendingUp, label: "Tìm kiếm ngữ nghĩa", color: "text-blue-600 bg-blue-50" },
+    { href: "/seller/shop-settings", icon: Store, label: "Chỉnh sửa thông tin shop", color: "text-emerald-700 bg-emerald-50" },
   ];
 
   const fmt = (v: number) => new Intl.NumberFormat("vi-VN").format(v);

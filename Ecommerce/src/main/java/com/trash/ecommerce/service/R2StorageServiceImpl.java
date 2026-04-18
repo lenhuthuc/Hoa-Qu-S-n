@@ -11,16 +11,19 @@ import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.core.ResponseBytes;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
+import java.util.Locale;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 
 @Service
 public class R2StorageServiceImpl implements StorageService {
@@ -188,7 +191,7 @@ public class R2StorageServiceImpl implements StorageService {
                     try {
                         byte[] content = Files.readAllBytes(path);
                         String contentType = guessContentType(path.getFileName().toString());
-                        return new DocumentFile(content, contentType, fileName);
+                        return maybeTranscodeVideo(content, contentType, fileName);
                     } catch (IOException ignored) {
                     }
                 }
@@ -214,10 +217,89 @@ public class R2StorageServiceImpl implements StorageService {
             if (idx >= 0 && idx + 1 < objectKey.length()) {
                 fileName = objectKey.substring(idx + 1);
             }
-            return new DocumentFile(response.asByteArray(), contentType, fileName);
+            return maybeTranscodeVideo(response.asByteArray(), contentType, fileName);
         } catch (Exception e) {
             throw new RuntimeException("Không tải được media từ R2: " + e.getMessage());
         }
+    }
+
+    private DocumentFile maybeTranscodeVideo(byte[] content, String contentType, String fileName) {
+        if (!isVideoContent(contentType, fileName)) {
+            return new DocumentFile(content, contentType, fileName);
+        }
+
+        Path inputFile = null;
+        Path outputFile = null;
+        try {
+            inputFile = Files.createTempFile("story-video-input-", getExtension(fileName).isBlank() ? ".mp4" : getExtension(fileName));
+            outputFile = Files.createTempFile("story-video-output-", ".mp4");
+            Files.write(inputFile, content);
+
+            Process process = new ProcessBuilder(
+                    "ffmpeg",
+                    "-y",
+                    "-i", inputFile.toAbsolutePath().toString(),
+                    "-map", "0:v:0",
+                    "-map", "0:a?",
+                    "-c:v", "libx264",
+                    "-preset", "veryfast",
+                    "-crf", "23",
+                    "-pix_fmt", "yuv420p",
+                    "-movflags", "+faststart",
+                    "-c:a", "aac",
+                    "-b:a", "128k",
+                    "-ar", "44100",
+                    "-ac", "2",
+                    outputFile.toAbsolutePath().toString()
+            ).redirectErrorStream(true).start();
+
+            String output;
+            try (InputStream stream = process.getInputStream()) {
+                output = new String(stream.readAllBytes());
+            }
+
+            boolean finished = process.waitFor(60, TimeUnit.SECONDS);
+            if (!finished || process.exitValue() != 0 || !Files.exists(outputFile) || Files.size(outputFile) == 0) {
+                throw new RuntimeException("ffmpeg chuyển đổi video thất bại: " + output.trim());
+            }
+
+            byte[] converted = Files.readAllBytes(outputFile);
+            return new DocumentFile(converted, "video/mp4", ensureMp4FileName(fileName));
+        } catch (Exception e) {
+            return new DocumentFile(content, contentType != null && !contentType.isBlank() ? contentType : guessContentType(fileName), fileName);
+        } finally {
+            if (inputFile != null) {
+                try {
+                    Files.deleteIfExists(inputFile);
+                } catch (IOException ignored) {
+                }
+            }
+            if (outputFile != null) {
+                try {
+                    Files.deleteIfExists(outputFile);
+                } catch (IOException ignored) {
+                }
+            }
+        }
+    }
+
+    private boolean isVideoContent(String contentType, String fileName) {
+        String loweredType = contentType == null ? "" : contentType.toLowerCase(Locale.ROOT);
+        if (loweredType.startsWith("video/")) {
+            return true;
+        }
+
+        String loweredName = fileName == null ? "" : fileName.toLowerCase(Locale.ROOT);
+        return loweredName.endsWith(".mp4") || loweredName.endsWith(".webm") || loweredName.endsWith(".mov") || loweredName.endsWith(".m4v");
+    }
+
+    private String ensureMp4FileName(String fileName) {
+        if (fileName == null || fileName.isBlank()) {
+            return "video.mp4";
+        }
+        int dotIndex = fileName.lastIndexOf('.');
+        String baseName = dotIndex >= 0 ? fileName.substring(0, dotIndex) : fileName;
+        return baseName + ".mp4";
     }
 
     private void validate(MultipartFile file) {
@@ -258,7 +340,8 @@ public class R2StorageServiceImpl implements StorageService {
 
     private String extractObjectKey(String documentUrl) {
         try {
-            URI uri = URI.create(documentUrl);
+            String sanitizedUrl = documentUrl.trim().replace(" ", "%20");
+            URI uri = URI.create(sanitizedUrl);
             String path = uri.getPath() == null ? "" : uri.getPath();
             if (path.startsWith("/")) {
                 path = path.substring(1);

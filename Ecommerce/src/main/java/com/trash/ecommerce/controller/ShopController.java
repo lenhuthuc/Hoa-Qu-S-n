@@ -12,6 +12,8 @@ import com.trash.ecommerce.repository.UserRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 
 import java.util.HashMap;
 import java.util.List;
@@ -46,7 +48,7 @@ public class ShopController {
             Map<String, Object> profile = new HashMap<>();
             profile.put("sellerId", seller.getId());
             profile.put("sellerName", seller.getFullName());
-            profile.put("avatar", seller.getAvatar());
+            profile.put("avatar", resolveMediaUrlForClient(seller.getAvatar()));
             profile.put("phone", seller.getPhone());
 
             // Get shop name from SellerApplication
@@ -58,8 +60,8 @@ public class ShopController {
             }
 
             if (seller.getAddress() != null) {
-                profile.put("province", seller.getAddress().getProvince());
-                profile.put("district", seller.getAddress().getDistrict());
+                profile.put("province", seller.getAddress().getProvinceName());
+                profile.put("district", seller.getAddress().getDistrictName());
             }
 
             // Trust score
@@ -94,5 +96,29 @@ public class ShopController {
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(Map.of("message", e.getMessage()));
         }
+    }
+
+    private String resolveMediaUrlForClient(String rawUrl) {
+        if (rawUrl == null || rawUrl.isBlank()) {
+            return null;
+        }
+
+        String value = rawUrl.trim();
+        if (value.startsWith("/api/reviews/media")) {
+            return value;
+        }
+        if (value.contains(".r2.cloudflarestorage.com/")) {
+            return "/api/reviews/media?url=" + URLEncoder.encode(value, StandardCharsets.UTF_8);
+        }
+        if (value.startsWith("http://") || value.startsWith("https://")) {
+            return value;
+        }
+        if (value.startsWith("local:")) {
+            return "/api/reviews/media?url=" + URLEncoder.encode(value, StandardCharsets.UTF_8);
+        }
+        if (value.startsWith("review-media/") || value.startsWith("reviews/")) {
+            return "/api/reviews/media?url=" + URLEncoder.encode("local:" + value, StandardCharsets.UTF_8);
+        }
+        return value;
     }
 }

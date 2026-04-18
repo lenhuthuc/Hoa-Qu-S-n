@@ -6,6 +6,7 @@ import { MessageCircle, Send, ArrowLeft, Loader2, Check, CheckCheck, Trash2 } fr
 import { io, Socket } from "socket.io-client";
 import { messageApi, isLoggedIn, parseToken } from "@/lib/api";
 import toast from "react-hot-toast";
+import { formatDateTimeVi, formatShortDateVi } from "@/lib/datetime";
 
 // Module-level singleton — đảm bảo chỉ có 1 socket connection dù component remount bao nhiêu lần
 let _dmSocket: Socket | null = null;
@@ -280,12 +281,13 @@ function MessagesInner() {
 
   function formatTime(dateStr: string) {
     if (!dateStr) return "";
-    const d = new Date(dateStr);
-    const now = new Date();
-    if (d.toDateString() === now.toDateString()) {
-      return d.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" });
+    const today = formatShortDateVi(new Date().toISOString());
+    const messageDate = formatShortDateVi(dateStr);
+    if (messageDate === today) {
+      const full = formatDateTimeVi(dateStr);
+      return full ? full.slice(0, 5) : "";
     }
-    return d.toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit" });
+    return messageDate;
   }
 
   function getInitials(name?: string) {
@@ -307,6 +309,12 @@ function MessagesInner() {
     return palettes[seed % palettes.length];
   }
 
+  function goToShopProfile(sellerId: number, e: React.MouseEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    router.push(`/shop/${sellerId}`);
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -316,16 +324,16 @@ function MessagesInner() {
   }
 
   return (
-    <div className="min-h-screen bg-[#f4f7f1] text-slate-800">
+    <div className="h-screen overflow-hidden bg-[#f4f7f1] text-slate-800">
       <div className="mx-auto max-w-[1400px] px-4 py-4 lg:px-6">
         <div className="mb-4 flex items-center gap-2 text-3xl font-extrabold tracking-tight text-slate-900">
           <MessageCircle className="h-8 w-8 text-[#1b4332]" />
           <h1>Tin nhắn</h1>
         </div>
 
-        <div className="grid min-h-[calc(100vh-120px)] overflow-hidden rounded-[28px] border border-white/60 bg-white/80 shadow-[0_20px_80px_rgba(15,23,42,0.08)] backdrop-blur-sm lg:grid-cols-[360px_1fr]">
+        <div className="grid h-[calc(100vh-120px)] min-h-0 overflow-hidden rounded-[28px] border border-white/60 bg-white/80 shadow-[0_20px_80px_rgba(15,23,42,0.08)] backdrop-blur-sm lg:grid-cols-[360px_1fr]">
           {/* ── Conversation list (left panel) ── */}
-          <aside className={`flex min-h-[360px] flex-col border-r border-slate-200/80 bg-[#fbfcf8] ${activeConv ? "hidden lg:flex" : "flex"}`}>
+          <aside className={`flex min-h-0 flex-col border-r border-slate-200/80 bg-[#fbfcf8] ${activeConv ? "hidden lg:flex" : "flex"}`}>
             <div className="border-b border-slate-200 px-5 py-5">
               <p className="text-2xl font-extrabold tracking-tight text-slate-900">Tin nhắn</p>
               <p className="mt-1 text-sm text-slate-500">Hội thoại ({conversations.length})</p>
@@ -338,19 +346,27 @@ function MessagesInner() {
                 </div>
               </div>
             ) : (
-              <div className="flex-1 overflow-y-auto p-3">
+              <div className="flex-1 min-h-0 overflow-y-auto p-3">
                 {conversations.map((conv) => (
                   <button
                     key={conv.id}
                     onClick={() => openConversation(conv)}
                     className={`mb-2 flex w-full items-center gap-3 rounded-[22px] px-4 py-3 text-left transition-all duration-200 ${activeConv?.id === conv.id ? "bg-[#1b4332] text-white shadow-lg shadow-emerald-900/15" : "bg-transparent hover:bg-emerald-50"}`}
                   >
-                    <div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-gradient-to-br ${getAvatarStyle(conv.otherUserName)} text-sm font-bold text-white shadow-md ring-2 ring-white/70`}>
+                    <div
+                      onClick={(e) => goToShopProfile(conv.otherUserId, e)}
+                      title="Xem trang nông hộ"
+                      className={`flex h-12 w-12 shrink-0 cursor-pointer items-center justify-center rounded-full bg-gradient-to-br ${getAvatarStyle(conv.otherUserName)} text-sm font-bold text-white shadow-md ring-2 ring-white/70`}
+                    >
                       {getInitials(conv.otherUserName)}
                     </div>
                     <div className="min-w-0 flex-1">
                       <div className="flex items-start justify-between gap-3">
-                        <span className={`truncate text-[15px] font-bold ${activeConv?.id === conv.id ? "text-white" : "text-slate-900"}`}>
+                        <span
+                          onClick={(e) => goToShopProfile(conv.otherUserId, e)}
+                          title="Xem trang nông hộ"
+                          className={`truncate text-[15px] font-bold hover:underline ${activeConv?.id === conv.id ? "text-white" : "text-slate-900"}`}
+                        >
                           {conv.otherUserName}
                         </span>
                         <span className={`shrink-0 text-[11px] ${activeConv?.id === conv.id ? "text-emerald-100" : "text-slate-400"}`}>
@@ -375,7 +391,7 @@ function MessagesInner() {
           </aside>
 
           {/* ── Chat area (right panel) ── */}
-          <section className={`flex min-w-0 flex-1 flex-col ${activeConv ? "flex" : "hidden lg:flex"}`}>
+          <section className={`flex min-h-0 min-w-0 flex-1 flex-col ${activeConv ? "flex" : "hidden lg:flex"}`}>
             {activeConv ? (
               <>
                 {/* Header */}
@@ -384,11 +400,21 @@ function MessagesInner() {
                     <button onClick={() => { setActiveConv(null); setMessages([]); }} className="shrink-0 rounded-full p-2 text-slate-500 transition hover:bg-slate-100 lg:hidden">
                       <ArrowLeft className="h-5 w-5" />
                     </button>
-                    <div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-gradient-to-br ${getAvatarStyle(activeConv.otherUserName)} text-sm font-bold text-white shadow-md`}>
+                    <div
+                      onClick={(e) => goToShopProfile(activeConv.otherUserId, e)}
+                      title="Xem trang nông hộ"
+                      className={`flex h-12 w-12 shrink-0 cursor-pointer items-center justify-center rounded-full bg-gradient-to-br ${getAvatarStyle(activeConv.otherUserName)} text-sm font-bold text-white shadow-md`}
+                    >
                       {getInitials(activeConv.otherUserName)}
                     </div>
                     <div className="min-w-0">
-                      <p className="truncate text-lg font-bold text-slate-900">{activeConv.otherUserName}</p>
+                      <p
+                        onClick={(e) => goToShopProfile(activeConv.otherUserId, e)}
+                        title="Xem trang nông hộ"
+                        className="truncate text-lg font-bold text-slate-900 hover:underline"
+                      >
+                        {activeConv.otherUserName}
+                      </p>
                     </div>
                   </div>
                   <button
@@ -402,7 +428,7 @@ function MessagesInner() {
                 </div>
 
                 {/* Messages */}
-                <div className="flex-1 overflow-y-auto bg-[#f8faf6] px-4 py-5 lg:px-6">
+                <div className="flex-1 min-h-0 overflow-y-auto bg-[#f8faf6] px-4 py-5 lg:px-6">
                   {msgLoading ? (
                     <div className="flex h-full items-center justify-center">
                       <Loader2 className="h-6 w-6 animate-spin text-[#1b4332]" />
