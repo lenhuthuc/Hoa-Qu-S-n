@@ -1,0 +1,52 @@
+# Seed data for pricing knowledge base
+# Format: product_name -> grades -> base_price_per_kg
+
+xoài cát Hòa Lộc:
+  loại 1: 55000
+  loại 2: 45000
+  loại 3: 35000
+
+xoài cát Chu:
+  loại 1: 50000
+  loại 2: 40000
+  loại 3: 30000
+
+xoài keo:
+  loại 1: 48000
+  loại 2: 38000
+  loại 3: 28000
+
+xoài tượng:
+  loại 1: 45000
+  loại 2: 35000
+  loại 3: 25000
+
+sầu riêng Ri6:
+  loại 1: 120000
+  loại 2: 100000
+  loại 3: 80000
+
+sầu riêng Monthong:
+  loại 1: 150000
+  loại 2: 130000
+  loại 3: 110000
+
+mít tố nữ:
+  loại 1: 25000
+  loại 2: 20000
+  loại 3: 15000
+
+bơ booth:
+  loại 1: 80000
+  loại 2: 65000
+  loại 3: 50000
+
+cam sành:
+  loại 1: 35000
+  loại 2: 28000
+  loại 3: 20000
+
+ổi hồng:
+  loại 1: 30000
+  loại 2: 25000
+  loại 3: 18000
