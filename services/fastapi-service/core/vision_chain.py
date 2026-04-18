@@ -11,59 +11,14 @@ import httpx
 
 from models import VisionResult
 
-VISION_PROMPT = """Bạn là chuyên gia định danh giống nông sản Việt Nam với 20 năm kinh nghiệm.
-Nhiệm vụ: xác định ĐÚNG GIỐNG/LOẠI cụ thể, không chỉ tên chung chung.
-
-━━━ DANH SÁCH GIỐNG THAM KHẢO ━━━
-
-XOÀI: quan sát màu vỏ, hình dáng, kích thước:
-• Xoài cát Hòa Lộc → vỏ vàng xanh mướt, thon dài, đầu nhọn, thịt vàng đậm, ít xơ
-• Xoài cát Chu → vỏ vàng cam khi chín, hình oval tròn hơn Hòa Lộc
-• Xoài Đài Loan (xoài xanh) → vỏ xanh ngả vàng, to tròn, thịt giòn
-• Xoài Úc (xoài R2E2/Kent/Kensington) → to bầu, vỏ đỏ-xanh-vàng loang, thịt cam
-• Xoài tượng → rất to, dài, vỏ xanh, thịt trắng vàng nhạt, nhiều xơ
-• Xoài thanh ca → nhỏ thon, vỏ xanh vàng, thơm đặc trưng
-• Xoài keo → nhỏ, vỏ vàng xanh, nhiều xơ, vị ngọt chua
-
-SẦU RIÊNG:
-• Sầu riêng Ri6 → gai ngắn dày, thịt vàng đậm, múi mập
-• Sầu riêng Monthong (Thái) → gai thưa nhọn, to hơn, thịt vàng nhạt, vị nhẹ
-• Sầu riêng Musang King → vỏ mỏng hơn, thịt vàng kem, gai nhỏ
-• Sầu riêng cơm vàng hạt lép → hạt nhỏ lép, múi dày
-
-CHÔM CHÔM:
-• Chôm chôm nhãn (Java) → lông mềm xanh-đỏ, tròn đều
-• Chôm chôm Thái → lông dài đỏ-vàng, ngọt hơn
-• Chôm chôm rongrien → lông đỏ đậm, vỏ dày
-
-NHÃN:
-• Nhãn lồng Hưng Yên → vỏ vàng nâu mỏng, cùi dày trắng đục
-• Nhãn Ido → to hơn, vỏ nâu vàng sáng, cùi giòn
-
-VẢI:
-• Vải thiều Thanh Hà/Lục Ngạn → vỏ đỏ tươi, gai nhỏ đều
-• Vải trứng → to hơn, vỏ đỏ sẫm
-
-BƯỞI:
-• Bưởi da xanh Bến Tre → vỏ xanh đặc trưng, múi hồng
-• Bưởi Năm Roi → vỏ vàng xanh, múi vàng nhạt
-• Bưởi đường lá cam → vỏ xanh nhỏ hơn, múi ngọt
-
-CHUỐI:
-• Chuối già Nam Mỹ (Cavendish) → vỏ vàng đều, thẳng
-• Chuối cau → nhỏ, vỏ vàng xanh, ngọt đậm
-• Chuối sứ → ngắn tròn, vỏ vàng cam
-• Chuối xiêm → to, vỏ dày, ăn chín ngả đen
-
-DƯA HẤU:
-• Dưa hấu không hạt → vỏ sọc xanh đậm nhạt, tròn/bầu dục
-• Dưa hấu hắc mỹ nhân → vỏ xanh đen bóng
+VISION_PROMPT = """Bạn là chuyên gia phân tích nông sản Việt Nam với 20 năm kinh nghiệm.
+Nhiệm vụ: nhận diện BẤT KỲ loại nông sản nào trong ảnh — trái cây, rau củ, hạt, nấm, thảo mộc, v.v.
 
 ━━━ HƯỚNG DẪN PHÂN TÍCH ━━━
-1. Quan sát: màu vỏ, hình dáng, kích thước tương đối, kết cấu vỏ (bóng/mờ/gai), màu thịt nếu thấy, nhãn dán
-2. So sánh với danh sách trên để chọn giống khớp nhất
-3. Nếu không chắc giữa 2 giống: chọn cái phổ biến hơn và ghi confidence thấp (0.5-0.65)
-4. Nếu không phải nông sản: trả về {"error": "Ảnh không phải sản phẩm nông sản"}
+1. Quan sát kỹ: màu sắc, hình dáng, kích thước, kết cấu vỏ/lá, màu thịt (nếu thấy), nhãn/sticker
+2. Xác định tên cụ thể nhất có thể (ví dụ: "Cà chua bi đỏ", "Xoài cát Hòa Lộc", "Nấm hương khô")
+3. Nếu không chắc chắn về giống cụ thể, ghi tên phổ thông và confidence thấp (0.4-0.6)
+4. Chỉ trả về {"error": "Ảnh không phải sản phẩm nông sản"} khi ảnh rõ ràng KHÔNG phải nông sản (đồ vật, người, xe cộ, phong cảnh...)
 
 ━━━ OUTPUT JSON ━━━
 Trả về JSON hợp lệ DUY NHẤT (KHÔNG markdown, KHÔNG giải thích):

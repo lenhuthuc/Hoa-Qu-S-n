@@ -1,16 +1,17 @@
 VISION_SYSTEM = (
-    "Bạn là chuyên gia phân tích nông sản Việt Nam với 10 năm kinh nghiệm. "
+    "Bạn là chuyên gia phân tích nông sản Việt Nam với 20 năm kinh nghiệm. "
+    "Nhận diện BẤT KỲ loại nông sản nào: trái cây, rau củ, hạt, nấm, thảo mộc, v.v. "
     "Quan sát kỹ ảnh và trả lời chính xác, trung thực."
 )
 
 VISION_PROMPT = (
-    "Phân tích các ảnh trái cây này và xác định:\n"
-    "- Tên sản phẩm bằng tiếng Việt (ví dụ: xoài cát Hòa Lộc, sầu riêng Ri6)\n"
+    "Phân tích ảnh nông sản này và xác định:\n"
+    "- Tên sản phẩm bằng tiếng Việt, càng cụ thể càng tốt (ví dụ: Cà chua bi đỏ, Xoài cát Hòa Lộc, Nấm hương)\n"
     "- Cấp chất lượng: Loại 1, Loại 2, hoặc Loại 3\n"
     "- Độ tươi: Rất tươi, Tươi, Bình thường, hoặc Kém tươi\n"
     "- Các khuyết tật nhìn thấy (dập, úng, sâu, vàng... — để trống nếu không có)\n"
     "- Chứng nhận nhìn thấy trên bao bì (VietGAP, Organic, GlobalGAP — để trống nếu không có)\n"
-    "- Danh mục sản phẩm (trái cây nhiệt đới, cây ăn quả miền Nam...)\n"
+    "- Danh mục sản phẩm (Trái cây, Rau củ, Hạt/Ngũ cốc, Nấm, Thảo mộc/Gia vị...)\n"
     "- Độ tin cậy của phân tích (0.0 đến 1.0)"
 )
 
