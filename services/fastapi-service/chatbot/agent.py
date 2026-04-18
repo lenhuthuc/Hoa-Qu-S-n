@@ -55,19 +55,17 @@ FAQ_KNOWLEDGE = """
 - Vi phạm sẽ bị khóa tài khoản
 """
 
-SYSTEM_PROMPT = f"""Bạn là trợ lý AI của nền tảng Hoa Quả Sơn — sàn thương mại điện tử nông sản Việt Nam.
-Bạn chỉ trả lời các câu hỏi liên quan đến:
-- Cách sử dụng nền tảng Hoa Quả Sơn
-- Đăng bán sản phẩm, quản lý đơn hàng
-- Livestream, thanh toán, vận chuyển
-- Truy xuất nguồn gốc nông sản
+SYSTEM_PROMPT = f"""Bạn là trợ lý chuyên gia nông nghiệp của nền tảng Hoa Quả Sơn.
+Bạn được phép hỗ trợ khách hàng 2 nhóm chủ đề sau:
+1. Kiến thức nông nghiệp: Kỹ thuật trồng trọt, chăm sóc cây trồng, mùa vụ, bảo quản nông sản.
+2. Nền tảng Hoa Quả Sơn: Đăng bán, đơn hàng, livestream, thanh toán, truy xuất nguồn gốc.
 
-Nếu câu hỏi KHÔNG liên quan đến nền tảng, trả lời: "Xin lỗi, tôi chỉ hỗ trợ các câu hỏi liên quan đến nền tảng Hoa Quả Sơn."
+Nếu câu hỏi KHÔNG thuộc 2 nhóm trên (ví dụ: thể thao, giải trí, toán học...), hãy từ chối lịch sự: "Xin lỗi, tôi chỉ hỗ trợ các câu hỏi về nông nghiệp và nền tảng Hoa Quả Sơn."
 
-Kiến thức nền tảng:
+Kiến thức về nền tảng (dùng để trả lời nhóm 2):
 {FAQ_KNOWLEDGE}
 
-Trả lời ngắn gọn, thân thiện, bằng tiếng Việt."""
+Trả lời ngắn gọn, thân thiện, tự nhiên như một chuyên gia bằng tiếng Việt."""
 
 
 class ChatState(TypedDict):
@@ -96,14 +94,28 @@ def create_chatbot_graph():
         last_message = state["messages"][-1]
         
         check_prompt = ChatPromptTemplate.from_messages([
-            ("system", "Bạn là bộ lọc. Trả lời 'YES' nếu câu hỏi liên quan đến nông sản hoặc nền tảng thương mại điện tử Hoa Quả Sơn. Ngược lại trả lời 'NO'."),
+            ("system", """Bạn là bộ lọc kiểm duyệt tự động của nền tảng thương mại điện tử nông sản Hoa Quả Sơn.
+            Nhiệm vụ của bạn là phân loại tin nhắn của người dùng. 
+            Bạn CHỈ ĐƯỢC PHÉP trả lời bằng DUY NHẤT một từ "YES" hoặc "NO". Tuyệt đối không giải thích thêm.
+            
+            Quy tắc phân loại:
+            
+            1. Trả lời "YES" (Hợp lệ) nếu câu hỏi thuộc một trong hai nhóm sau:
+            - Nông nghiệp: Nông sản, trái cây, kỹ thuật trồng trọt, phân bón, sâu bệnh, chăm sóc cây.
+            - Tính năng của Hoa Quả Sơn: Đăng bán sản phẩm, mua hàng, quản lý đơn hàng, livestream bán hàng, thanh toán, vận chuyển, truy xuất nguồn gốc, nhật ký canh tác.
+            
+            2. Trả lời "NO" (Không hợp lệ) nếu câu hỏi:
+            - Thuộc các chủ đề không liên quan (ví dụ: thể thao, giải trí, chính trị, toán học, bóng đá...).
+            - Yêu cầu viết code, làm toán hoặc các tác vụ không thuộc ngữ cảnh mua bán/nông nghiệp."""),
             ("human", "{question}"),
         ])
         
+        # Gọi model Llama 8B để phân loại
         result = classifier_llm.invoke(check_prompt.format_messages(question=last_message.content))
+        
+        # Xử lý kết quả an toàn
         is_on_topic = "YES" in result.content.upper()
         
-  
         return {"is_on_topic": is_on_topic}
 
     def generate_response(state: ChatState):
