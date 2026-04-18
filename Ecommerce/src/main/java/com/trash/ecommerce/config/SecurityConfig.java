@@ -35,6 +35,7 @@ public class SecurityConfig {
                 .cors(cors -> cors.configurationSource(configurationSource()))
                 .csrf(customize -> customize.disable())
                 .authorizeHttpRequests(auth -> auth
+                    .requestMatchers("/health").permitAll()
                         .requestMatchers("/error").permitAll()
                         .requestMatchers("/api/user/auth/login", "/api/user/auth/register", "/api/user/auth/logout").permitAll()
                         .requestMatchers("/api/user/auth/reset-password", "/api/user/auth/verify-otp", "/api/user/auth/change-password").permitAll()

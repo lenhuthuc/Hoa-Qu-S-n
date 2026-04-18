@@ -316,16 +316,16 @@ function MessagesInner() {
   }
 
   return (
-    <div className="min-h-screen bg-[#f4f7f1] text-slate-800">
+    <div className="h-screen overflow-hidden bg-[#f4f7f1] text-slate-800">
       <div className="mx-auto max-w-[1400px] px-4 py-4 lg:px-6">
         <div className="mb-4 flex items-center gap-2 text-3xl font-extrabold tracking-tight text-slate-900">
           <MessageCircle className="h-8 w-8 text-[#1b4332]" />
           <h1>Tin nhắn</h1>
         </div>
 
-        <div className="grid min-h-[calc(100vh-120px)] overflow-hidden rounded-[28px] border border-white/60 bg-white/80 shadow-[0_20px_80px_rgba(15,23,42,0.08)] backdrop-blur-sm lg:grid-cols-[360px_1fr]">
+        <div className="grid h-[calc(100vh-120px)] min-h-0 overflow-hidden rounded-[28px] border border-white/60 bg-white/80 shadow-[0_20px_80px_rgba(15,23,42,0.08)] backdrop-blur-sm lg:grid-cols-[360px_1fr]">
           {/* ── Conversation list (left panel) ── */}
-          <aside className={`flex min-h-[360px] flex-col border-r border-slate-200/80 bg-[#fbfcf8] ${activeConv ? "hidden lg:flex" : "flex"}`}>
+          <aside className={`flex min-h-0 flex-col border-r border-slate-200/80 bg-[#fbfcf8] ${activeConv ? "hidden lg:flex" : "flex"}`}>
             <div className="border-b border-slate-200 px-5 py-5">
               <p className="text-2xl font-extrabold tracking-tight text-slate-900">Tin nhắn</p>
               <p className="mt-1 text-sm text-slate-500">Hội thoại ({conversations.length})</p>
@@ -338,7 +338,7 @@ function MessagesInner() {
                 </div>
               </div>
             ) : (
-              <div className="flex-1 overflow-y-auto p-3">
+              <div className="flex-1 min-h-0 overflow-y-auto p-3">
                 {conversations.map((conv) => (
                   <button
                     key={conv.id}
@@ -375,7 +375,7 @@ function MessagesInner() {
           </aside>
 
           {/* ── Chat area (right panel) ── */}
-          <section className={`flex min-w-0 flex-1 flex-col ${activeConv ? "flex" : "hidden lg:flex"}`}>
+          <section className={`flex min-h-0 min-w-0 flex-1 flex-col ${activeConv ? "flex" : "hidden lg:flex"}`}>
             {activeConv ? (
               <>
                 {/* Header */}
@@ -402,7 +402,7 @@ function MessagesInner() {
                 </div>
 
                 {/* Messages */}
-                <div className="flex-1 overflow-y-auto bg-[#f8faf6] px-4 py-5 lg:px-6">
+                <div className="flex-1 min-h-0 overflow-y-auto bg-[#f8faf6] px-4 py-5 lg:px-6">
                   {msgLoading ? (
                     <div className="flex h-full items-center justify-center">
                       <Loader2 className="h-6 w-6 animate-spin text-[#1b4332]" />

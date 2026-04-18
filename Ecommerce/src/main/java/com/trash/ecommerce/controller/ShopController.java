@@ -58,8 +58,8 @@ public class ShopController {
             }
 
             if (seller.getAddress() != null) {
-                profile.put("province", seller.getAddress().getProvince());
-                profile.put("district", seller.getAddress().getDistrict());
+                profile.put("province", seller.getAddress().getProvinceName());
+                profile.put("district", seller.getAddress().getDistrictName());
             }
 
             // Trust score
