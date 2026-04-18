@@ -351,7 +351,11 @@ public class SellerController {
             SellerShopSettingsResponseDTO dto = new SellerShopSettingsResponseDTO();
             dto.setSellerId(seller.getId());
             dto.setShopName(sellerApp != null && sellerApp.getShopName() != null ? sellerApp.getShopName() : seller.getFullName());
-            dto.setAvatar(resolveMediaUrlForClient(seller.getAvatar()));
+                dto.setAvatar(resolveMediaUrlForClient(
+                    sellerApp != null && sellerApp.getShopAvatar() != null
+                        ? sellerApp.getShopAvatar()
+                        : seller.getAvatar()
+                ));
             dto.setProvince(address != null ? address.getProvinceName() : null);
             dto.setDistrict(address != null ? address.getDistrictName() : null);
             dto.setWard(address != null ? address.getWardName() : null);
@@ -374,7 +378,13 @@ public class SellerController {
             @RequestPart("file") MultipartFile file) {
         try {
             Long userId = jwtService.extractId(token);
+            SellerApplication sellerApp = sellerApplicationRepository.findByUserId(userId)
+                .orElseThrow(() -> new RuntimeException("Không tìm thấy hồ sơ cửa hàng"));
+
             String avatarUrl = storageService.uploadReviewMedia(userId, file, "image");
+            sellerApp.setShopAvatar(avatarUrl);
+            sellerApplicationRepository.save(sellerApp);
+
             return ResponseEntity.ok(Map.of("avatarUrl", resolveMediaUrlForClient(avatarUrl)));
         } catch (Exception e) {
             logger.error("Error uploading seller avatar", e);
@@ -408,7 +418,7 @@ public class SellerController {
             sellerApp.setShopName(normalizedShopName);
 
             if (request.getAvatar() != null) {
-                seller.setAvatar(request.getAvatar().trim().isEmpty() ? null : request.getAvatar().trim());
+                sellerApp.setShopAvatar(request.getAvatar().trim().isEmpty() ? null : request.getAvatar().trim());
             }
 
             boolean hasAddressPayload =
@@ -463,7 +473,9 @@ public class SellerController {
             SellerShopSettingsResponseDTO dto = new SellerShopSettingsResponseDTO();
             dto.setSellerId(seller.getId());
             dto.setShopName(sellerApp.getShopName());
-            dto.setAvatar(resolveMediaUrlForClient(seller.getAvatar()));
+                dto.setAvatar(resolveMediaUrlForClient(
+                    sellerApp.getShopAvatar() != null ? sellerApp.getShopAvatar() : seller.getAvatar()
+                ));
             dto.setProvince(seller.getAddress() != null ? seller.getAddress().getProvinceName() : null);
             dto.setDistrict(seller.getAddress() != null ? seller.getAddress().getDistrictName() : null);
             dto.setWard(seller.getAddress() != null ? seller.getAddress().getWardName() : null);

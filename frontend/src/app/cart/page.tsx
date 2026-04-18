@@ -24,6 +24,8 @@ interface BuyNowItem {
   imageUrl?: string;
 }
 
+const BUY_NOW_STORAGE_KEY = "hqs_buy_now_item";
+
 function CartPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -52,9 +54,10 @@ function CartPageInner() {
   useEffect(() => {
     if (isBuyNowMode) {
       try {
-        const raw = localStorage.getItem("hqs_buy_now_item");
+        const raw = localStorage.getItem(BUY_NOW_STORAGE_KEY);
         const parsed = raw ? JSON.parse(raw) : null;
         if (!parsed?.productId || !parsed?.quantity) {
+          localStorage.removeItem(BUY_NOW_STORAGE_KEY);
           toast.error("Không tìm thấy sản phẩm mua ngay");
           router.push("/search");
           return;
@@ -80,6 +83,7 @@ function CartPageInner() {
           },
         ]);
       } catch {
+        localStorage.removeItem(BUY_NOW_STORAGE_KEY);
         toast.error("Dữ liệu mua ngay không hợp lệ");
         router.push("/search");
       } finally {
@@ -87,6 +91,9 @@ function CartPageInner() {
       }
       return;
     }
+
+    // Leaving buy-now flow: clear stale buy-now payload.
+    localStorage.removeItem(BUY_NOW_STORAGE_KEY);
 
     fetchCart();
   }, [isBuyNowMode, router]);
@@ -110,7 +117,7 @@ function CartPageInner() {
       setBuyNowItem((prev) => {
         if (!prev || prev.productId !== productId) return prev;
         const next = { ...prev, quantity: newQty };
-        localStorage.setItem("hqs_buy_now_item", JSON.stringify(next));
+        localStorage.setItem(BUY_NOW_STORAGE_KEY, JSON.stringify(next));
         return next;
       });
       return;
@@ -135,7 +142,7 @@ function CartPageInner() {
 
   const removeItem = async (productId: number) => {
     if (isBuyNowMode) {
-      localStorage.removeItem("hqs_buy_now_item");
+      localStorage.removeItem(BUY_NOW_STORAGE_KEY);
       setBuyNowItem(null);
       setItems([]);
       toast.success("Đã xóa sản phẩm mua ngay");
@@ -277,6 +284,11 @@ function CartPageInner() {
                   </Link>
                   <Link
                     href="/search"
+                    onClick={() => {
+                      if (isBuyNowMode) {
+                        localStorage.removeItem(BUY_NOW_STORAGE_KEY);
+                      }
+                    }}
                     className="block w-full py-3 text-gray-600 font-medium hover:text-green-700 transition-colors text-center text-sm hover:bg-gray-50 rounded-xl"
                   >
                     Tiếp tục mua sắm

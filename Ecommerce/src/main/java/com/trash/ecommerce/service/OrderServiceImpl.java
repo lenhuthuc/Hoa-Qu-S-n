@@ -123,6 +123,27 @@ public class OrderServiceImpl implements OrderService {
         return dto;
     }
 
+    @Override
+    public OrderPreviewResponseDTO previewBuyNowOrder(Long userId, Long productId, Long quantity,
+                                                      String discountVoucherCode, String shippingVoucherCode,
+                                                      String deliveryType, String toDistrictId, String toWardCode) {
+        Users user = userRepository.findById(userId)
+                .orElseThrow(() -> new FindingUserError("User not found"));
+
+        PreviewContext preview = buildSingleItemPreviewContext(
+                user,
+                productId,
+                quantity,
+                discountVoucherCode,
+                shippingVoucherCode,
+                deliveryType,
+                toDistrictId,
+                toWardCode,
+                false
+        );
+        return preview.preview;
+    }
+
         @Override
         public OrderPreviewResponseDTO previewMyOrder(Long userId, String discountVoucherCode, String shippingVoucherCode,
                               String deliveryType, String toDistrictId, String toWardCode) {
@@ -234,6 +255,99 @@ public class OrderServiceImpl implements OrderService {
                 responseItems,
                 order.getTotalPrice(),
             order.getShippingFee(),
+                order.getStatus(),
+                address.getFullAddress(),
+                (paymentMethodId == 1) ? null : paymentService.createPaymentUrl(order.getTotalPrice(), ".", order.getId(), IpAddress),
+                order.getCreateAt(),
+                paymentMethod.getMethodName(),
+                "BUYER"
+        );
+    }
+
+    @Override
+    @Transactional
+    public OrderResponseDTO createBuyNowOrder(Long userId, Long productId, Long quantity, Long paymentMethodId,
+                                              String discountVoucherCode, String shippingVoucherCode,
+                                              String deliveryType, String toDistrictId, String toWardCode,
+                                              String IpAddress) {
+        Users user = userRepository.findById(userId)
+                .orElseThrow(() -> new FindingUserError("User not found"));
+
+        PreviewContext previewContext = buildSingleItemPreviewContext(
+                user,
+                productId,
+                quantity,
+                discountVoucherCode,
+                shippingVoucherCode,
+                deliveryType,
+                toDistrictId,
+                toWardCode,
+                true
+        );
+
+        if (!previewContext.preview.isCanCheckout()) {
+            throw new OrderValidException("Phương thức giao hàng không khả dụng cho sản phẩm này");
+        }
+
+        PaymentMethod paymentMethod = paymentMethodRepository.findById(paymentMethodId)
+                .orElseThrow(() -> new PaymentException("Payment method not found"));
+
+        com.trash.ecommerce.entity.Address address = user.getAddress();
+        if (address == null) {
+            throw new OrderValidException("User address is required to create an order");
+        }
+
+        Order order = new Order();
+        order.setCreateAt(new Date());
+        order.setUser(user);
+        order.setPaymentMethod(paymentMethod);
+        order.setAddress(address);
+        order.setTotalPrice(previewContext.preview.getTotalAmount());
+        order.setShippingFee(previewContext.preview.getShippingFee().subtract(previewContext.preview.getShippingDiscountAmount()));
+        if (paymentMethod.getId() == 2L) {
+            order.setStatus(OrderStatus.PENDING_PAYMENT);
+        } else {
+            order.setStatus(OrderStatus.PLACED);
+        }
+        orderRepository.save(order);
+
+        Set<OrderItem> orderItems = previewContext.orderItems;
+        for (OrderItem item : orderItems) {
+            item.setOrder(order);
+        }
+        order.setOrderItems(orderItems);
+        orderRepository.save(order);
+
+        for (OrderItem orderItem : orderItems) {
+            int updatedRows = productRepository.decreaseStock(orderItem.getProduct().getId(), orderItem.getQuantity());
+            if (updatedRows == 0) {
+                throw new ProductQuantityValidation("Sản phẩm " + orderItem.getProduct().getProductName() + " đã hết hàng!");
+            }
+        }
+
+        if (paymentMethod.getId() == 1L && order.getInvoice() == null) {
+            invoiceService.createInvoice(userId, order.getId(), paymentMethodId);
+        }
+
+        Set<Long> notifiedSellers = new HashSet<>();
+        for (OrderItem oi : orderItems) {
+            Long sellerId = oi.getProduct().getSeller().getId();
+            if (notifiedSellers.add(sellerId)) {
+                notificationService.send(sellerId,
+                        "Có đơn hàng mới #" + order.getId(),
+                        "Bạn có đơn hàng mới từ " + (user.getFullName() != null ? user.getFullName() : user.getEmail()),
+                        NotificationType.ORDER_PLACED, order.getId());
+            }
+        }
+
+        eventPublisher.publishOrderUpdate(userId, order.getId(), order.getStatus().name(), "Đặt hàng thành công");
+
+        return new OrderResponseDTO(
+                order.getId(),
+                order.getOrderNumber(),
+                previewContext.responseItems,
+                order.getTotalPrice(),
+                order.getShippingFee(),
                 order.getStatus(),
                 address.getFullAddress(),
                 (paymentMethodId == 1) ? null : paymentService.createPaymentUrl(order.getTotalPrice(), ".", order.getId(), IpAddress),
@@ -602,6 +716,121 @@ public class OrderServiceImpl implements OrderService {
         preview.setCanCheckout(canCheckout);
 
         return new PreviewContext(cart, orderItems, responseItems, preview);
+    }
+
+    private PreviewContext buildSingleItemPreviewContext(Users user, Long productId, Long quantity,
+                                                         String discountVoucherCode, String shippingVoucherCode,
+                                                         String deliveryType, String toDistrictId, String toWardCode,
+                                                         boolean consumeVoucherUsage) {
+        if (productId == null || productId <= 0) {
+            throw new OrderValidException("Thiếu sản phẩm mua ngay");
+        }
+        if (quantity == null || quantity <= 0) {
+            throw new OrderValidException("Số lượng mua ngay không hợp lệ");
+        }
+
+        Product product = productRepository.findById(productId)
+                .orElseThrow(() -> new ResourceNotFoundException("Product not found"));
+        if (product.getQuantity() == null || product.getQuantity() < quantity) {
+            throw new ProductQuantityValidation("Sản phẩm " + product.getProductName() + " đã hết hàng!");
+        }
+
+        String normalizedDistrictId = normalizeDistrictId(toDistrictId);
+        String normalizedWardCode = (toWardCode == null || toWardCode.isBlank()) ? "21012" : toWardCode;
+
+        BigDecimal subtotal = product.getPrice().multiply(BigDecimal.valueOf(quantity));
+
+        OrderItem orderItem = new OrderItem();
+        orderItem.setProduct(product);
+        orderItem.setQuantity(quantity);
+        orderItem.setPrice(product.getPrice());
+        Set<OrderItem> orderItems = new HashSet<>();
+        orderItems.add(orderItem);
+
+        CartItemDetailsResponseDTO dto = new CartItemDetailsResponseDTO();
+        dto.setProductId(product.getId());
+        dto.setProductName(product.getProductName());
+        dto.setPrice(product.getPrice());
+        dto.setQuantity(quantity);
+        dto.setImageUrl(product.getPrimaryImagePath() != null ? "/api/products/" + product.getId() + "/img" : null);
+        Set<CartItemDetailsResponseDTO> responseItems = new HashSet<>();
+        responseItems.add(dto);
+
+        ShippingValidationResponse shippingValidation = shippingValidationService.validateShipping(
+                product.getId(), normalizedDistrictId, normalizedWardCode);
+
+        boolean canStandard = shippingValidation.getAvailableMethods().stream().anyMatch(this::isStandardOption);
+        boolean canExpress = shippingValidation.getAvailableMethods().stream().anyMatch(this::isExpressOption);
+
+        Long standardFee = shippingValidation.getAvailableMethods().stream()
+                .filter(this::isStandardOption)
+                .map(ShippingValidationResponse.ShippingOption::getFee)
+                .filter(Objects::nonNull)
+                .min(Long::compareTo)
+                .orElse(null);
+
+        Long expressFee = shippingValidation.getAvailableMethods().stream()
+                .filter(this::isExpressOption)
+                .map(ShippingValidationResponse.ShippingOption::getFee)
+                .filter(Objects::nonNull)
+                .min(Long::compareTo)
+                .orElse(null);
+
+        List<String> shippingWarnings = new ArrayList<>();
+        List<String> availableDeliveryTypes = new ArrayList<>();
+        if (canStandard) {
+            availableDeliveryTypes.add("STANDARD");
+        } else {
+            shippingWarnings.add("Giao tiêu chuẩn: Không hỗ trợ " + product.getProductName() + " vì thời gian vận chuyển dài hơn hạn sử dụng.");
+        }
+        if (canExpress) {
+            availableDeliveryTypes.add("EXPRESS");
+        } else {
+            shippingWarnings.add("Giao hỏa tốc: Không hỗ trợ " + product.getProductName() + " vì GHN hiện không cung cấp dịch vụ hỏa tốc cho tuyến giao này.");
+        }
+
+        if (availableDeliveryTypes.isEmpty()) {
+            OrderPreviewResponseDTO blockedPreview = new OrderPreviewResponseDTO();
+            BigDecimal discountAmount = resolveVoucherDiscount(discountVoucherCode, subtotal, "Mã giảm giá", consumeVoucherUsage);
+            blockedPreview.setSubtotal(subtotal);
+            blockedPreview.setShippingFee(BigDecimal.ZERO);
+            blockedPreview.setDiscountAmount(discountAmount);
+            blockedPreview.setShippingDiscountAmount(BigDecimal.ZERO);
+            blockedPreview.setTotalAmount(subtotal.subtract(discountAmount).max(BigDecimal.ZERO));
+            blockedPreview.setDeliveryType((deliveryType == null || deliveryType.isBlank()) ? "STANDARD" : deliveryType.trim().toUpperCase(Locale.ROOT));
+            blockedPreview.setAvailableDeliveryTypes(availableDeliveryTypes);
+            blockedPreview.setShippingWarnings(shippingWarnings);
+            blockedPreview.setCanCheckout(false);
+            return new PreviewContext(null, orderItems, responseItems, blockedPreview);
+        }
+
+        String normalizedDeliveryType = normalizeDeliveryType(deliveryType, availableDeliveryTypes);
+        BigDecimal shippingFee = "EXPRESS".equals(normalizedDeliveryType)
+                ? BigDecimal.valueOf(expressFee != null ? expressFee : 0L)
+                : BigDecimal.valueOf(standardFee != null ? standardFee : 0L);
+        BigDecimal discountAmount = resolveVoucherDiscount(discountVoucherCode, subtotal, "Mã giảm giá", consumeVoucherUsage);
+        BigDecimal shippingDiscountAmount = resolveVoucherDiscount(shippingVoucherCode, shippingFee, "Mã freeship", consumeVoucherUsage);
+
+        BigDecimal totalAmount = subtotal
+                .add(shippingFee)
+                .subtract(discountAmount)
+                .subtract(shippingDiscountAmount);
+        if (totalAmount.compareTo(BigDecimal.ZERO) < 0) {
+            totalAmount = BigDecimal.ZERO;
+        }
+
+        OrderPreviewResponseDTO preview = new OrderPreviewResponseDTO();
+        preview.setSubtotal(subtotal);
+        preview.setShippingFee(shippingFee);
+        preview.setDiscountAmount(discountAmount);
+        preview.setShippingDiscountAmount(shippingDiscountAmount);
+        preview.setTotalAmount(totalAmount);
+        preview.setDeliveryType(normalizedDeliveryType);
+        preview.setAvailableDeliveryTypes(availableDeliveryTypes);
+        preview.setShippingWarnings(shippingWarnings);
+        preview.setCanCheckout(true);
+
+        return new PreviewContext(null, orderItems, responseItems, preview);
     }
 
     private BigDecimal resolveVoucherDiscount(String voucherCode, BigDecimal baseAmount, String label,

@@ -48,7 +48,6 @@ public class ShopController {
             Map<String, Object> profile = new HashMap<>();
             profile.put("sellerId", seller.getId());
             profile.put("sellerName", seller.getFullName());
-            profile.put("avatar", resolveMediaUrlForClient(seller.getAvatar()));
             profile.put("phone", seller.getPhone());
 
             // Get shop name from SellerApplication
@@ -58,6 +57,11 @@ public class ShopController {
             } else {
                 profile.put("shopName", seller.getFullName());
             }
+            profile.put("avatar", resolveMediaUrlForClient(
+                    sellerApp != null && sellerApp.getShopAvatar() != null
+                            ? sellerApp.getShopAvatar()
+                            : seller.getAvatar()
+            ));
 
             if (seller.getAddress() != null) {
                 profile.put("province", seller.getAddress().getProvinceName());

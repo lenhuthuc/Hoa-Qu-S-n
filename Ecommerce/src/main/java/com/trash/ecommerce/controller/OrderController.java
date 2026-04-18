@@ -73,6 +73,61 @@ public class OrderController {
         return ResponseEntity.ok(order);
     }
 
+    @GetMapping("/buy-now/preview")
+    public ResponseEntity<OrderPreviewResponseDTO> previewBuyNowOrder(
+            @RequestHeader("Authorization") String token,
+            @RequestParam("productId") Long productId,
+            @RequestParam(value = "quantity", defaultValue = "1") Long quantity,
+            @RequestParam(value = "discountVoucherCode", required = false) String discountVoucherCode,
+            @RequestParam(value = "shippingVoucherCode", required = false) String shippingVoucherCode,
+            @RequestParam(value = "deliveryType", defaultValue = "STANDARD") String deliveryType,
+            @RequestParam(value = "toDistrictId", required = false) String toDistrictId,
+            @RequestParam(value = "toWardCode", required = false) String toWardCode) {
+        Long userId = jwtService.extractId(token);
+        OrderPreviewResponseDTO preview = orderService.previewBuyNowOrder(
+                userId,
+                productId,
+                quantity,
+                discountVoucherCode,
+                shippingVoucherCode,
+                deliveryType,
+                toDistrictId,
+                toWardCode
+        );
+        return ResponseEntity.ok(preview);
+    }
+
+    @PostMapping("/buy-now/create")
+    public ResponseEntity<OrderResponseDTO> createBuyNowOrder(
+            @RequestHeader("Authorization") String token,
+            @RequestParam("productId") Long productId,
+            @RequestParam(value = "quantity", defaultValue = "1") Long quantity,
+            @RequestParam(value = "paymentMethod", defaultValue = "1") Long paymentMethodId,
+            @RequestParam(value = "voucherCode", required = false) String voucherCode,
+            @RequestParam(value = "discountVoucherCode", required = false) String discountVoucherCode,
+            @RequestParam(value = "shippingVoucherCode", required = false) String shippingVoucherCode,
+            @RequestParam(value = "deliveryType", defaultValue = "STANDARD") String deliveryType,
+            @RequestParam(value = "toDistrictId", required = false) String toDistrictId,
+            @RequestParam(value = "toWardCode", required = false) String toWardCode,
+            HttpServletRequest request) {
+        Long userId = jwtService.extractId(token);
+        String effectiveDiscountVoucher = (discountVoucherCode == null || discountVoucherCode.isBlank())
+                ? voucherCode : discountVoucherCode;
+        OrderResponseDTO order = orderService.createBuyNowOrder(
+                userId,
+                productId,
+                quantity,
+                paymentMethodId,
+                effectiveDiscountVoucher,
+                shippingVoucherCode,
+                deliveryType,
+                toDistrictId,
+                toWardCode,
+                userService.getClientIpAddress(request)
+        );
+        return ResponseEntity.ok(order);
+    }
+
         @GetMapping("/preview")
         public ResponseEntity<OrderPreviewResponseDTO> previewOrder(
             @RequestHeader("Authorization") String token,

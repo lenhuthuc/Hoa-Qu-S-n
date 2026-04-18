@@ -4,6 +4,8 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 
 import com.trash.ecommerce.dto.*;
 import com.trash.ecommerce.exception.ProductCreatingException;
@@ -17,6 +19,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.validation.BindingResult;
@@ -164,9 +167,31 @@ public class UserController {
         try {
 
             UserProfileDTO userProfileDTO = userService.getOwnProfile(userId);
+            userProfileDTO.setAvatar(resolveMediaUrlForClient(userProfileDTO.getAvatar()));
             return ResponseEntity.ok(userProfileDTO);
         } catch (Exception e) {
             throw new FindingUserError(e.getMessage());
+        }
+    }
+
+    @PostMapping(value = "/profile/avatar", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<?> uploadProfileAvatar(
+            @RequestHeader("Authorization") String token,
+            @RequestPart("file") MultipartFile file
+    ) {
+        try {
+            Long userId = jwtService.extractId(token);
+            String avatarUrl = storageService.uploadReviewMedia(userId, file, "image");
+
+            UserUpdateRequestDTO updateRequestDTO = new UserUpdateRequestDTO();
+            updateRequestDTO.setAvatar(avatarUrl);
+            userService.updateUser(updateRequestDTO, userId, userId);
+
+            return ResponseEntity.ok(Map.of("avatarUrl", resolveMediaUrlForClient(avatarUrl)));
+        } catch (Exception e) {
+            logger.error("Error uploading profile avatar", e);
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(Map.of("message", e.getMessage()));
         }
     }
 
@@ -428,5 +453,29 @@ public class UserController {
         if (!allowed) {
             throw new RuntimeException("Bạn cần được duyệt người bán trước khi đăng sản phẩm");
         }
+    }
+
+    private String resolveMediaUrlForClient(String rawUrl) {
+        if (rawUrl == null || rawUrl.isBlank()) {
+            return null;
+        }
+
+        String value = rawUrl.trim();
+        if (value.startsWith("/api/reviews/media")) {
+            return value;
+        }
+        if (value.contains(".r2.cloudflarestorage.com/")) {
+            return "/api/reviews/media?url=" + URLEncoder.encode(value, StandardCharsets.UTF_8);
+        }
+        if (value.startsWith("http://") || value.startsWith("https://")) {
+            return value;
+        }
+        if (value.startsWith("local:")) {
+            return "/api/reviews/media?url=" + URLEncoder.encode(value, StandardCharsets.UTF_8);
+        }
+        if (value.startsWith("review-media/") || value.startsWith("reviews/")) {
+            return "/api/reviews/media?url=" + URLEncoder.encode("local:" + value, StandardCharsets.UTF_8);
+        }
+        return value;
     }
 }
