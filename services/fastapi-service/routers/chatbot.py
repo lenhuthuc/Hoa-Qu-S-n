@@ -15,7 +15,7 @@ class ChatRequest(BaseModel):
 @router.post("/message")
 async def chat_endpoint(request: ChatRequest):
     """
-    Endpoint này sẽ có URL đầy đủ là: POST /api/chatbot/chat
+    Endpoint này sẽ có URL đầy đủ là: POST /api/chatbot/message
     (Do main.py đã đặt prefix="/api/chatbot")
     """
     try:
