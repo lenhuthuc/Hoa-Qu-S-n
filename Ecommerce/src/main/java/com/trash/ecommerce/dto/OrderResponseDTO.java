@@ -27,6 +27,7 @@ public class OrderResponseDTO {
     private String address;
     private String paymentUrl;
     private Date createdAt;
+    private Date buyerConfirmedAt;
     @JsonProperty("paymentMethod")
     private String paymentMethodName;
     private String viewerRole;

@@ -63,6 +63,7 @@ public class OrderMapper {
         dto.setAddress(order.getAddress() != null ? order.getAddress().getFullAddress() : null);
         dto.setPaymentUrl(paymentUrl);
         dto.setCreatedAt(order.getCreateAt());
+        dto.setBuyerConfirmedAt(order.getBuyerConfirmedAt());
         dto.setPaymentMethodName(order.getPaymentMethod() != null ? order.getPaymentMethod().getMethodName() : null);
         if (order.getOrderItems() != null) {
             Set<CartItemDetailsResponseDTO> itemDTOs = order.getOrderItems().stream()

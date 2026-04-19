@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   Leaf, Search, Video, ShoppingCart, User, LogOut, LayoutDashboard,
-  MessageCircle, TrendingUp, Menu, X, ChevronDown, Shield, Bell, Heart, BookOpen,
+  MessageCircle, TrendingUp, Menu, X, ChevronDown, Shield, Bell, BookOpen,
 } from "lucide-react";
 import { parseToken, notificationApi } from "@/lib/api";
 import { useSSE } from "@/hooks/useSSE";
@@ -60,6 +60,7 @@ export default function Navbar() {
   };
 
   const navLinks = [
+    { href: "/featured-farmers", icon: Leaf, label: "Nông hộ nổi bật" },
     { href: "/search", icon: Search, label: "Tìm kiếm" },
     { href: "/live", icon: Video, label: "Livestream" },
     { href: "/market-prices", icon: TrendingUp, label: "Giá thị trường" },
@@ -72,32 +73,32 @@ export default function Navbar() {
 
   return (
     <header className="border-b bg-white/80 backdrop-blur-sm sticky top-0 z-50">
-      <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
-        <Link href="/" className="flex items-center gap-2 text-primary-700 font-bold text-xl">
-          <Leaf className="w-7 h-7" />
+      <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between gap-2">
+        <Link href="/" className="flex shrink-0 items-center gap-2 whitespace-nowrap text-primary-700 font-bold text-xl">
+          <Leaf className="w-6 h-6" />
           Hoa Quả Sơn
         </Link>
 
         {/* Desktop Nav */}
-        <nav className="hidden md:flex items-center gap-1">
+        <nav className="hidden md:flex items-center gap-0.5 flex-nowrap">
           {navLinks.map((link) => (
             <Link
               key={link.href}
               href={link.href}
-              className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm transition ${
+              className={`flex items-center gap-1.5 px-2 lg:px-3 py-2 rounded-lg text-xs lg:text-sm whitespace-nowrap transition ${
                 pathname === link.href
                   ? "bg-primary-50 text-primary-700 font-medium"
                   : "text-gray-600 hover:text-primary-600 hover:bg-gray-50"
               }`}
             >
               <link.icon className="w-4 h-4" />
-              {link.label}
+              <span className="hidden lg:inline">{link.label}</span>
             </Link>
           ))}
         </nav>
 
         {/* Right side */}
-        <div className="hidden md:flex items-center gap-2">
+        <div className="hidden md:flex items-center gap-2 flex-nowrap">
           {isLoggedIn ? (
             <>
               <Link
@@ -113,14 +114,6 @@ export default function Navbar() {
                     {unreadDmCount > 9 ? "9+" : unreadDmCount}
                   </span>
                 )}
-              </Link>
-              <Link
-                href="/wishlist"
-                className={`p-2 rounded-lg transition ${
-                  pathname === "/wishlist" ? "bg-primary-50 text-primary-700" : "text-gray-600 hover:text-primary-600 hover:bg-gray-50"
-                }`}
-              >
-                <Heart className="w-5 h-5" />
               </Link>
               <Link
                 href="/notifications"
@@ -145,7 +138,7 @@ export default function Navbar() {
               </Link>
               <Link
                 href={isSeller ? "/seller/dashboard" : "/seller/register"}
-                className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 text-sm font-medium"
+                className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 text-sm font-medium whitespace-nowrap"
               >
                 Kênh Người Bán
               </Link>
@@ -207,19 +200,19 @@ export default function Navbar() {
             <>
               <Link
                 href={isSeller ? "/seller/dashboard" : "/seller/register"}
-                className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 text-sm font-medium"
+                className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 text-sm font-medium whitespace-nowrap"
               >
                 Kênh Người Bán
               </Link>
               <Link
                 href="/login"
-                className="px-4 py-2 text-sm text-gray-600 hover:text-primary-600 font-medium"
+                className="px-4 py-2 text-sm text-gray-600 hover:text-primary-600 font-medium whitespace-nowrap"
               >
                 Đăng nhập
               </Link>
               <Link
                 href="/register"
-                className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 text-sm font-medium"
+                className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 text-sm font-medium whitespace-nowrap"
               >
                 Đăng ký
               </Link>
@@ -255,9 +248,6 @@ export default function Navbar() {
             <>
               <Link href="/cart" onClick={() => setMenuOpen(false)} className="flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm text-gray-700 hover:bg-gray-50">
                 <ShoppingCart className="w-4 h-4" /> Giỏ hàng
-              </Link>
-              <Link href="/wishlist" onClick={() => setMenuOpen(false)} className="flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm text-gray-700 hover:bg-gray-50">
-                <Heart className="w-4 h-4" /> Yêu thích
               </Link>
               <Link href="/notifications" onClick={() => setMenuOpen(false)} className="flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm text-gray-700 hover:bg-gray-50">
                 <Bell className="w-4 h-4" /> Thông báo {unreadCount > 0 && <span className="bg-red-500 text-white text-xs rounded-full px-1.5">{unreadCount}</span>}

@@ -259,6 +259,7 @@ public class OrderServiceImpl implements OrderService {
                 address.getFullAddress(),
                 (paymentMethodId == 1) ? null : paymentService.createPaymentUrl(order.getTotalPrice(), ".", order.getId(), IpAddress),
                 order.getCreateAt(),
+            order.getBuyerConfirmedAt(),
                 paymentMethod.getMethodName(),
                 "BUYER"
         );
@@ -352,6 +353,7 @@ public class OrderServiceImpl implements OrderService {
                 address.getFullAddress(),
                 (paymentMethodId == 1) ? null : paymentService.createPaymentUrl(order.getTotalPrice(), ".", order.getId(), IpAddress),
                 order.getCreateAt(),
+            order.getBuyerConfirmedAt(),
                 paymentMethod.getMethodName(),
                 "BUYER"
         );
@@ -444,6 +446,9 @@ public class OrderServiceImpl implements OrderService {
         }
 
         order.setStatus(newStatus);
+        if (newStatus == OrderStatus.FINISHED && current == OrderStatus.SHIPPED) {
+            order.setBuyerConfirmedAt(new Date());
+        }
         orderRepository.save(order);
 
         if (newStatus == OrderStatus.CANCELLED) {

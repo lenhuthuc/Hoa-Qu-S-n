@@ -29,6 +29,8 @@ public class Order {
     private BigDecimal shippingFee = BigDecimal.ZERO;
     @Column(name = "created_at")
     private Date createAt;
+    @Column(name = "buyer_confirmed_at")
+    private Date buyerConfirmedAt;
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "user_id")
     private Users user;

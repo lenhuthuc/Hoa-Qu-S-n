@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { sellerApi, returnApi } from "@/lib/api";
+import { getReturnEvidenceMediaSrc, parseEvidenceUrls, sellerApi, returnApi } from "@/lib/api";
 import Link from "next/link";
 
 interface SellerOrder {
@@ -19,11 +19,41 @@ interface SellerReturn {
   buyerName: string;
   reasonCode: string;
   description: string;
+  evidenceUrls?: string | null;
   refundAmount: number;
   status: string;
   createdAt: string;
   deadline: string;
+  sellerResponse?: string | null;
 }
+
+const VIDEO_EXTENSIONS = ["mp4", "webm", "ogg", "mov", "m4v"];
+
+function getFileExtension(url: string): string {
+  const cleanUrl = url.split("?")[0].split("#")[0];
+  const match = cleanUrl.match(/\.([a-z0-9]+)$/i);
+  return match ? match[1].toLowerCase() : "";
+}
+
+function isVideoUrl(url: string): boolean {
+  return VIDEO_EXTENSIONS.includes(getFileExtension(url));
+}
+
+const RETURN_STATUS_META: Record<string, string> = {
+  PENDING: "bg-yellow-100 text-yellow-700",
+  REJECTED: "bg-red-100 text-red-700",
+  REJECTED_ACCEPTED: "bg-slate-100 text-slate-700",
+  ESCALATED: "bg-amber-100 text-amber-800",
+  REFUNDED: "bg-green-100 text-green-700",
+};
+
+const RETURN_STATUS_LABEL: Record<string, string> = {
+  PENDING: "Đang chờ xử lý",
+  REJECTED: "Đã từ chối",
+  REJECTED_ACCEPTED: "Người mua đã chấp nhận từ chối",
+  ESCALATED: "Đã khiếu nại lên admin",
+  REFUNDED: "Đã hoàn tiền",
+};
 
 const STATUS_MAP: Record<string, { label: string; color: string }> = {
   PENDING: { label: "Chờ xác nhận", color: "bg-yellow-100 text-yellow-700" },
@@ -42,6 +72,9 @@ export default function SellerOrdersPage() {
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<"orders" | "returns">("orders");
   const [filter, setFilter] = useState("ALL");
+  const [rejectTarget, setRejectTarget] = useState<SellerReturn | null>(null);
+  const [rejectNote, setRejectNote] = useState("");
+  const [respondingReturnId, setRespondingReturnId] = useState<number | null>(null);
 
   useEffect(() => {
     loadData();
@@ -85,22 +118,23 @@ export default function SellerOrdersPage() {
     }
   }
 
-  async function handleReturnRespond(returnId: number, action: string) {
-    const labels: Record<string, string> = {
-      ACCEPT: "Chấp nhận hoàn tiền",
-      REJECT: "Từ chối yêu cầu",
-      NEGOTIATE: "Thương lượng",
-    };
-    const response = action === "REJECT" || action === "NEGOTIATE"
-      ? prompt("Nhập lý do phản hồi:")
-      : null;
-    if (action !== "ACCEPT" && !response) return;
+  async function handleReturnRespond(returnId: number, action: "ACCEPT" | "REJECT", response?: string) {
+    if (action === "REJECT" && !response?.trim()) {
+      alert("Vui lòng nhập lý do từ chối");
+      return;
+    }
+
+    setRespondingReturnId(returnId);
 
     try {
-      await returnApi.respond(returnId, action, response || undefined);
-      loadData();
+      await returnApi.respond(returnId, action, response?.trim() || undefined);
+      setRejectTarget(null);
+      setRejectNote("");
+      await loadData();
     } catch (err: any) {
       alert(err.response?.data?.message || "Không thể phản hồi");
+    } finally {
+      setRespondingReturnId(null);
     }
   }
 
@@ -252,12 +286,9 @@ export default function SellerOrdersPage() {
                       <span className="font-bold">Yêu cầu #{ret.id}</span>
                       <span className="text-sm text-gray-500">Đơn #{ret.orderId}</span>
                       <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
-                        ret.status === "PENDING" ? "bg-yellow-100 text-yellow-700" :
-                        ret.status === "REFUNDED" ? "bg-green-100 text-green-700" :
-                        ret.status === "REJECTED" ? "bg-red-100 text-red-700" :
-                        "bg-blue-100 text-blue-700"
+                        RETURN_STATUS_META[ret.status] || "bg-blue-100 text-blue-700"
                       }`}>
-                        {ret.status}
+                        {RETURN_STATUS_LABEL[ret.status] || ret.status}
                       </span>
                     </div>
                     <span className="text-sm text-gray-500">
@@ -271,6 +302,11 @@ export default function SellerOrdersPage() {
                   <div className="text-sm mb-2">
                     <span className="text-gray-500">Lý do:</span> {ret.reasonCode} — {ret.description}
                   </div>
+                  {ret.sellerResponse && (
+                    <div className="text-sm mb-2">
+                      <span className="text-gray-500">Phản hồi của bạn:</span> {ret.sellerResponse}
+                    </div>
+                  )}
                   <div className="text-sm mb-3">
                     <span className="text-gray-500">Số tiền hoàn:</span>{" "}
                     <span className="font-medium text-red-600">
@@ -278,23 +314,49 @@ export default function SellerOrdersPage() {
                     </span>
                   </div>
 
-                  {(ret.status === "PENDING" || ret.status === "NEGOTIATING") && (
+                  {ret.evidenceUrls && (
+                    <div className="mb-3 rounded-lg bg-gray-50 p-3 text-sm">
+                      <p className="mb-2 font-medium text-gray-700">Bằng chứng</p>
+                      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                        {parseEvidenceUrls(ret.evidenceUrls).map((url) => {
+                          const mediaSrc = getReturnEvidenceMediaSrc(url);
+                          const fileName = url.split("/").pop() || url;
+
+                          return (
+                            <div key={url} className="overflow-hidden rounded-xl border border-gray-200 bg-white">
+                              <div className="h-40 bg-gray-100">
+                                {isVideoUrl(url) ? (
+                                  <video src={mediaSrc} controls className="h-full w-full object-cover" />
+                                ) : (
+                                  <img src={mediaSrc} alt={fileName} className="h-full w-full object-cover" />
+                                )}
+                              </div>
+                              <div className="px-3 py-2 text-xs text-gray-600">
+                                <p className="truncate font-medium text-gray-700">{fileName}</p>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {ret.status === "PENDING" && (
                     <div className="flex gap-2 justify-end border-t pt-3">
                       <button
                         onClick={() => handleReturnRespond(ret.id, "ACCEPT")}
-                        className="px-3 py-1.5 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700"
+                        disabled={respondingReturnId === ret.id}
+                        className="px-3 py-1.5 bg-emerald-600 text-white text-sm rounded-lg hover:bg-emerald-700"
                       >
                         Chấp nhận hoàn tiền
                       </button>
                       <button
-                        onClick={() => handleReturnRespond(ret.id, "NEGOTIATE")}
-                        className="px-3 py-1.5 bg-blue-100 text-blue-600 text-sm rounded-lg hover:bg-blue-200"
-                      >
-                        Thương lượng
-                      </button>
-                      <button
-                        onClick={() => handleReturnRespond(ret.id, "REJECT")}
-                        className="px-3 py-1.5 bg-red-100 text-red-600 text-sm rounded-lg hover:bg-red-200"
+                        onClick={() => {
+                          setRejectTarget(ret);
+                          setRejectNote("");
+                        }}
+                        disabled={respondingReturnId === ret.id}
+                        className="px-3 py-1.5 border border-emerald-200 bg-emerald-50 text-emerald-700 text-sm rounded-lg hover:bg-emerald-100"
                       >
                         Từ chối
                       </button>
@@ -303,6 +365,61 @@ export default function SellerOrdersPage() {
                 </div>
               ))
             )}
+          </div>
+        )}
+
+        {rejectTarget && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
+            <div className="flex w-full max-w-xl flex-col rounded-3xl bg-white p-6 shadow-2xl">
+              <div className="mb-4 flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-600">Từ chối hoàn tiền</p>
+                  <h3 className="mt-2 text-xl font-bold text-gray-900">Nhập lý do từ chối</h3>
+                </div>
+                <button
+                  onClick={() => {
+                    if (respondingReturnId) return;
+                    setRejectTarget(null);
+                    setRejectNote("");
+                  }}
+                  className="rounded-full p-2 text-gray-500 transition hover:bg-gray-100"
+                >
+                  ×
+                </button>
+              </div>
+
+              <p className="mb-4 text-sm text-gray-600">
+                Phiếu #{rejectTarget.id} - Đơn #{rejectTarget.orderId}. Buyer sẽ nhận được quyết định này để chấp nhận hoặc khiếu nại lên sàn.
+              </p>
+
+              <textarea
+                value={rejectNote}
+                onChange={(e) => setRejectNote(e.target.value)}
+                rows={5}
+                placeholder="Nhập lý do từ chối..."
+                className="w-full rounded-2xl border border-gray-200 px-4 py-3 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
+              />
+
+              <div className="mt-5 flex items-center justify-end gap-3">
+                <button
+                  onClick={() => {
+                    if (respondingReturnId) return;
+                    setRejectTarget(null);
+                    setRejectNote("");
+                  }}
+                  className="rounded-2xl border border-gray-200 px-4 py-3 text-sm font-semibold text-gray-700 transition hover:bg-gray-50"
+                >
+                  Hủy
+                </button>
+                <button
+                  onClick={() => handleReturnRespond(rejectTarget.id, "REJECT", rejectNote)}
+                  disabled={respondingReturnId === rejectTarget.id}
+                  className="rounded-2xl bg-emerald-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {respondingReturnId === rejectTarget.id ? "Đang gửi..." : "Gửi từ chối"}
+                </button>
+              </div>
+            </div>
           </div>
         )}
       </div>

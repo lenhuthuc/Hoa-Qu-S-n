@@ -60,7 +60,17 @@ interface OrderDetail {
   paymentMethod?: string;
   paymentUrl?: string;
   createdAt: string;
+  buyerConfirmedAt?: string;
   items?: OrderDetailItem[];
+}
+
+const RETURN_WINDOW_HOURS = 24;
+
+function isWithinReturnWindow(confirmedAt?: string): boolean {
+  if (!confirmedAt) return false;
+  const confirmedTime = new Date(confirmedAt).getTime();
+  if (Number.isNaN(confirmedTime)) return false;
+  return Date.now() - confirmedTime <= RETURN_WINDOW_HOURS * 60 * 60 * 1000;
 }
 
 const FILTERS: Array<{
