@@ -1,5 +1,6 @@
 package com.trash.ecommerce.controller;
 
+import com.trash.ecommerce.config.VnPayConfig;
 import com.trash.ecommerce.dto.PaymentMethodMessageResponse;
 import com.trash.ecommerce.service.JwtService;
 import com.trash.ecommerce.service.PaymentService;
@@ -13,6 +14,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
+import java.net.URI;
 import java.util.Map;
 
 @RestController
@@ -26,6 +28,8 @@ public class PaymentController {
     private JwtService jwtService;
     @Autowired
     private UserService userService;
+    @Autowired
+    private VnPayConfig vnPayConfig;
 
     @PostMapping("/createUrl")
     public ResponseEntity<?> createUrlVNPay(
@@ -73,12 +77,24 @@ public class PaymentController {
     }
 
     @GetMapping("/vnpay/return")
-    public ResponseEntity<PaymentMethodMessageResponse> handleVnPayReturn(
-            HttpServletRequest request,
-            @RequestHeader(value = "Authorization", required = false) String token) {
+    public ResponseEntity<Void> handleVnPayReturn(HttpServletRequest request) {
         try {
-            PaymentMethodMessageResponse response = paymentService.handleProcedureUserInterface(request);
-            return ResponseEntity.ok(response);
+            paymentService.handleProcedureUserInterface(request);
+
+            String redirectUrl = vnPayConfig.getFrontendReturnUrl();
+            if (redirectUrl == null || redirectUrl.isBlank()) {
+                redirectUrl = "https://haquason.uk/payment/return";
+            }
+
+            String queryString = request.getQueryString();
+            if (queryString != null && !queryString.isBlank()) {
+                redirectUrl += redirectUrl.contains("?") ? "&" : "?";
+                redirectUrl += queryString;
+            }
+
+            return ResponseEntity.status(HttpStatus.FOUND)
+                    .location(URI.create(redirectUrl))
+                    .build();
         } catch (Exception e) {
             logger.error("handleVnPayReturn has errors", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
