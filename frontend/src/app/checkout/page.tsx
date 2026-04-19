@@ -13,7 +13,7 @@ import {
   ChevronLeft,
   Truck,
 } from "lucide-react";
-import { cartApi, orderApi, userApi, parseToken, shippingApi } from "@/lib/api";
+import { cartApi, orderApi, userApi, parseToken, shippingApi, paymentApi } from "@/lib/api";
 import toast from "react-hot-toast";
 
 interface CartItem {
@@ -388,6 +388,17 @@ function CheckoutPageInner() {
       if (isBuyNowMode) {
         localStorage.removeItem(BUY_NOW_STORAGE_KEY);
       }
+
+      if (paymentMethod === 2 && firstOrder?.id) {
+        const orderInfo = `Thanh toán đơn hàng #${firstOrder.id}`;
+        const urlRes = await paymentApi.createVnPayUrl(total, orderInfo, firstOrder.id);
+        const vnpayUrl = urlRes.data;
+        if (typeof vnpayUrl === "string" && vnpayUrl.startsWith("http")) {
+          window.location.href = vnpayUrl;
+          return;
+        }
+      }
+
       if (createdOrders.length === 1 && firstOrder?.id) {
         router.push(`/orders/${firstOrder.id}`);
       } else {

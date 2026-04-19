@@ -3,7 +3,9 @@ package com.trash.ecommerce.service;
 import java.math.BigDecimal;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
-import java.text.SimpleDateFormat;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.*;
 
 import com.trash.ecommerce.config.PaymentHashGenerator;
@@ -76,7 +78,12 @@ public class PaymentServiceImpl implements PaymentService {
             String vnp_TxnRef = String.valueOf(order.getId());
             String vnp_IpAddr = ipAddress;
             String vnp_TmnCode = vnPayConfig.getTmnCode();
-    
+
+            String returnUrl = vnPayConfig.getReturnUrl();
+            if (returnUrl == null || returnUrl.isBlank()) {
+                returnUrl = "https://api.haquason.uk/api/payments/vnpay/return";
+            }
+
             // Chuyển BigDecimal sang VND (nhân 100 và làm tròn)
             long amount = total_price.multiply(BigDecimal.valueOf(100)).longValue();
             Map<String, String> vnp_Params = new HashMap<>();
@@ -89,17 +96,16 @@ public class PaymentServiceImpl implements PaymentService {
             vnp_Params.put("vnp_OrderInfo", vnp_OrderInfo);
             vnp_Params.put("vnp_OrderType", orderType);
             vnp_Params.put("vnp_Locale", "vn");
-            vnp_Params.put("vnp_ReturnUrl", vnPayConfig.getReturnUrl());
+            vnp_Params.put("vnp_ReturnUrl", returnUrl);
             vnp_Params.put("vnp_IpAddr", vnp_IpAddr);
-            Calendar cld = Calendar.getInstance(TimeZone.getTimeZone("Etc/GMT+7"));
-    
-            SimpleDateFormat formatter = new SimpleDateFormat("yyyyMMddHHmmss");
-            String vnp_CreateDate = formatter.format(cld.getTime());
-    
+
+            ZonedDateTime now = ZonedDateTime.now(ZoneId.of("Asia/Ho_Chi_Minh"));
+            DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyyMMddHHmmss");
+            String vnp_CreateDate = now.format(formatter);
+            String vnp_ExpireDate = now.plusMinutes(15).format(formatter);
+
             vnp_Params.put("vnp_CreateDate", vnp_CreateDate);
-            cld.add(Calendar.MINUTE, 15);
-            String vnp_ExpireDate = formatter.format(cld.getTime());
-            //Add Params of 2.1.0 Version
+            // Add Params of 2.1.0 Version
             vnp_Params.put("vnp_ExpireDate", vnp_ExpireDate);
             List<String> fieldNames = new ArrayList<>(vnp_Params.keySet());
             Collections.sort(fieldNames);

@@ -118,12 +118,17 @@ const springProxy = createProxyMiddleware({
         proxyReq.setHeader("Authorization", req.headers.authorization);
       }
     },
-    proxyRes: (proxyRes) => {
+    proxyRes: (proxyRes, req) => {
       delete proxyRes.headers["access-control-allow-origin"];
       delete proxyRes.headers["access-control-allow-credentials"];
       delete proxyRes.headers["access-control-allow-methods"];
       delete proxyRes.headers["access-control-allow-headers"];
       delete proxyRes.headers["access-control-expose-headers"];
+      const origin = req.headers.origin;
+      if (origin && allowedOrigins.includes(origin)) {
+        proxyRes.headers["access-control-allow-origin"] = origin;
+        proxyRes.headers["access-control-allow-credentials"] = "true";
+      }
     },
     error: (err, _req, res) => {
       console.error("Spring proxy error:", err.message);
@@ -139,12 +144,17 @@ const fastapiProxy = createProxyMiddleware({
   changeOrigin: true,
   pathFilter: ["/api/ai/**", "/api/search/**", "/api/chatbot/**"],
   on: {
-    proxyRes: (proxyRes) => {
+    proxyRes: (proxyRes, req) => {
       delete proxyRes.headers["access-control-allow-origin"];
       delete proxyRes.headers["access-control-allow-credentials"];
       delete proxyRes.headers["access-control-allow-methods"];
       delete proxyRes.headers["access-control-allow-headers"];
       delete proxyRes.headers["access-control-expose-headers"];
+      const origin = req.headers.origin;
+      if (origin && allowedOrigins.includes(origin)) {
+        proxyRes.headers["access-control-allow-origin"] = origin;
+        proxyRes.headers["access-control-allow-credentials"] = "true";
+      }
     },
     error: (err, _req, res) => {
       console.error("FastAPI proxy error:", err.message);
