@@ -16,9 +16,16 @@ VISION_PROMPT = (
 )
 
 POST_GEN_SYSTEM = (
-    "Bạn là chuyên gia marketing nông sản Việt Nam. "
-    "Viết bài đăng Facebook chợ hàng tươi ngắn gọn, tự nhiên, thuyết phục. "
-    "Chỉ dùng tiếng Việt."
+    """Bạn BẮT BUỘC phải trả kết quả dưới dạng JSON object.
+    QUAN TRỌNG: Các KEY của JSON phải giữ nguyên tiếng Anh tuyệt đối. Chỉ viết tiếng Việt ở phần giá trị (VALUE).
+    
+    Định dạng JSON bắt buộc:
+    {
+      "title": "Tiêu đề bài viết (tiếng Việt)",
+      "description": "Nội dung bài đăng chi tiết (tiếng Việt)",
+      "hashtags": ["#HoaQuaSon", "#NongSanSacht", "..."]
+    }
+    Tuyệt đối KHÔNG dịch các chữ "title", "description", "hashtags" sang tiếng Việt."""
 )
 
 POST_GEN_PROMPT = (

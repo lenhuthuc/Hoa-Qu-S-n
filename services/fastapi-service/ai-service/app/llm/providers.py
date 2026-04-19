@@ -3,6 +3,10 @@ import base64
 import httpx
 from typing import List, Tuple, Optional, Dict, Any
 
+from dotenv import load_dotenv
+load_dotenv()
+
+
 import google.generativeai as genai
 from openai import AsyncOpenAI
 
@@ -113,14 +117,14 @@ class VisionProviderChain:
 
 
 class TextChain:
-    """Cerebras Llama — structured output via OpenAI SDK .parse()."""
+    """Groq Llama — structured output via OpenAI-compatible SDK .parse()."""
 
     def __init__(self):
-        api_key = os.getenv("CEREBRAS_API_KEY")
+        api_key = os.getenv("GROQ_API_KEY")
         if not api_key:
-            raise ValueError("CEREBRAS_API_KEY not set")
+            raise ValueError("GROQ_API_KEY not set")
         self._client = AsyncOpenAI(
-            base_url="https://api.cerebras.ai/v1",
+            base_url="https://api.groq.com/openai/v1",
             api_key=api_key,
         )
 
@@ -137,16 +141,25 @@ class TextChain:
             certifications=certs,
         )
 
-        response = await self._client.beta.chat.completions.parse(
-            model="llama-3.3-70b",
+
+        response = await self._client.chat.completions.create(
+            model="llama-3.3-70b-versatile", 
             messages=[
-                {"role": "system", "content": POST_GEN_SYSTEM},
+ 
+                {
+                    "role": "system", 
+                    "content": POST_GEN_SYSTEM + "\nQUAN TRỌNG: Bạn BẮT BUỘC phải trả về định dạng JSON object hợp lệ."
+                },
                 {"role": "user", "content": prompt},
             ],
-            response_format=PostResult,
+
+            response_format={"type": "json_object"},
             temperature=0.75,
             max_tokens=1024,
         )
 
-        parsed: PostResult = response.choices[0].message.parsed
+
+        content = response.choices[0].message.content
+        parsed = PostResult.model_validate_json(content)
+        
         return parsed.model_dump()

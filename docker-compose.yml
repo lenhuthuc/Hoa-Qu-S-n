@@ -197,6 +197,8 @@ services:
         condition: service_started
       minio:
         condition: service_started
+    volumes:
+      - ./README.md:/README.md:ro
     networks:
       - hoaquason_network
 

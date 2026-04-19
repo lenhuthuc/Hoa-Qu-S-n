@@ -14,14 +14,18 @@ class QdrantClientWrapper:
         self.collection_name = "fruit_products"
 
     def ensure_collection(self):
-        """Create collection if it doesn't exist"""
-        try:
-            self.client.get_collection(self.collection_name)
-        except:
+     
+        if not self.client.collection_exists(self.collection_name):
             self.client.create_collection(
                 collection_name=self.collection_name,
-                vectors_config=VectorParams(size=768, distance=Distance.COSINE)
+                vectors_config=VectorParams(
+                    size=768, 
+                    distance=Distance.COSINE
+                )
             )
+            print(f"Đã tạo collection: {self.collection_name}")
+        else:
+            print(f"Collection {self.collection_name} đã sẵn sàng.")
 
     def search_similar(self, query_vector: List[float], limit: int = 10) -> List[Dict[str, Any]]:
         """Search for similar products"""
