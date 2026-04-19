@@ -43,6 +43,11 @@ Dùng để chạy toàn bộ hệ thống ngay lập tức trong môi trường
 1. **Cấu hình `.env`**: `cp .env.example .env` (Điền các API KEY cần thiết — xem phần 🔑 bên dưới).
 2. **Khởi chạy lần đầu** (có build):
    ```bash
+   # Nếu chỉ muốn chạy LOCAL (Frontend gọi localhost:3000):
+   docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build frontend
+   docker compose up -d
+
+   # Nếu muốn chuẩn bị PUBLIC (Frontend gọi api.haquason.uk):
    docker compose up -d --build
    ```
 3. **Các lần sau** (không cần build lại):
