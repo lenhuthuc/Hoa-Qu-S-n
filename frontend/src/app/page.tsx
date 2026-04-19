@@ -3,8 +3,8 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Leaf, Video, Loader2, ArrowRight } from "lucide-react";
-import { parseToken, productApi, livestreamApi } from "@/lib/api";
+import { Leaf, Video, Loader2, ArrowRight, BookOpen } from "lucide-react";
+import { parseToken, productApi, livestreamApi, storyApi } from "@/lib/api";
 
 interface Product {
   id: number;
@@ -22,10 +22,22 @@ interface LiveStream {
   viewerCount?: number;
 }
 
+interface Story {
+  id: number;
+  sellerId: number;
+  sellerName?: string;
+  shopName?: string;
+  title: string;
+  mediaUrl?: string | null;
+  mediaType?: "IMAGE" | "VIDEO";
+  content?: string;
+}
+
 export default function Home() {
   const router = useRouter();
   const [products, setProducts] = useState<Product[]>([]);
   const [streams, setStreams] = useState<LiveStream[]>([]);
+  const [stories, setStories] = useState<Story[]>([]);
   const [loading, setLoading] = useState(true);
 
   const handleSellNow = () => {
@@ -43,9 +55,10 @@ export default function Home() {
   useEffect(() => {
     (async () => {
       try {
-        const [productRes, streamRes] = await Promise.all([
+        const [productRes, streamRes, storyRes] = await Promise.all([
           productApi.getAll(0, 8),
           livestreamApi.getActive(),
+          storyApi.getAll(0, 6),
         ]);
 
         const productData = productRes.data?.data?.content || productRes.data?.data || productRes.data || [];
@@ -53,9 +66,42 @@ export default function Home() {
 
         const streamData = streamRes.data?.data || streamRes.data || [];
         setStreams(Array.isArray(streamData) ? streamData.slice(0, 6) : []);
+
+        const rawStories = storyRes?.data?.stories || storyRes?.data?.content || storyRes?.data || [];
+        const normalizedStories = Array.isArray(rawStories)
+          ? rawStories
+              .map((s: any): Story => {
+                const mediaType: "IMAGE" | "VIDEO" =
+                  String(s?.mediaType || (s?.videoUrl ? "VIDEO" : "IMAGE")).toUpperCase() === "VIDEO"
+                    ? "VIDEO"
+                    : "IMAGE";
+
+                return {
+                  id: Number(s?.id || 0),
+                  sellerId: Number(s?.sellerId || 0),
+                  sellerName: typeof s?.sellerName === "string" ? s.sellerName : "Nông hộ",
+                  shopName: typeof s?.shopName === "string" ? s.shopName : undefined,
+                  title: typeof s?.title === "string" ? s.title : "Nhật ký nhà nông",
+                  mediaUrl:
+                    typeof s?.mediaUrl === "string"
+                      ? s.mediaUrl
+                      : typeof s?.imageUrl === "string"
+                        ? s.imageUrl
+                        : typeof s?.videoUrl === "string"
+                          ? s.videoUrl
+                          : null,
+                  mediaType,
+                  content: typeof s?.content === "string" ? s.content : "",
+                };
+              })
+              .filter((s) => s.id > 0)
+              .slice(0, 6)
+          : [];
+        setStories(normalizedStories);
       } catch {
         setProducts([]);
         setStreams([]);
+        setStories([]);
       } finally {
         setLoading(false);
       }
@@ -110,7 +156,7 @@ export default function Home() {
           </div>
         ) : (
           <div className="grid sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-            {products.map((p) => (
+            {products.slice(0, 8).map((p) => (
               <Link 
                 key={p.id} 
                 href={`/product/${p.id}`}
@@ -142,6 +188,66 @@ export default function Home() {
                       Mua ngay <ArrowRight className="w-3 h-3" />
                     </span>
                   </div>
+                </div>
+              </Link>
+            ))}
+          </div>
+        )}
+      </section>
+
+      {/* Farmer Stories */}
+      <section className="max-w-7xl mx-auto px-4 py-16 bg-white rounded-3xl shadow-sm border mb-16">
+        <div className="flex items-center justify-between mb-8">
+          <h2 className="text-2xl font-bold text-gray-900">Câu chuyện nhà nông</h2>
+          <Link href="/stories" className="flex items-center gap-1 text-primary-600 hover:text-primary-700 font-medium">
+            Xem tất cả <ArrowRight className="w-4 h-4" />
+          </Link>
+        </div>
+
+        {loading ? (
+          <div className="flex justify-center py-12">
+            <Loader2 className="w-8 h-8 animate-spin text-primary-600" />
+          </div>
+        ) : stories.length === 0 ? (
+          <div className="text-center py-12 text-gray-500">
+            <BookOpen className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+            <p>Chưa có câu chuyện nhà nông nào</p>
+          </div>
+        ) : (
+          <div className="grid sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+            {stories.map((story) => (
+              <Link
+                key={story.id}
+                href="/stories"
+                className="group bg-white rounded-2xl border hover:shadow-lg transition-all duration-300 overflow-hidden flex flex-col hover:-translate-y-1"
+              >
+                <div className="aspect-[3/4] bg-gray-100 flex items-center justify-center relative overflow-hidden">
+                  {story.mediaUrl ? (
+                    story.mediaType === "VIDEO" ? (
+                      <video
+                        src={story.mediaUrl}
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                        muted
+                        playsInline
+                      />
+                    ) : (
+                      <img
+                        src={story.mediaUrl}
+                        alt={story.title}
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                      />
+                    )
+                  ) : (
+                    <BookOpen className="w-10 h-10 text-gray-300" />
+                  )}
+                </div>
+                <div className="p-3 flex-1 flex flex-col">
+                  <h3 className="font-semibold text-gray-900 text-sm mb-1 line-clamp-2 group-hover:text-primary-600 transition-colors">
+                    {story.title}
+                  </h3>
+                  <p className="text-xs text-gray-500 line-clamp-1 mt-auto">
+                    {story.shopName || story.sellerName || "Nông hộ"}
+                  </p>
                 </div>
               </Link>
             ))}
