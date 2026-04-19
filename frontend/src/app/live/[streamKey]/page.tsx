@@ -136,40 +136,40 @@ export default function LiveViewerPage() {
   };
 
   return (
-    <div className="min-h-screen bg-surface-darker text-white">
-      {/* ── Header ── */}
-      <div className="h-16 border-b border-white/10 bg-black/40 backdrop-blur-md flex items-center px-6 sticky top-0 z-50">
-        <div className="flex items-center gap-3 w-full max-w-[1600px] mx-auto">
-          {/* Nút thoát phòng live */}
+    <div className="min-h-screen bg-[#f8fafc] text-slate-900">
+      <div className="max-w-[1600px] mx-auto p-4 sm:p-6">
+        {/* Stream Info Bar (moved from header) */}
+          <div className="flex items-center gap-4 mb-4 text-sm">
           <button
             onClick={() => router.push("/live")}
-            className="flex items-center gap-2 text-slate-400 hover:text-white bg-white/5 hover:bg-white/10 border border-white/10 hover:border-white/20 px-3 py-1.5 rounded-lg transition-all text-sm font-medium"
+            className="flex items-center gap-2 text-slate-600 hover:text-primary-600 bg-white hover:bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-lg transition-all shadow-sm"
           >
             <ArrowLeft className="w-4 h-4" />
-            Thoát
+            Quay lại
           </button>
 
-          <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-accent-500 to-primary-500 flex items-center justify-center ml-1">
-            <Store className="w-4 h-4 text-white" />
-          </div>
-          <span className="font-bold text-lg tracking-tight">
-            Hoa Qua Son <span className="text-primary-400">Live</span>
-          </span>
+          <div className="h-4 w-px bg-slate-200" />
+
           {streamInfo.sellerName && (
-            <span className="ml-2 text-sm text-slate-400 hidden sm:block">
-              🌾 {streamInfo.sellerName}
-              {streamInfo.title && ` — ${streamInfo.title}`}
-            </span>
+            <div className="flex items-center gap-2">
+              <div className="w-6 h-6 rounded-full bg-primary-100 flex items-center justify-center">
+                <Store className="w-3.5 h-3.5 text-primary-600" />
+              </div>
+              <span className="font-medium text-slate-800">
+                {streamInfo.sellerName} {streamInfo.title && <span className="text-slate-500 font-normal">— {streamInfo.title}</span>}
+              </span>
+            </div>
           )}
-          <div className="ml-auto flex items-center gap-2 text-sm text-slate-400">
-            <Eye className="w-4 h-4" />
-            <span>{viewerCount} đang xem</span>
+
+          <div className="ml-auto flex items-center gap-3">
+            <div className="flex items-center gap-1.5 text-slate-600 bg-white px-2.5 py-1 rounded-md border border-slate-200 shadow-sm">
+              <Eye className="w-3.5 h-3.5" />
+              <span className="font-medium">{viewerCount}</span>
+            </div>
           </div>
         </div>
-      </div>
 
-      <div className="max-w-[1600px] mx-auto p-4 sm:p-6">
-        <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 h-[calc(100vh-120px)] min-h-[700px]">
+        <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 h-[calc(100vh-140px)] min-h-[700px]">
 
           {/* ════════════════════════════════════════════════════
               CỘT TRÁI (9 col): Player + Products
@@ -177,7 +177,7 @@ export default function LiveViewerPage() {
           <div className="xl:col-span-9 flex flex-col gap-6">
 
             {/* ── Video Player ── */}
-            <div className="relative flex-1 dark-glass-panel rounded-3xl overflow-hidden border border-white/5 shadow-2xl flex flex-col">
+            <div className="relative flex-1 glass-panel rounded-3xl overflow-hidden border border-slate-200 shadow-xl flex flex-col">
               <div className="absolute top-4 left-4 z-10 flex items-center gap-3">
                 {streamStatus === "LIVE" && (
                   <div className="bg-red-600 text-white px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1.5 shadow-lg shadow-red-500/20 backdrop-blur-md border border-red-400/30">
@@ -186,12 +186,12 @@ export default function LiveViewerPage() {
                   </div>
                 )}
                 {streamStatus === "OFFLINE" && (
-                  <div className="bg-yellow-600 text-white px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1.5 backdrop-blur-md border border-yellow-400/30">
+                  <div className="bg-slate-600 text-white px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1.5 backdrop-blur-md border border-slate-400/30">
                     <WifiOff className="w-3 h-3" /> GIÁN ĐOẠN
                   </div>
                 )}
                 {streamStatus === "ENDED" && (
-                  <div className="bg-gray-600 text-white px-3 py-1 rounded-full text-xs font-bold backdrop-blur-md border border-gray-400/30">
+                  <div className="bg-slate-400 text-white px-3 py-1 rounded-full text-xs font-bold backdrop-blur-md">
                     ĐÃ KẾT THÚC
                   </div>
                 )}
@@ -210,11 +210,11 @@ export default function LiveViewerPage() {
                 DANH SÁCH SẢN PHẨM — Chốt đơn trực tiếp
                 ═══════════════════════════════════════════════════ */}
             {products.length > 0 ? (
-              <div className="dark-glass-panel rounded-3xl border border-white/10 p-5">
+              <div className="glass-panel rounded-3xl border border-slate-200 p-5">
                 <h3 className="font-bold text-lg flex items-center gap-2 mb-4">
-                  <Tag className="w-5 h-5 text-accent-400" />
+                  <Tag className="w-5 h-5 text-accent-500" />
                   Sản phẩm đang bán
-                  <span className="text-slate-500 font-normal text-sm">({products.length})</span>
+                  <span className="text-slate-400 font-normal text-sm">({products.length})</span>
                 </h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
                   {products.map((p) => {
@@ -224,12 +224,12 @@ export default function LiveViewerPage() {
                     return (
                       <div
                         key={p.id}
-                        className="bg-white/5 border border-white/10 rounded-2xl p-4 flex flex-col gap-3 transition-all hover:border-accent-400/30"
+                        className="bg-white border border-slate-100 rounded-2xl p-4 flex flex-col gap-3 transition-all hover:border-accent-400/50 hover:shadow-md"
                       >
                         {/* Tên + Giá */}
                         <div>
-                          <p className="font-semibold text-sm text-white line-clamp-2 leading-snug">{p.name}</p>
-                          <p className="text-accent-400 font-bold text-base mt-1">
+                          <p className="font-semibold text-sm text-slate-800 line-clamp-2 leading-snug">{p.name}</p>
+                          <p className="text-accent-600 font-bold text-base mt-1">
                             {Number(p.price).toLocaleString("vi-VN")}đ
                           </p>
                         </div>
@@ -239,17 +239,17 @@ export default function LiveViewerPage() {
                           <button
                             onClick={() => adjustQty(p.id, -1)}
                             disabled={qty <= 1 || isOrdering}
-                            className="w-8 h-8 rounded-lg bg-white/10 hover:bg-white/20 flex items-center justify-center disabled:opacity-40 transition"
+                            className="w-8 h-8 rounded-lg bg-slate-100 hover:bg-slate-200 flex items-center justify-center disabled:opacity-40 transition"
                           >
-                            <Minus className="w-3.5 h-3.5" />
+                            <Minus className="w-3.5 h-3.5 text-slate-600" />
                           </button>
-                          <span className="w-8 text-center font-bold text-white">{qty}</span>
+                          <span className="w-8 text-center font-bold text-slate-700">{qty}</span>
                           <button
                             onClick={() => adjustQty(p.id, +1)}
                             disabled={qty >= 99 || isOrdering}
-                            className="w-8 h-8 rounded-lg bg-white/10 hover:bg-white/20 flex items-center justify-center disabled:opacity-40 transition"
+                            className="w-8 h-8 rounded-lg bg-slate-100 hover:bg-slate-200 flex items-center justify-center disabled:opacity-40 transition"
                           >
-                            <Plus className="w-3.5 h-3.5" />
+                            <Plus className="w-3.5 h-3.5 text-slate-600" />
                           </button>
                         </div>
 
@@ -257,15 +257,14 @@ export default function LiveViewerPage() {
                         <button
                           onClick={() => orderProduct(p)}
                           disabled={isOrdering || isDone || streamStatus === "ENDED"}
-                          className={`w-full py-2.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all ${
-                            isDone
-                              ? "bg-green-500/20 text-green-400 border border-green-500/30"
+                          className={`w-full py-2.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all ${isDone
+                              ? "bg-green-100 text-green-600 border border-green-200"
                               : isOrdering
-                              ? "bg-accent-500/50 text-white cursor-wait"
-                              : streamStatus === "ENDED"
-                              ? "bg-white/5 text-slate-500 cursor-not-allowed"
-                              : "bg-gradient-to-r from-accent-500 to-accent-600 hover:from-accent-400 hover:to-accent-500 text-white shadow-lg shadow-accent-500/20 hover:-translate-y-0.5"
-                          }`}
+                                ? "bg-accent-200 text-accent-700 cursor-wait"
+                                : streamStatus === "ENDED"
+                                  ? "bg-slate-100 text-slate-400 cursor-not-allowed"
+                                  : "bg-gradient-to-r from-accent-500 to-accent-600 hover:from-accent-400 hover:to-accent-500 text-white shadow-lg shadow-accent-500/10 hover:-translate-y-0.5"
+                            }`}
                         >
                           {isDone ? (
                             <><CheckCircle className="w-4 h-4" /> Đã chốt!</>
@@ -281,10 +280,10 @@ export default function LiveViewerPage() {
                 </div>
               </div>
             ) : streamStatus === "LIVE" ? (
-              <div className="dark-glass-panel rounded-3xl border border-white/10 p-6 flex items-center gap-4 text-slate-500">
+              <div className="glass-panel rounded-3xl border border-slate-200 p-6 flex items-center gap-4 text-slate-500">
                 <Package className="w-8 h-8 opacity-40 shrink-0" />
                 <div>
-                  <p className="font-medium text-slate-400">Chưa có sản phẩm</p>
+                  <p className="font-medium text-slate-600">Chưa có sản phẩm</p>
                   <p className="text-sm">Người bán chưa thêm sản phẩm — hãy chờ một chút!</p>
                 </div>
               </div>
@@ -295,17 +294,17 @@ export default function LiveViewerPage() {
               CỘT PHẢI (3 col): Chat realtime
               ════════════════════════════════════════════════════ */}
           <div className="xl:col-span-3 flex flex-col gap-6 h-full">
-            <div className="dark-glass-panel rounded-3xl border border-white/10 overflow-hidden flex-1 flex flex-col">
-              <div className="px-5 py-4 border-b border-white/10 bg-white/5 flex items-center justify-between">
-                <span className="font-semibold flex items-center gap-2">
-                  <Sparkles className="w-5 h-5 text-primary-400" />
+            <div className="glass-panel rounded-3xl border border-slate-200 overflow-hidden flex-1 flex flex-col">
+              <div className="px-5 py-4 border-b border-slate-100 bg-white flex items-center justify-between">
+                <span className="font-semibold flex items-center gap-2 text-slate-800">
+                  <Sparkles className="w-5 h-5 text-primary-500" />
                   Khung Trò Chuyện
                 </span>
-                <div className="flex items-center gap-1.5 text-xs text-slate-400 bg-black/40 px-2 py-1 rounded-md">
-                  <TrendingUp className="w-3 h-3 text-green-400" /> Đang hot
+                <div className="flex items-center gap-1.5 text-xs text-slate-500 bg-slate-100 px-2 py-1 rounded-md">
+                  <TrendingUp className="w-3 h-3 text-green-600" /> Đang hot
                 </div>
               </div>
-              <div className="flex-1" style={{ filter: "invert(0.9) hue-rotate(180deg)", background: "#fff" }}>
+              <div className="flex-1 bg-white">
                 <LiveChat
                   streamKey={streamKey}
                   userName={getUserName()}

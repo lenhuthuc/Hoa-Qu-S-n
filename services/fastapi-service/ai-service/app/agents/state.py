@@ -14,8 +14,6 @@ class PostGenState(TypedDict):
 
     # Intermediate results
     vision_result: Optional[dict]
-    base_price_result: Optional[dict]
-    seasonal_result: Optional[dict]
     similar_result: Optional[dict]
     pricing_result: Optional[dict]
     post_result: Optional[dict]

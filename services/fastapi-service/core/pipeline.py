@@ -56,6 +56,7 @@ async def _pricing(state: PostGenState) -> dict:
         freshness=v.freshness,
         embedding_service=state.get("embedding_service"),
         category=v.category,
+        features=v.features,
     )
     return {"pricing_result": result}
 

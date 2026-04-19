@@ -3,10 +3,16 @@ from typing import List, Optional
 
 
 class VisionResult(BaseModel):
-    product_name: str = Field(..., description="Tên sản phẩm tiếng Việt")
+    product_name: str = Field(..., description="Tên sản phẩm tiếng Việt, càng cụ thể càng tốt")
+    features: List[str] = Field(
+        ...,
+        description="Đúng 15 đặc trưng nổi bật nhất theo thứ tự quan trọng. "
+                    "features[0] BẮT BUỘC là tên sản phẩm (giống product_name). "
+                    "Ví dụ: ['Xoài cát Hòa Lộc', 'màu vàng chín đều', 'kích thước lớn 300-400g', ...]",
+    )
     grade: str = Field(..., description="Cấp độ chất lượng (Loại 1, Loại 2, Loại 3)")
-    freshness: str = Field(..., description="Mức độ tươi (Tươi, Trung bình, Hơi úa)")
-    defects: List[str] = Field(default_factory=list, description="Danh sách khuyết tật")
+    freshness: str = Field(..., description="Mức độ tươi (Rất tươi, Tươi, Bình thường, Kém tươi)")
+    defects: List[str] = Field(default_factory=list, description="Danh sách khuyết tật nhìn thấy")
     certifications: List[str] = Field(default_factory=list, description="Chứng nhận (VietGAP, Organic, etc.)")
     category: str = Field(..., description="Danh mục sản phẩm")
     confidence: float = Field(..., ge=0.0, le=1.0, description="Độ tin cậy của phân tích")

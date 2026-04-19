@@ -37,6 +37,7 @@ hlsVariant: lowLatency
 
 webrtc: yes
 webrtcAddress: :8889
+webrtcAllowOrigins: ["*"]
 webrtcAdditionalHosts: [127.0.0.1, 192.168.1.8]
 webrtcLocalUDPAddress: :8189
 webrtcICEServers2:
@@ -57,12 +58,14 @@ paths:
       ffmpeg
       -hide_banner
       -loglevel warning
+      -fflags +genpts+nobuffer+flush_packets
+      -use_wallclock_as_timestamps 1
       -rtsp_transport tcp
-      -copyts
       -i rtsp://127.0.0.1:8554/$MTX_PATH
       -map 0:v:0 -map 0:a:0
       -c:v copy
-      -c:a aac -b:a 128k -ar 48000 -ac 2
+      -c:a aac -b:a 128k -ar 44100 -ac 2
+      -af aresample=async=1
       -f rtsp -rtsp_transport tcp
       rtsp://127.0.0.1:8554/${MTX_PATH}-aac
     runOnReadyRestart: yes
