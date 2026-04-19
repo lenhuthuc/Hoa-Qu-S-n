@@ -16,6 +16,7 @@ async def lifespan(app: FastAPI):
     # Initialize clients
     postgres_client = PostgresClient()
     await postgres_client.connect()
+    await postgres_client.ensure_tables()
 
     qdrant_client = QdrantClientWrapper()
     qdrant_client.ensure_collection()
