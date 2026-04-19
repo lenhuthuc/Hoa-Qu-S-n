@@ -4,6 +4,7 @@ from typing import List, Optional
 
 class VisionResult(BaseModel):
     product_name: str = ""
+    features: List[str] = Field(default_factory=list)
     grade: str = ""
     category: str = ""
     freshness: str = ""

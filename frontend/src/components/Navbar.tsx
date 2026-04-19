@@ -67,9 +67,6 @@ export default function Navbar() {
     { href: "/chatbot", icon: MessageCircle, label: "Trợ lý AI" },
   ];
 
-  // Hide navbar on livestream viewer pages for immersive experience
-  if (pathname?.startsWith("/live/") && pathname !== "/live") return null;
-
   return (
     <header className="border-b bg-white/80 backdrop-blur-sm sticky top-0 z-50">
       <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">

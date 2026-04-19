@@ -24,7 +24,9 @@ if (allowedOrigins.length === 0) {
     "http://localhost:3000",
     "http://localhost:3001",
     "http://127.0.0.1:3000",
-    "http://127.0.0.1:3001"
+    "http://127.0.0.1:3001",
+    'https://haquason.uk',
+    'https://www.haquason.uk'
   );
 }
 
@@ -92,6 +94,13 @@ const springProxy = createProxyMiddleware({
         proxyReq.setHeader("Authorization", req.headers.authorization);
       }
     },
+    proxyRes: (proxyRes) => {
+      delete proxyRes.headers["access-control-allow-origin"];
+      delete proxyRes.headers["access-control-allow-credentials"];
+      delete proxyRes.headers["access-control-allow-methods"];
+      delete proxyRes.headers["access-control-allow-headers"];
+      delete proxyRes.headers["access-control-expose-headers"];
+    },
     error: (err, _req, res) => {
       console.error("Spring proxy error:", err.message);
       res.status(502).json({ success: false, error: "Spring service unavailable" });
@@ -106,6 +115,13 @@ const fastapiProxy = createProxyMiddleware({
   changeOrigin: true,
   pathFilter: ["/api/ai/**", "/api/search/**", "/api/chatbot/**"],
   on: {
+    proxyRes: (proxyRes) => {
+      delete proxyRes.headers["access-control-allow-origin"];
+      delete proxyRes.headers["access-control-allow-credentials"];
+      delete proxyRes.headers["access-control-allow-methods"];
+      delete proxyRes.headers["access-control-allow-headers"];
+      delete proxyRes.headers["access-control-expose-headers"];
+    },
     error: (err, _req, res) => {
       console.error("FastAPI proxy error:", err.message);
       res.status(502).json({ success: false, error: "AI service unavailable" });

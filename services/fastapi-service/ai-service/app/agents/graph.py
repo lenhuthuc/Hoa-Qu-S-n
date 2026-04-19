@@ -15,8 +15,6 @@ def build_graph():
 
     graph.add_node("validate_input", validators.validate_input)
     graph.add_node("vision_extractor", vision.vision_extractor)
-    graph.add_node("base_price", pricing.base_price)
-    graph.add_node("seasonal", pricing.seasonal)
     graph.add_node("similar", pricing.similar)
     graph.add_node("price_calculator", pricing.price_calculator)
     graph.add_node("post_generator", post_gen.post_generator)
@@ -25,21 +23,18 @@ def build_graph():
 
     graph.set_entry_point("validate_input")
 
-    # Nodes that can error → conditional edges
     graph.add_conditional_edges(
         "validate_input",
         _route("vision_extractor"),
         {END: END, "vision_extractor": "vision_extractor"},
     )
+    # vision → similar (dùng 15 features để search giá, không qua yaml)
     graph.add_conditional_edges(
         "vision_extractor",
-        _route("base_price"),
-        {END: END, "base_price": "base_price"},
+        _route("similar"),
+        {END: END, "similar": "similar"},
     )
 
-    # Pure computation nodes — always succeed
-    graph.add_edge("base_price", "seasonal")
-    graph.add_edge("seasonal", "similar")
     graph.add_edge("similar", "price_calculator")
     graph.add_edge("price_calculator", "post_generator")
 
