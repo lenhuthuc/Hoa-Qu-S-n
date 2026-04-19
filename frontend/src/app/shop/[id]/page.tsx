@@ -315,7 +315,7 @@ export default function ShopPage() {
           <div className="mb-3 flex items-center justify-between">
             <h2 className="text-3xl font-extrabold tracking-tight text-[#0f5132]">Nhật ký canh tác</h2>
             <Link href="/stories" className="text-sm font-semibold text-[#146c43] hover:underline">
-              Xem tất cả
+              Xem thêm các nhật ký khác
             </Link>
           </div>
 

@@ -12,6 +12,26 @@ const api = axios.create({
   headers: { "Content-Type": "application/json" },
 });
 
+const RETURN_WINDOW_HOURS = 24;
+const EVIDENCE_VIDEO_EXTENSIONS = ["mp4", "webm", "ogg", "mov", "m4v"];
+
+export function isWithinReturnWindowFromConfirmation(buyerConfirmedAt?: string): boolean {
+  if (!buyerConfirmedAt) return false;
+  const confirmedTime = new Date(buyerConfirmedAt).getTime();
+  if (Number.isNaN(confirmedTime)) return false;
+  return Date.now() - confirmedTime <= RETURN_WINDOW_HOURS * 60 * 60 * 1000;
+}
+
+export function getFileExtension(url: string): string {
+  const cleanUrl = url.split("?")[0].split("#")[0];
+  const match = cleanUrl.match(/\.([a-z0-9]+)$/i);
+  return match ? match[1].toLowerCase() : "";
+}
+
+export function isVideoEvidenceUrl(url: string): boolean {
+  return EVIDENCE_VIDEO_EXTENSIONS.includes(getFileExtension(url));
+}
+
 export function getReturnEvidenceMediaSrc(mediaUrl: string): string {
   return `${API_URL}/api/returns/evidence/media?url=${encodeURIComponent(mediaUrl)}`;
 }

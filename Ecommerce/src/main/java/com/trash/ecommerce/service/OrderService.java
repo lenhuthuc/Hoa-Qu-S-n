@@ -15,9 +15,9 @@ public interface OrderService {
     public OrderPreviewResponseDTO previewBuyNowOrder(Long userId, Long productId, Long quantity,
                                                       String discountVoucherCode, String shippingVoucherCode,
                                                       String deliveryType, String toDistrictId, String toWardCode);
-    public OrderResponseDTO createMyOrder(Long userId, Long paymentMethodId, String discountVoucherCode,
-                                          String shippingVoucherCode, String deliveryType,
-                                          String toDistrictId, String toWardCode, String IpAddress);
+    public List<OrderResponseDTO> createMyOrder(Long userId, Long paymentMethodId, String discountVoucherCode,
+                                                String shippingVoucherCode, String deliveryType,
+                                                String toDistrictId, String toWardCode, String IpAddress);
     public OrderResponseDTO createBuyNowOrder(Long userId, Long productId, Long quantity, Long paymentMethodId,
                                               String discountVoucherCode, String shippingVoucherCode,
                                               String deliveryType, String toDistrictId, String toWardCode,

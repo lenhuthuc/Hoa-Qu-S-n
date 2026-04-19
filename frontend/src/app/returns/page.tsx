@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { getReturnEvidenceMediaSrc, parseEvidenceUrls, returnApi } from "@/lib/api";
+import { getReturnEvidenceMediaSrc, isVideoEvidenceUrl, parseEvidenceUrls, returnApi } from "@/lib/api";
 import Link from "next/link";
 
 interface ReturnRequest {
@@ -43,18 +43,6 @@ const STATUS_MAP: Record<string, { label: string; color: string }> = {
   ESCALATED: { label: "Đã khiếu nại lên sàn", color: "bg-amber-100 text-amber-800" },
   REFUNDED: { label: "Đã hoàn tiền", color: "bg-green-200 text-green-800" },
 };
-
-const VIDEO_EXTENSIONS = ["mp4", "webm", "ogg", "mov", "m4v"];
-
-function getFileExtension(url: string): string {
-  const cleanUrl = url.split("?")[0].split("#")[0];
-  const match = cleanUrl.match(/\.([a-z0-9]+)$/i);
-  return match ? match[1].toLowerCase() : "";
-}
-
-function isVideoUrl(url: string): boolean {
-  return VIDEO_EXTENSIONS.includes(getFileExtension(url));
-}
 
 function splitResolutionResponse(rawResponse?: string | null): {
   sellerMessage: string;
@@ -174,7 +162,7 @@ export default function ReturnsPage() {
                         return (
                           <div key={url} className="overflow-hidden rounded-xl border border-gray-200 bg-white">
                             <div className="h-44 bg-gray-100">
-                              {isVideoUrl(url) ? (
+                              {isVideoEvidenceUrl(url) ? (
                                 <video src={mediaSrc} controls className="h-full w-full object-cover" />
                               ) : (
                                 <img src={mediaSrc} alt={fileName} className="h-full w-full object-cover" />

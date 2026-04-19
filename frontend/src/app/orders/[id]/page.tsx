@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { Package, Loader2, ChevronLeft, Leaf, CreditCard, Truck, CheckCircle, MapPin, Star, X, ImageIcon, Film, Trash2 } from "lucide-react";
-import { orderApi, reviewApi, returnApi, sellerApi, userApi } from "@/lib/api";
+import { isWithinReturnWindowFromConfirmation, orderApi, reviewApi, returnApi, sellerApi, userApi } from "@/lib/api";
 import toast from "react-hot-toast";
 
 interface OrderDetail {
@@ -18,6 +18,14 @@ interface OrderDetail {
   createdAt: string;
   buyerConfirmedAt?: string;
   viewerRole?: string;
+  subOrders?: Array<{
+    id: number;
+    sellerId?: number;
+    sellerName?: string;
+    status?: string;
+    totalAmount?: number;
+    shippingFee?: number;
+  }>;
   items?: Array<{
     productId: number;
     productName: string;
@@ -25,15 +33,6 @@ interface OrderDetail {
     price: number;
     imageUrl?: string;
   }>;
-}
-
-const RETURN_WINDOW_HOURS = 24;
-
-function isWithinReturnWindow(createdAt?: string): boolean {
-  if (!createdAt) return false;
-  const createdTime = new Date(createdAt).getTime();
-  if (Number.isNaN(createdTime)) return false;
-  return Date.now() - createdTime <= RETURN_WINDOW_HOURS * 60 * 60 * 1000;
 }
 
 type ReviewTarget = {
@@ -72,6 +71,16 @@ const statusMap: Record<string, { label: string; color: string; step: number }> 
   FINISHED: { label: "Hoàn thành", color: "text-green-600", step: 5 },
   CANCELLED: { label: "Đã hủy", color: "text-red-600", step: 0 },
 };
+
+function isVnPayMethod(method?: string): boolean {
+  if (!method) return false;
+  const normalized = method.trim().toUpperCase();
+  return normalized === "2" || normalized.includes("VNPAY");
+}
+
+function getPaymentMethodLabel(method?: string): string {
+  return isVnPayMethod(method) ? "Thanh toán bằng VNPay" : "Tiền mặt khi nhận hàng (COD)";
+}
 
 export default function OrderDetailPage() {
   const params = useParams();
@@ -115,7 +124,13 @@ export default function OrderDetailPage() {
           const returnsRes = await returnApi.getMyRequests().catch(() => null);
           const returnsPayload = returnsRes?.data?.data || returnsRes?.data || [];
           const returnsList: ReturnRequestSummary[] = Array.isArray(returnsPayload) ? returnsPayload : [];
-          const matched = returnsList.find((item) => Number(item.orderId) === Number(orderData?.id));
+          const relatedOrderIds = new Set<number>([Number(orderData?.id)]);
+          if (Array.isArray(orderData?.subOrders)) {
+            orderData.subOrders.forEach((sub: any) => {
+              if (sub?.id) relatedOrderIds.add(Number(sub.id));
+            });
+          }
+          const matched = returnsList.find((item) => relatedOrderIds.has(Number(item.orderId)));
           setExistingReturnRequestId(matched?.id ? Number(matched.id) : null);
         } else {
           setExistingReturnRequestId(null);
@@ -162,14 +177,9 @@ export default function OrderDetailPage() {
     if (!order) return;
     setPayingVnPay(true);
     try {
-      const res = await orderApi.retryPayment(order.id);
-      const payload = res.data?.data || res.data;
-      const url = payload?.paymentUrl || payload;
-      if (url && typeof url === "string") {
-        window.location.href = url;
-      } else {
-        toast.error("Không thể tạo link thanh toán");
-      }
+      await orderApi.retryPayment(order.id);
+      setOrder((prev) => (prev ? { ...prev, status: "PLACED" } : prev));
+      toast.success("Thanh toán VNPay đã được ghi nhận");
     } catch {
       toast.error("Lỗi tạo thanh toán VNPay");
     } finally {
@@ -303,8 +313,12 @@ export default function OrderDetailPage() {
         }
       }
 
+      const returnOrderId = Array.isArray(order.subOrders) && order.subOrders.length === 1
+        ? order.subOrders[0].id
+        : order.id;
+
       const createRes = await returnApi.create({
-        orderId: order.id,
+        orderId: returnOrderId,
         reasonCode: returnReasonCode,
         description: returnDescription.trim(),
         evidenceUrls,
@@ -460,7 +474,8 @@ export default function OrderDetailPage() {
   const stat = statusMap[order.status] || { label: "Không xác định", color: "text-gray-600", step: 0 };
   const createdDate = new Date(order.createdAt).toLocaleDateString("vi-VN");
   const hasReturnRequest = existingReturnRequestId !== null;
-  const canRequestReturn = !hasReturnRequest && order.viewerRole !== "SELLER" && order.status === "FINISHED" && isWithinReturnWindow(order.createdAt);
+  const hasMultiSellerSubOrders = Array.isArray(order.subOrders) && order.subOrders.length > 1;
+  const canRequestReturn = !hasReturnRequest && !hasMultiSellerSubOrders && order.viewerRole !== "SELLER" && order.status === "FINISHED" && isWithinReturnWindowFromConfirmation(order.buyerConfirmedAt);
   const addressLines = (order.address || "")
     .split(",")
     .map((line) => line.trim())
@@ -661,14 +676,14 @@ export default function OrderDetailPage() {
                 </div>
                 <div className="bg-gray-50 p-4 rounded-xl flex items-center justify-between border border-gray-200">
                   <span className="text-sm font-medium text-gray-700">
-                    {String(order.paymentMethod) === "2" ? "VNPay" : "Tiền mặt khi nhận hàng (COD)"}
+                    {getPaymentMethodLabel(order.paymentMethod)}
                   </span>
                   <CheckCircle className="w-5 h-5 text-green-700" />
                 </div>
               </div>
 
               {/* Action Buttons */}
-              {order.status === "PENDING_PAYMENT" && String(order.paymentMethod) === "2" && (
+              {order.status === "PENDING_PAYMENT" && isVnPayMethod(order.paymentMethod) && (
                 <button
                   onClick={handleVnPay}
                   disabled={payingVnPay}
@@ -766,6 +781,12 @@ export default function OrderDetailPage() {
                 </button>
               )}
 
+              {!hasReturnRequest && hasMultiSellerSubOrders && order.viewerRole !== "SELLER" && (
+                <div className="mt-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                  Đơn này có nhiều nhà bán. Hiện chỉ hỗ trợ tạo yêu cầu hoàn trả theo từng đơn con.
+                </div>
+              )}
+
               <Link
                 href="/search"
                 className="block w-full text-center py-3 text-green-700 font-medium hover:bg-green-50 rounded-xl transition mt-2"
@@ -785,7 +806,7 @@ export default function OrderDetailPage() {
                 <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-600">Tạo phiếu khiếu nại</p>
                 <h2 className="mt-2 text-2xl font-bold text-gray-900">Trả hàng / Hoàn tiền</h2>
                 <p className="mt-2 text-sm text-gray-500">
-                  Chỉ hiển thị trong vòng 24 giờ kể từ lúc đơn hàng được tạo.
+                  Chỉ hiển thị trong vòng 24 giờ kể từ lúc bạn xác nhận đã nhận hàng.
                 </p>
               </div>
               <button
@@ -815,7 +836,7 @@ export default function OrderDetailPage() {
                 </div>
                 <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
                   <p className="font-semibold">Thời hạn</p>
-                  <p className="mt-1">Bạn chỉ có thể tạo ticket trong vòng 24 giờ kể từ lúc đơn hàng được tạo. Hết hạn sẽ bị ẩn.</p>
+                  <p className="mt-1">Bạn chỉ có thể tạo ticket trong vòng 24 giờ kể từ lúc xác nhận đã nhận hàng. Hết hạn sẽ bị ẩn.</p>
                 </div>
               </div>
 

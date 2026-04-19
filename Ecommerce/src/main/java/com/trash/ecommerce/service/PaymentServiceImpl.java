@@ -213,6 +213,13 @@ public class PaymentServiceImpl implements PaymentService {
                                 releaseReservedStock(order);
                                 order.setStatus(OrderStatus.CANCELLED);
                                 orderRepository.save(order);
+                                if (order.getMasterOrder() != null && order.getMasterOrder()) {
+                                    List<Order> childOrders = orderRepository.findByParentOrderIdOrderByCreateAtAsc(order.getId());
+                                    for (Order child : childOrders) {
+                                        child.setStatus(OrderStatus.CANCELLED);
+                                        orderRepository.save(child);
+                                    }
+                                }
                                 return vnpayResponse("10", "Payment expired");
                             }
 
@@ -224,6 +231,16 @@ public class PaymentServiceImpl implements PaymentService {
                             order.setStatus(OrderStatus.PAID);
 
                             orderRepository.save(order);
+
+                            if (order.getMasterOrder() != null && order.getMasterOrder()) {
+                                List<Order> childOrders = orderRepository.findByParentOrderIdOrderByCreateAtAsc(order.getId());
+                                for (Order child : childOrders) {
+                                    if (child.getStatus() == OrderStatus.PENDING_PAYMENT) {
+                                        child.setStatus(OrderStatus.PAID);
+                                        orderRepository.save(child);
+                                    }
+                                }
+                            }
                             String subject = "Confirm the order transaction";
                             String body = String.format(
                                     "Hi %s!\n\n" +
@@ -253,17 +270,16 @@ public class PaymentServiceImpl implements PaymentService {
                                     "PAID", "Thanh to\u00e1n th\u00e0nh c\u00f4ng");
 
                             // Notify sellers about paid order
-                            Set<Long> notifiedSellers = new HashSet<>();
-                            for (OrderItem oi : order.getOrderItems()) {
-                                if (oi.getProduct() != null && oi.getProduct().getSeller() != null) {
-                                    Long sellerId = oi.getProduct().getSeller().getId();
-                                    if (notifiedSellers.add(sellerId)) {
-                                        notificationService.send(sellerId,
-                                                "\u0110\u01a1n h\u00e0ng #" + orderId + " \u0111\u00e3 thanh to\u00e1n",
-                                                "Kh\u00e1ch h\u00e0ng " + user.getFullName() + " \u0111\u00e3 thanh to\u00e1n \u0111\u01a1n h\u00e0ng",
-                                                NotificationType.ORDER_PLACED,
-                                                orderId);
-                                    }
+                            List<Order> sellerOrders = (order.getMasterOrder() != null && order.getMasterOrder())
+                                    ? orderRepository.findByParentOrderIdOrderByCreateAtAsc(order.getId())
+                                    : List.of(order);
+                            for (Order sellerOrder : sellerOrders) {
+                                if (sellerOrder.getSeller() != null) {
+                                    notificationService.send(sellerOrder.getSeller().getId(),
+                                            "\u0110\u01a1n h\u00e0ng #" + sellerOrder.getId() + " \u0111\u00e3 thanh to\u00e1n",
+                                            "Kh\u00e1ch h\u00e0ng " + user.getFullName() + " \u0111\u00e3 thanh to\u00e1n \u0111\u01a1n h\u00e0ng",
+                                            NotificationType.ORDER_PLACED,
+                                            sellerOrder.getId());
                                 }
                             }
                         }
@@ -272,6 +288,13 @@ public class PaymentServiceImpl implements PaymentService {
                             releaseReservedStock(order);
                             order.setStatus(OrderStatus.CANCELLED);
                             orderRepository.save(order);
+                            if (order.getMasterOrder() != null && order.getMasterOrder()) {
+                                List<Order> childOrders = orderRepository.findByParentOrderIdOrderByCreateAtAsc(order.getId());
+                                for (Order child : childOrders) {
+                                    child.setStatus(OrderStatus.CANCELLED);
+                                    orderRepository.save(child);
+                                }
+                            }
                             return vnpayResponse("24", "Transaction failed");
                         }
                         return vnpayResponse("01","Confirm Success");
