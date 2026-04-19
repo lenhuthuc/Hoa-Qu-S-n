@@ -8,7 +8,8 @@ import asyncio
 from models import PricingResult, PriceBreakdown, PriceMultiplier, MarketInfo, SimilarProduct
 
 _PRICE_RE = re.compile(
-    r'(\d{1,3}(?:[.,]\d{3})+|\b\d{4,6}\b)\s*(?:đ|vnđ|vnd|đồng|k\b)?',
+    r'(\d{1,3}(?:[.,]\d{3})+|\b\d{4,6}\b|\b\d{1,3}\b(?=\s*k\b))\s*'
+    r'(?:đ|vnđ|vnd|đồng|k\b|nghìn|ngàn)?', 
     re.IGNORECASE,
 )
 _BULK_UNITS = re.compile(
@@ -21,7 +22,7 @@ _RETAIL_SIGNALS = re.compile(
 )
 
 
-def _extract_retail_price(snippet: str) -> int | None:
+def _extract_retail_price(snippet: str, min_price: int = 5_000, max_price: int = 500_000) -> int | None:
     text = snippet.lower()
     for m in _PRICE_RE.finditer(text):
         start = max(0, m.start() - 60)
@@ -34,10 +35,11 @@ def _extract_retail_price(snippet: str) -> int | None:
             val = int(raw)
         except ValueError:
             continue
-        if 5_000 <= val <= 500_000:
+        if min_price <= val <= max_price:
             return val
-        if 5 <= val <= 500:
+        if 5 <= val <= 500 and (min_price <= val * 1_000 <= max_price):
             return val * 1_000
+            
     return None
 
 
@@ -76,13 +78,13 @@ def _build_features(
     return features
 
 
-def _build_queries(features: list[str], grade: str) -> list[str]:
+def _build_queries(features: list[str], grade: str, unit: str = "1kg") -> list[str]:
     name = features[0] if features else "nông sản"
     highlights = " ".join(f for f in features[1:4] if f)
     return [
-        f"{name} {grade} giá bán lẻ 1kg",
-        f"{name} {highlights} giá kg hôm nay",
-        f"{name} giá bao nhiêu 1kg bán lẻ",
+        f"{name} {grade} giá bán lẻ {unit}",
+        f"{name} {highlights} giá {unit} hôm nay",
+        f"{name} giá bao nhiêu {unit} bán lẻ",
     ]
 
 
@@ -100,7 +102,7 @@ def _iqr_filter(items: list[SimilarProduct]) -> list[SimilarProduct]:
 
 def _knn_weighted_avg(items: list[SimilarProduct]) -> int | None:
     candidates = _iqr_filter(items)
-    if len(candidates) < 5:
+    if len(candidates) < 3:
         return None
     total_w = sum(p.score for p in candidates)
     if total_w == 0:
@@ -119,11 +121,14 @@ async def calculate_price(
     embedding_service=None,
     category: str = "",
     features: list[str] | None = None,
+    unit: str = "1kg",
+    min_price: int = 5_000,
+    max_price: int = 500_000,
 ) -> PricingResult:
     all_features = _build_features(
         product_name, grade, freshness, defects, certifications, category, features or []
     )
-    queries = _build_queries(all_features, grade)
+    queries = _build_queries(all_features, grade, unit)
 
     found: list[SimilarProduct] = []
     seen_titles: set[str] = set()
@@ -133,18 +138,18 @@ async def calculate_price(
 
         def _search(q: str, n: int) -> list[dict]:
             with DDGS() as ddgs:
-                return list(ddgs.text(q, max_results=n, region="vn-vi"))
+                return list(ddgs.text(q, max_results=n, region="vn-vi", timelimit="y"))
 
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         for q in queries:
-            raw = await loop.run_in_executor(None, _search, q, 60)
+            raw = await loop.run_in_executor(None, _search, q, 25)
             for rank, r in enumerate(raw):
                 title = r.get("title", "")[:80]
                 if title in seen_titles:
                     continue
                 seen_titles.add(title)
                 snippet = title + " " + r.get("body", "")
-                price = _extract_retail_price(snippet)
+                price = _extract_retail_price(snippet, min_price, max_price)
                 if not price:
                     continue
                 has_signal = _has_retail_signal(snippet)
