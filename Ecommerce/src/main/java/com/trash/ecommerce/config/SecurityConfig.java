@@ -54,6 +54,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/shipping/**").permitAll()
                         .requestMatchers("GET", "/api/trust-score/**").permitAll()
                         .requestMatchers("/api/trust-score/**").authenticated()
+                        .requestMatchers("GET", "/api/returns/evidence/media", "/api/returns/evidence/media/**").permitAll()
                         .requestMatchers("/api/returns/**").authenticated()
                         .requestMatchers("/api/seller/**").hasAnyAuthority("SELLER", "ADMIN")
                         .requestMatchers("/api/notifications/**").authenticated()

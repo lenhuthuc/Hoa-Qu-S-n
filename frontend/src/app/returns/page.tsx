@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { returnApi, orderApi } from "@/lib/api";
+import { getReturnEvidenceMediaSrc, parseEvidenceUrls, returnApi } from "@/lib/api";
 import Link from "next/link";
 
 interface ReturnRequest {
@@ -22,9 +22,9 @@ interface ReturnRequest {
 }
 
 interface OrderSummary {
-  orderId: number;
+  id: number;
   status: string;
-  totalPrice: number;
+  totalAmount: number;
 }
 
 const REASON_CODES = [
@@ -37,24 +37,51 @@ const REASON_CODES = [
 const STATUS_MAP: Record<string, { label: string; color: string }> = {
   PENDING: { label: "Đã gửi yêu cầu", color: "bg-yellow-100 text-yellow-700" },
   SELLER_REVIEWING: { label: "Nông hộ đang xem xét", color: "bg-blue-100 text-blue-700" },
-  NEGOTIATING: { label: "Đang thương lượng", color: "bg-purple-100 text-purple-700" },
   APPROVED: { label: "Đã chấp nhận", color: "bg-green-100 text-green-700" },
   REJECTED: { label: "Bị từ chối", color: "bg-red-100 text-red-700" },
+  REJECTED_ACCEPTED: { label: "Đã chấp nhận từ chối", color: "bg-slate-100 text-slate-700" },
+  ESCALATED: { label: "Đã khiếu nại lên sàn", color: "bg-amber-100 text-amber-800" },
   REFUNDED: { label: "Đã hoàn tiền", color: "bg-green-200 text-green-800" },
 };
+
+const VIDEO_EXTENSIONS = ["mp4", "webm", "ogg", "mov", "m4v"];
+
+function getFileExtension(url: string): string {
+  const cleanUrl = url.split("?")[0].split("#")[0];
+  const match = cleanUrl.match(/\.([a-z0-9]+)$/i);
+  return match ? match[1].toLowerCase() : "";
+}
+
+function isVideoUrl(url: string): boolean {
+  return VIDEO_EXTENSIONS.includes(getFileExtension(url));
+}
+
+function splitResolutionResponse(rawResponse?: string | null): {
+  sellerMessage: string;
+  adminMessage: string;
+} {
+  const normalized = (rawResponse || "").trim();
+  if (!normalized) {
+    return { sellerMessage: "", adminMessage: "" };
+  }
+
+  const markerIndex = normalized.indexOf("[Admin");
+  if (markerIndex === -1) {
+    return { sellerMessage: normalized, adminMessage: "" };
+  }
+
+  const sellerMessage = normalized.slice(0, markerIndex).trim();
+  const adminChunk = normalized.slice(markerIndex).trim();
+  const closingBracketIndex = adminChunk.indexOf("]");
+  const adminMessage = closingBracketIndex >= 0
+    ? adminChunk.slice(closingBracketIndex + 1).trim()
+    : adminChunk.replace(/^\[.*?\]\s*/, "").trim();
+  return { sellerMessage, adminMessage };
+}
 
 export default function ReturnsPage() {
   const [returns, setReturns] = useState<ReturnRequest[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showForm, setShowForm] = useState(false);
-  const [orders, setOrders] = useState<OrderSummary[]>([]);
-  const [form, setForm] = useState({
-    orderId: 0,
-    reasonCode: "",
-    description: "",
-    evidenceUrls: "",
-  });
-  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     loadReturns();
@@ -71,40 +98,12 @@ export default function ReturnsPage() {
     }
   }
 
-  async function openCreateForm() {
+  async function handleBuyerDecision(returnId: number, action: "ACCEPT_REJECTION" | "ESCALATE") {
     try {
-      const res = await orderApi.getMyOrders();
-      const eligible = (res.data as OrderSummary[]).filter(
-        (o) => o.status === "FINISHED" || o.status === "SHIPPED"
-      );
-      setOrders(eligible);
-      setShowForm(true);
-    } catch {
-      alert("Không thể tải danh sách đơn hàng");
-    }
-  }
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!form.orderId || !form.reasonCode) {
-      alert("Vui lòng chọn đơn hàng và lý do");
-      return;
-    }
-    setSubmitting(true);
-    try {
-      await returnApi.create({
-        orderId: form.orderId,
-        reasonCode: form.reasonCode,
-        description: form.description,
-        evidenceUrls: form.evidenceUrls || undefined,
-      });
-      setShowForm(false);
-      setForm({ orderId: 0, reasonCode: "", description: "", evidenceUrls: "" });
-      loadReturns();
+      await returnApi.buyerDecision(returnId, action);
+      await loadReturns();
     } catch (err: any) {
-      alert(err.response?.data?.message || "Không thể tạo yêu cầu hoàn trả");
-    } finally {
-      setSubmitting(false);
+      alert(err.response?.data?.message || "Không thể cập nhật quyết định");
     }
   }
 
@@ -121,102 +120,13 @@ export default function ReturnsPage() {
       <div className="max-w-4xl mx-auto">
         <div className="flex items-center justify-between mb-6">
           <h1 className="text-2xl font-bold text-gray-800">Hoàn trả & Khiếu nại</h1>
-          <div className="flex gap-3">
-            <Link href="/orders" className="px-4 py-2 text-gray-600 bg-white border rounded-lg hover:bg-gray-50">
-              ← Đơn hàng
-            </Link>
-            <button
-              onClick={openCreateForm}
-              className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
-            >
-              + Tạo yêu cầu hoàn trả
-            </button>
-          </div>
+          <Link href="/orders" className="px-4 py-2 text-gray-600 bg-white border rounded-lg hover:bg-gray-50">
+            ← Đơn hàng
+          </Link>
         </div>
 
-        {/* Create form */}
-        {showForm && (
-          <div className="bg-white rounded-lg shadow p-6 mb-6">
-            <h2 className="text-lg font-bold mb-4">Tạo yêu cầu hoàn trả</h2>
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Chọn đơn hàng</label>
-                {orders.length === 0 ? (
-                  <p className="text-sm text-gray-500">Không có đơn hàng nào đủ điều kiện hoàn trả (chỉ đơn đã giao)</p>
-                ) : (
-                  <select
-                    value={form.orderId}
-                    onChange={(e) => setForm({ ...form, orderId: parseInt(e.target.value) })}
-                    className="w-full border rounded-lg px-3 py-2"
-                  >
-                    <option value={0}>-- Chọn đơn hàng --</option>
-                    {orders.map((o) => (
-                      <option key={o.orderId} value={o.orderId}>
-                        Đơn #{o.orderId} — {Number(o.totalPrice).toLocaleString("vi-VN")}₫
-                      </option>
-                    ))}
-                  </select>
-                )}
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Lý do</label>
-                <select
-                  value={form.reasonCode}
-                  onChange={(e) => setForm({ ...form, reasonCode: e.target.value })}
-                  className="w-full border rounded-lg px-3 py-2"
-                >
-                  <option value="">-- Chọn lý do --</option>
-                  {REASON_CODES.map((r) => (
-                    <option key={r.value} value={r.value}>{r.label}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Mô tả chi tiết</label>
-                <textarea
-                  value={form.description}
-                  onChange={(e) => setForm({ ...form, description: e.target.value })}
-                  rows={3}
-                  className="w-full border rounded-lg px-3 py-2"
-                  placeholder="Mô tả tình trạng hàng hóa..."
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Link ảnh/video bằng chứng</label>
-                <input
-                  type="text"
-                  value={form.evidenceUrls}
-                  onChange={(e) => setForm({ ...form, evidenceUrls: e.target.value })}
-                  className="w-full border rounded-lg px-3 py-2"
-                  placeholder="URL ảnh hoặc video bằng chứng"
-                />
-              </div>
-
-              <div className="flex gap-3 justify-end">
-                <button
-                  type="button"
-                  onClick={() => setShowForm(false)}
-                  className="px-4 py-2 bg-gray-100 text-gray-600 rounded-lg hover:bg-gray-200"
-                >
-                  Hủy
-                </button>
-                <button
-                  type="submit"
-                  disabled={submitting || orders.length === 0}
-                  className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50"
-                >
-                  {submitting ? "Đang gửi..." : "Gửi yêu cầu"}
-                </button>
-              </div>
-            </form>
-          </div>
-        )}
-
         {/* Returns list */}
-        {returns.length === 0 && !showForm ? (
+        {returns.length === 0 ? (
           <div className="bg-white rounded-lg p-8 text-center text-gray-500">
             <p className="mb-4">Bạn chưa có yêu cầu hoàn trả nào</p>
             <p className="text-sm">Nếu sản phẩm nhận được bị hư hỏng, bạn có thể tạo yêu cầu hoàn trả trong vòng 24h kể từ khi nhận hàng.</p>
@@ -224,7 +134,7 @@ export default function ReturnsPage() {
         ) : (
           <div className="space-y-4">
             {returns.map((ret) => (
-              <div key={ret.id} className="bg-white rounded-lg shadow p-5">
+              <div id={`order-${ret.orderId}`} key={ret.id} className="bg-white rounded-lg shadow p-5">
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-3">
                     <span className="font-bold text-gray-800">Phiếu #{ret.id}</span>
@@ -244,7 +154,7 @@ export default function ReturnsPage() {
                 </div>
 
                 <div className="text-sm space-y-1 mb-3">
-                  <div><span className="text-gray-500">Nông hộ:</span> {ret.sellerName}</div>
+                  <div><span className="text-gray-500">Shop:</span> {ret.sellerName}</div>
                   <div><span className="text-gray-500">Lý do:</span> {REASON_CODES.find(r => r.value === ret.reasonCode)?.label || ret.reasonCode}</div>
                   <div><span className="text-gray-500">Mô tả:</span> {ret.description}</div>
                   <div>
@@ -253,10 +163,73 @@ export default function ReturnsPage() {
                   </div>
                 </div>
 
-                {ret.sellerResponse && (
-                  <div className="bg-gray-50 rounded p-3 text-sm">
-                    <span className="font-medium text-gray-700">Phản hồi từ nông hộ:</span>{" "}
-                    {ret.sellerResponse}
+                {ret.evidenceUrls && (
+                  <div className="mb-3 rounded-lg bg-gray-50 p-3 text-sm">
+                    <p className="mb-2 font-medium text-gray-700">Bằng chứng</p>
+                    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                      {parseEvidenceUrls(ret.evidenceUrls).map((url) => {
+                        const mediaSrc = getReturnEvidenceMediaSrc(url);
+                        const fileName = url.split("/").pop() || url;
+
+                        return (
+                          <div key={url} className="overflow-hidden rounded-xl border border-gray-200 bg-white">
+                            <div className="h-44 bg-gray-100">
+                              {isVideoUrl(url) ? (
+                                <video src={mediaSrc} controls className="h-full w-full object-cover" />
+                              ) : (
+                                <img src={mediaSrc} alt={fileName} className="h-full w-full object-cover" />
+                              )}
+                            </div>
+                            <div className="px-3 py-2 text-xs text-gray-600">
+                              <p className="truncate font-medium text-gray-700">{fileName}</p>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {(() => {
+                  const { sellerMessage, adminMessage } = splitResolutionResponse(ret.sellerResponse);
+
+                  if (!sellerMessage && !adminMessage) {
+                    return null;
+                  }
+
+                  return (
+                    <div className="space-y-2">
+                      {sellerMessage && (
+                        <div className="rounded-lg bg-gray-50 p-3 text-sm">
+                          <span className="font-medium text-gray-700">Phản hồi từ nông hộ:</span>{" "}
+                          <span className="text-gray-800">{sellerMessage}</span>
+                        </div>
+                      )}
+
+                      {adminMessage && (
+                        <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm">
+                          <p className="font-semibold text-emerald-700">Admin</p>
+                          <p className="mt-1 text-emerald-900">{adminMessage}</p>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+
+                {ret.status === "REJECTED" && (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button
+                      onClick={() => handleBuyerDecision(ret.id, "ACCEPT_REJECTION")}
+                      className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-700"
+                    >
+                      Chấp nhận quyết định từ chối
+                    </button>
+                    <button
+                      onClick={() => handleBuyerDecision(ret.id, "ESCALATE")}
+                      className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 hover:bg-emerald-100"
+                    >
+                      Khiếu nại lên sàn
+                    </button>
                   </div>
                 )}
 

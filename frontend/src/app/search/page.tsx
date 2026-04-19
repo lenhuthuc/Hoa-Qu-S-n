@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Search, Leaf } from "lucide-react";
-import { searchApi, productApi } from "@/lib/api";
+import { searchApi, productApi, shopApi } from "@/lib/api";
 import Link from "next/link";
 
 interface SearchResult {
@@ -13,6 +13,10 @@ interface SearchResult {
   price: number;
   image?: string;
   score: number;
+  sellerId?: number;
+  shopName?: string;
+  sellerName?: string;
+  shopAvatar?: string;
 }
 
 const resolveImageUrl = (value?: string | null) => {
@@ -40,24 +44,58 @@ export default function SemanticSearchPage() {
       const enrichedResults = await Promise.all(
         rawResults.map(async (item) => {
           const fromIndex = resolveImageUrl(item.image);
-          if (fromIndex) {
-            return { ...item, image: fromIndex };
-          }
-
           try {
             const productRes = await productApi.getById(item.product_id);
             const product = productRes.data?.data || productRes.data;
             const fallback = resolveImageUrl(
-              product?.imageUrl || product?.image || product?.imageUrls?.[0] || ""
+              fromIndex || product?.imageUrl || product?.image || product?.imageUrls?.[0] || ""
             );
-            return { ...item, image: fallback };
+
+            return {
+              ...item,
+              image: fallback,
+              sellerId: Number(product?.sellerId || 0) || undefined,
+              shopName: typeof product?.shopName === "string" ? product.shopName : undefined,
+              sellerName: typeof product?.sellerName === "string" ? product.sellerName : undefined,
+            };
           } catch {
-            return { ...item, image: "" };
+            return { ...item, image: fromIndex || "" };
           }
         })
       );
 
-      setResults(enrichedResults);
+      const sellerIds = Array.from(
+        new Set(enrichedResults.map((x) => x.sellerId).filter((id): id is number => Boolean(id && id > 0)))
+      );
+
+      const shopMap = new Map<number, { shopName?: string; sellerName?: string; avatar?: string }>();
+      await Promise.all(
+        sellerIds.map(async (sellerId) => {
+          try {
+            const res = await shopApi.getProfile(sellerId);
+            const shop = res.data || {};
+            shopMap.set(sellerId, {
+              shopName: typeof shop?.shopName === "string" ? shop.shopName : undefined,
+              sellerName: typeof shop?.sellerName === "string" ? shop.sellerName : undefined,
+              avatar: typeof shop?.avatar === "string" ? shop.avatar : undefined,
+            });
+          } catch {
+            shopMap.set(sellerId, {});
+          }
+        })
+      );
+
+      const withShops = enrichedResults.map((item) => {
+        const shop = item.sellerId ? shopMap.get(item.sellerId) : undefined;
+        return {
+          ...item,
+          shopName: shop?.shopName || item.shopName,
+          sellerName: shop?.sellerName || item.sellerName,
+          shopAvatar: shop?.avatar,
+        };
+      });
+
+      setResults(withShops);
       setSearched(true);
     } catch {
       setResults([]);
@@ -142,6 +180,26 @@ export default function SemanticSearchPage() {
               <div className="p-4">
                 <h3 className="font-semibold text-sm mb-1">{item.product_name}</h3>
                 <p className="text-xs text-gray-500 line-clamp-2 mb-2">{item.description}</p>
+
+                {item.sellerId && (
+                  <Link
+                    href={`/shop/${item.sellerId}`}
+                    onClick={(e) => e.stopPropagation()}
+                    className="mb-3 flex items-center gap-2 rounded-lg border border-gray-100 bg-gray-50 px-2 py-1.5 hover:bg-gray-100"
+                  >
+                    {item.shopAvatar ? (
+                      <img src={item.shopAvatar} alt={item.shopName || item.sellerName || "Shop"} className="h-6 w-6 rounded-full object-cover" />
+                    ) : (
+                      <div className="flex h-6 w-6 items-center justify-center rounded-full bg-primary-100 text-primary-700">
+                        <Leaf className="w-3.5 h-3.5" />
+                      </div>
+                    )}
+                    <span className="truncate text-xs font-medium text-gray-700">
+                      {item.shopName || item.sellerName || `Shop #${item.sellerId}`}
+                    </span>
+                  </Link>
+                )}
+
                 <div className="flex items-center justify-between">
                   <span className="text-primary-600 font-bold">{formatPrice(item.price)}</span>
                   <span className="text-xs text-gray-400 bg-gray-100 px-2 py-1 rounded">

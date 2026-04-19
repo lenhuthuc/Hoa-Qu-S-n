@@ -12,6 +12,18 @@ const api = axios.create({
   headers: { "Content-Type": "application/json" },
 });
 
+export function getReturnEvidenceMediaSrc(mediaUrl: string): string {
+  return `${API_URL}/api/returns/evidence/media?url=${encodeURIComponent(mediaUrl)}`;
+}
+
+export function parseEvidenceUrls(rawUrls?: string | null): string[] {
+  if (!rawUrls) return [];
+  return rawUrls
+    .split(/\n|,/)
+    .map((url) => url.trim())
+    .filter(Boolean);
+}
+
 // Attach JWT token to requests
 api.interceptors.request.use((config) => {
   if (typeof window !== "undefined") {
@@ -429,11 +441,20 @@ export const trustScoreApi = {
 export const returnApi = {
   create: (data: { orderId: number; reasonCode: string; description: string; evidenceUrls?: string; refundAmount?: number }) =>
     api.post("/api/returns", data),
+  uploadEvidence: (files: File[]) => {
+    const form = new FormData();
+    files.forEach((file) => form.append("files", file));
+    return api.post("/api/returns/evidence", form, {
+      headers: { "Content-Type": "multipart/form-data" },
+    });
+  },
   getMyRequests: () => api.get("/api/returns/my-requests"),
   getSellerRequests: () => api.get("/api/returns/seller-requests"),
   getById: (id: number) => api.get(`/api/returns/${id}`),
   respond: (returnId: number, action: string, response?: string) =>
     api.post(`/api/returns/${returnId}/respond?action=${action}`, { response }),
+  buyerDecision: (returnId: number, action: "ACCEPT_REJECTION" | "ESCALATE") =>
+    api.post(`/api/returns/${returnId}/buyer-decision?action=${action}`),
 };
 
 // ─── Seller ───
@@ -544,6 +565,9 @@ export const adminAnalyticsApi = {
   getOverview: () => api.get("/api/admin/analytics/overview"),
   getTopProducts: () => api.get("/api/admin/analytics/top-products"),
   getTopSellers: () => api.get("/api/admin/analytics/top-sellers"),
+  getEscalatedReturns: () => api.get("/api/admin/analytics/escalated-returns"),
+  resolveEscalatedReturn: (returnId: number, action: "REFUND" | "KEEP_REJECT", note: string) =>
+    api.post(`/api/admin/analytics/returns/${returnId}/resolve?action=${action}`, { note }),
 };
 
 export default api;

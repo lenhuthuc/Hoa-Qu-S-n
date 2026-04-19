@@ -420,6 +420,15 @@ export default function ProfilePage() {
                     </div>
                   </div>
 
+                  <div className="md:col-span-2">
+                    <Link
+                      href="/forgot-password"
+                      className="inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-100"
+                    >
+                      <Mail className="w-4 h-4" /> Quên mật khẩu? Đặt lại mật khẩu
+                    </Link>
+                  </div>
+
                   <div>
                     <label className="mb-1.5 block text-sm font-medium text-gray-700">Họ và tên</label>
                     <div className="relative">
