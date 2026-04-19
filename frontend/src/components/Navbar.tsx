@@ -7,7 +7,7 @@ import {
   Leaf, Search, Video, ShoppingCart, User, LogOut, LayoutDashboard,
   MessageCircle, TrendingUp, Menu, X, ChevronDown, Shield, Bell, BookOpen,
 } from "lucide-react";
-import { parseToken, notificationApi } from "@/lib/api";
+import { cartApi, parseToken, notificationApi } from "@/lib/api";
 import { useSSE } from "@/hooks/useSSE";
 
 export default function Navbar() {
@@ -19,6 +19,7 @@ export default function Navbar() {
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const [unreadDmCount, setUnreadDmCount] = useState(0);
+  const [cartCount, setCartCount] = useState(0);
 
   useEffect(() => {
     const token = localStorage.getItem("hqs_token");
@@ -30,11 +31,24 @@ export default function Navbar() {
       notificationApi.getUnreadCount().then(res => {
         setUnreadCount(res.data?.count || 0);
       }).catch(() => {});
+      cartApi.getItems().then((res) => {
+        const payload = res.data?.data || res.data;
+        const items = Array.isArray(payload)
+          ? payload
+          : Array.isArray(payload?.items)
+            ? payload.items
+            : [];
+        const total = items.reduce((sum: number, item: any) => sum + Number(item?.quantity || 0), 0);
+        setCartCount(total);
+      }).catch(() => {
+        setCartCount(0);
+      });
     } else {
       setIsAdmin(false);
       setIsSeller(false);
       setUnreadCount(0);
       setUnreadDmCount(0);
+      setCartCount(0);
     }
   }, [pathname]);
 
@@ -60,11 +74,11 @@ export default function Navbar() {
   };
 
   const navLinks = [
-    { href: "/featured-farmers", icon: Leaf, label: "Nông hộ nổi bật" },
     { href: "/search", icon: Search, label: "Tìm kiếm" },
     { href: "/live", icon: Video, label: "Livestream" },
     { href: "/market-prices", icon: TrendingUp, label: "Giá thị trường" },
     { href: "/stories", icon: BookOpen, label: "Câu chuyện" },
+    { href: "/featured-farmers", icon: Leaf, label: "Nông hộ nổi bật" },
     { href: "/chatbot", icon: MessageCircle, label: "Trợ lý AI" },
   ];
 
@@ -127,11 +141,16 @@ export default function Navbar() {
               </Link>
               <Link
                 href="/cart"
-                className={`p-2 rounded-lg transition ${
+                className={`relative p-2 rounded-lg transition ${
                   pathname === "/cart" ? "bg-primary-50 text-primary-700" : "text-gray-600 hover:text-primary-600 hover:bg-gray-50"
                 }`}
               >
                 <ShoppingCart className="w-5 h-5" />
+                {cartCount > 0 && (
+                  <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center font-medium">
+                    {cartCount > 99 ? "99+" : cartCount}
+                  </span>
+                )}
               </Link>
               <Link
                 href={isSeller ? "/seller/dashboard" : "/seller/register"}
@@ -244,7 +263,7 @@ export default function Navbar() {
           {isLoggedIn ? (
             <>
               <Link href="/cart" onClick={() => setMenuOpen(false)} className="flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm text-gray-700 hover:bg-gray-50">
-                <ShoppingCart className="w-4 h-4" /> Giỏ hàng
+                <ShoppingCart className="w-4 h-4" /> Giỏ hàng {cartCount > 0 && <span className="bg-red-500 text-white text-xs rounded-full px-1.5">{cartCount > 99 ? "99+" : cartCount}</span>}
               </Link>
               <Link href="/notifications" onClick={() => setMenuOpen(false)} className="flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm text-gray-700 hover:bg-gray-50">
                 <Bell className="w-4 h-4" /> Thông báo {unreadCount > 0 && <span className="bg-red-500 text-white text-xs rounded-full px-1.5">{unreadCount}</span>}
