@@ -167,13 +167,9 @@ public class SellerController {
     public ResponseEntity<?> getSellerOrders(@RequestHeader("Authorization") String token) {
         try {
             Long userId = jwtService.extractId(token);
-            List<Product> products = productRepository.findBySellerId(userId);
-            Set<Long> productIds = products.stream().map(Product::getId).collect(Collectors.toSet());
-
-            List<Order> allOrders = orderRepository.findAll();
-            List<Map<String, Object>> result = allOrders.stream()
-                    .filter(o -> o.getOrderItems().stream()
-                            .anyMatch(oi -> productIds.contains(oi.getProduct().getId())))
+            List<Order> sellerOrders = orderRepository.findBySellerIdOrderByCreateAtDesc(userId);
+            List<Map<String, Object>> result = sellerOrders.stream()
+                .filter(o -> o.getMasterOrder() == null || !o.getMasterOrder())
                     .sorted((a, b) -> b.getCreateAt().compareTo(a.getCreateAt()))
                     .map(o -> {
                         Map<String, Object> map = new LinkedHashMap<>();
@@ -184,7 +180,6 @@ public class SellerController {
                         map.put("buyerName", o.getUser() != null ? (o.getUser().getFullName() != null ? o.getUser().getFullName() : o.getUser().getEmail()) : "N/A");
                         map.put("address", o.getAddress() != null ? o.getAddress().getFullAddress() : "N/A");
                         map.put("items", o.getOrderItems().stream()
-                                .filter(oi -> productIds.contains(oi.getProduct().getId()))
                                 .map(oi -> {
                                     Map<String, Object> item = new LinkedHashMap<>();
                                     item.put("productId", oi.getProduct().getId());
@@ -216,11 +211,8 @@ public class SellerController {
             Order order = orderRepository.findById(orderId)
                     .orElseThrow(() -> new RuntimeException("Order not found"));
 
-            // Verify seller owns products in this order
-            List<Product> sellerProducts = productRepository.findBySellerId(userId);
-            Set<Long> sellerProductIds = sellerProducts.stream().map(Product::getId).collect(Collectors.toSet());
-            boolean isSellerOrder = order.getOrderItems().stream()
-                    .anyMatch(oi -> sellerProductIds.contains(oi.getProduct().getId()));
+                boolean isSellerOrder = order.getSeller() != null && order.getSeller().getId().equals(userId)
+                    && (order.getMasterOrder() == null || !order.getMasterOrder());
 
             if (!isSellerOrder) {
                 return ResponseEntity.status(HttpStatus.FORBIDDEN)
@@ -245,6 +237,17 @@ public class SellerController {
 
             order.setStatus(newStatus);
             orderRepository.save(order);
+
+            if (order.getParentOrder() != null) {
+                Order parentOrder = order.getParentOrder();
+                List<Order> siblings = orderRepository.findByParentOrderIdOrderByCreateAtAsc(parentOrder.getId());
+                OrderStatus aggregated = aggregateParentStatus(siblings);
+                parentOrder.setStatus(aggregated);
+                if (aggregated == OrderStatus.FINISHED) {
+                    parentOrder.setBuyerConfirmedAt(new Date());
+                }
+                orderRepository.save(parentOrder);
+            }
 
             // Send notification to buyer about status change
             Long buyerId = order.getUser().getId();
@@ -287,6 +290,34 @@ public class SellerController {
         if (from == OrderStatus.PLACED && to == OrderStatus.CANCELLED) return true;
         if (from == OrderStatus.PREPARING && to == OrderStatus.CANCELLED) return true;
         return false;
+    }
+
+    private OrderStatus aggregateParentStatus(List<Order> childOrders) {
+        if (childOrders == null || childOrders.isEmpty()) {
+            return OrderStatus.PENDING;
+        }
+        boolean allFinished = childOrders.stream().allMatch(o -> o.getStatus() == OrderStatus.FINISHED);
+        if (allFinished) return OrderStatus.FINISHED;
+
+        boolean anyShipped = childOrders.stream().anyMatch(o -> o.getStatus() == OrderStatus.SHIPPED);
+        if (anyShipped) return OrderStatus.SHIPPED;
+
+        boolean anyPreparing = childOrders.stream().anyMatch(o -> o.getStatus() == OrderStatus.PREPARING);
+        if (anyPreparing) return OrderStatus.PREPARING;
+
+        boolean anyPaid = childOrders.stream().anyMatch(o -> o.getStatus() == OrderStatus.PAID);
+        if (anyPaid) return OrderStatus.PAID;
+
+        boolean anyPendingPayment = childOrders.stream().anyMatch(o -> o.getStatus() == OrderStatus.PENDING_PAYMENT);
+        if (anyPendingPayment) return OrderStatus.PENDING_PAYMENT;
+
+        boolean anyPlaced = childOrders.stream().anyMatch(o -> o.getStatus() == OrderStatus.PLACED);
+        if (anyPlaced) return OrderStatus.PLACED;
+
+        boolean allCancelled = childOrders.stream().allMatch(o -> o.getStatus() == OrderStatus.CANCELLED);
+        if (allCancelled) return OrderStatus.CANCELLED;
+
+        return childOrders.get(0).getStatus();
     }
 
     private String getStatusMessage(OrderStatus status, Long orderId) {

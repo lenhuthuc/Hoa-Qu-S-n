@@ -64,15 +64,6 @@ interface OrderDetail {
   items?: OrderDetailItem[];
 }
 
-const RETURN_WINDOW_HOURS = 24;
-
-function isWithinReturnWindow(confirmedAt?: string): boolean {
-  if (!confirmedAt) return false;
-  const confirmedTime = new Date(confirmedAt).getTime();
-  if (Number.isNaN(confirmedTime)) return false;
-  return Date.now() - confirmedTime <= RETURN_WINDOW_HOURS * 60 * 60 * 1000;
-}
-
 const FILTERS: Array<{
   key: "ALL" | "WAIT_CONFIRM" | "WAIT_SHIP" | "FINISHED" | "CANCELLED";
   label: string;
@@ -97,6 +88,16 @@ const STATUS_META: Record<string, { label: string; className: string; icon: Reac
   FINISHED: { label: "Hoàn thành", className: "bg-emerald-100 text-emerald-700", icon: <BadgeCheck className="w-4 h-4" /> },
   CANCELLED: { label: "Đã hủy", className: "bg-rose-100 text-rose-700", icon: <XCircle className="w-4 h-4" /> },
 };
+
+function isVnPayMethod(method?: string): boolean {
+  if (!method) return false;
+  const normalized = method.trim().toUpperCase();
+  return normalized === "2" || normalized.includes("VNPAY");
+}
+
+function getPaymentMethodLabel(method?: string): string {
+  return isVnPayMethod(method) ? "Thanh toán bằng VNPay" : "Tiền mặt khi nhận hàng (COD)";
+}
 
 export default function OrdersPage() {
   const router = useRouter();
@@ -433,7 +434,7 @@ export default function OrdersPage() {
                       <div className="space-y-3 text-sm text-gray-600">
                         <div className="flex items-center justify-between gap-3">
                           <span>Phương thức</span>
-                          <span className="font-semibold text-gray-900">{order.paymentMethod || detail?.paymentMethod || "COD"}</span>
+                          <span className="font-semibold text-gray-900">{getPaymentMethodLabel(order.paymentMethod || detail?.paymentMethod)}</span>
                         </div>
                         <div className="flex items-center justify-between gap-3">
                           <span>Trạng thái</span>

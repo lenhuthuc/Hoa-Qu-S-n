@@ -17,7 +17,7 @@ import {
   BadgeCheck,
   Undo2,
 } from "lucide-react";
-import { adminApi, productApi, categoryApi, isLoggedIn, hasRole, adminAnalyticsApi, getReturnEvidenceMediaSrc, parseEvidenceUrls } from "@/lib/api";
+import { adminApi, productApi, categoryApi, isLoggedIn, hasRole, adminAnalyticsApi, getReturnEvidenceMediaSrc, isVideoEvidenceUrl, parseEvidenceUrls } from "@/lib/api";
 import toast from "react-hot-toast";
 
 interface UserItem {
@@ -81,18 +81,6 @@ interface EscalatedReturnItem {
   status?: string;
   createdAt?: string;
   sellerResponse?: string;
-}
-
-const VIDEO_EXTENSIONS = ["mp4", "webm", "ogg", "mov", "m4v"];
-
-function getFileExtension(url: string): string {
-  const cleanUrl = url.split("?")[0].split("#")[0];
-  const match = cleanUrl.match(/\.([a-z0-9]+)$/i);
-  return match ? match[1].toLowerCase() : "";
-}
-
-function isVideoUrl(url: string): boolean {
-  return VIDEO_EXTENSIONS.includes(getFileExtension(url));
 }
 
 export default function AdminPage() {
@@ -801,7 +789,7 @@ export default function AdminPage() {
                     return (
                       <div key={url} className="overflow-hidden rounded-xl border border-gray-200 bg-white">
                         <div className="h-40 bg-gray-100">
-                          {isVideoUrl(url) ? (
+                          {isVideoEvidenceUrl(url) ? (
                             <video src={mediaSrc} controls className="h-full w-full object-cover" />
                           ) : (
                             <img src={mediaSrc} alt={fileName} className="h-full w-full object-cover" />

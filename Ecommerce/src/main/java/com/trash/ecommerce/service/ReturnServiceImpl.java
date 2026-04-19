@@ -42,8 +42,10 @@ public class ReturnServiceImpl implements ReturnService {
             throw new RuntimeException("Order not found");
         }
 
-        Order order = orderRepository.findById(dto.getOrderId())
+        Order requestedOrder = orderRepository.findById(dto.getOrderId())
                 .orElseThrow(() -> new RuntimeException("Order not found"));
+
+        Order order = resolveReturnOrder(requestedOrder);
 
         if (!order.getUser().getId().equals(buyerId)) {
             throw new RuntimeException("You can only create return requests for your own orders");
@@ -53,27 +55,23 @@ public class ReturnServiceImpl implements ReturnService {
             throw new RuntimeException("Return request can only be created after buyer confirms receipt");
         }
 
-        if (order.getCreateAt() == null) {
-            throw new RuntimeException("This order does not have a creation timestamp");
+        if (order.getBuyerConfirmedAt() == null) {
+            throw new RuntimeException("This order has not been marked as received yet");
         }
 
-        LocalDateTime createdAt = order.getCreateAt().toInstant()
+        LocalDateTime buyerConfirmedAt = order.getBuyerConfirmedAt().toInstant()
                 .atZone(ZoneId.systemDefault())
                 .toLocalDateTime();
-        LocalDateTime deadline = createdAt.plusHours(24);
+        LocalDateTime deadline = buyerConfirmedAt.plusHours(24);
         if (LocalDateTime.now().isAfter(deadline)) {
             throw new RuntimeException("Return request window has expired");
         }
 
-        if (returnRequestRepository.existsByOrderId(dto.getOrderId())) {
+        if (returnRequestRepository.existsByOrderId(order.getId())) {
             throw new RuntimeException("A return request already exists for this order");
         }
 
-        // Find seller from order items
-        Users seller = order.getOrderItems().stream()
-                .findFirst()
-                .map(oi -> oi.getProduct().getSeller())
-                .orElseThrow(() -> new RuntimeException("Seller not found for this order"));
+        Users seller = resolveSeller(order);
 
         Users buyer = userRepository.findById(buyerId)
                 .orElseThrow(() -> new RuntimeException("Buyer not found"));
@@ -101,6 +99,30 @@ public class ReturnServiceImpl implements ReturnService {
                 "Yêu cầu trả hàng mới", "RETURN_REQUESTED", rr.getId());
 
         return toDTO(rr);
+    }
+
+    private Order resolveReturnOrder(Order requestedOrder) {
+        if (requestedOrder.getMasterOrder() != null && requestedOrder.getMasterOrder()) {
+            List<Order> childOrders = orderRepository.findByParentOrderIdOrderByCreateAtAsc(requestedOrder.getId());
+            if (childOrders.isEmpty()) {
+                return requestedOrder;
+            }
+            if (childOrders.size() > 1) {
+                throw new RuntimeException("Đơn hàng có nhiều nhà bán, vui lòng tạo yêu cầu theo từng đơn con");
+            }
+            return childOrders.get(0);
+        }
+        return requestedOrder;
+    }
+
+    private Users resolveSeller(Order order) {
+        if (order.getSeller() != null) {
+            return order.getSeller();
+        }
+        return order.getOrderItems().stream()
+                .findFirst()
+                .map(oi -> oi.getProduct().getSeller())
+                .orElseThrow(() -> new RuntimeException("Seller not found for this order"));
     }
 
     @Override

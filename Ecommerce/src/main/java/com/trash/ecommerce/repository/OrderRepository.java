@@ -13,8 +13,15 @@ import java.util.List;
 
 @Repository
 public interface OrderRepository extends JpaRepository<Order, Long> {
-    List<Order> findByUserIdOrderByCreateAtDesc(Long userId);
-    List<Order> findByStatusAndCreateAtBefore(OrderStatus status, Date cutoffTime);
+    @Query("SELECT o FROM Order o WHERE o.user.id = :userId AND o.parentOrder IS NULL ORDER BY o.createAt DESC")
+    List<Order> findByUserIdOrderByCreateAtDesc(@Param("userId") Long userId);
+
+    List<Order> findByParentOrderIdOrderByCreateAtAsc(Long parentOrderId);
+
+    List<Order> findBySellerIdOrderByCreateAtDesc(Long sellerId);
+
+    @Query("SELECT o FROM Order o WHERE o.status = :status AND o.createAt < :cutoffTime AND o.parentOrder IS NULL")
+    List<Order> findByStatusAndCreateAtBefore(@Param("status") OrderStatus status, @Param("cutoffTime") Date cutoffTime);
     
     @Query("SELECT COUNT(o) > 0 FROM Order o " +
            "JOIN o.orderItems oi " +

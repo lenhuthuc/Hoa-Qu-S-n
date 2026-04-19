@@ -379,21 +379,20 @@ function CheckoutPageInner() {
             selectedDistrictId,
             selectedWardCode
           );
-      const order = res.data?.data || res.data;
-
-      if (paymentMethod === 2 && order?.paymentUrl) {
-        if (isBuyNowMode) {
-          localStorage.removeItem(BUY_NOW_STORAGE_KEY);
-        }
-        window.location.href = order.paymentUrl;
-        return;
-      }
+      const payload = res.data?.data || res.data;
+      const createdOrders = Array.isArray(payload) ? payload : (payload ? [payload] : []);
+      const firstOrder = createdOrders[0];
 
       toast.success("Đặt hàng thành công!");
+
       if (isBuyNowMode) {
         localStorage.removeItem(BUY_NOW_STORAGE_KEY);
       }
-      router.push(`/orders/${order?.id || ""}`);
+      if (createdOrders.length === 1 && firstOrder?.id) {
+        router.push(`/orders/${firstOrder.id}`);
+      } else {
+        router.push("/orders");
+      }
     } catch (err: any) {
       toast.error(err.response?.data?.message || err.response?.data?.error || "Đặt hàng thất bại");
     } finally {

@@ -48,7 +48,7 @@ public class OrderController {
     }
 
     @PostMapping("/create")
-    public ResponseEntity<OrderResponseDTO> createOrder(
+    public ResponseEntity<List<OrderResponseDTO>> createOrder(
             @RequestHeader("Authorization") String token,
             @RequestParam(value = "paymentMethod", defaultValue = "1") Long paymentMethodId,
             @RequestParam(value = "voucherCode", required = false) String voucherCode,
@@ -61,7 +61,7 @@ public class OrderController {
         Long userId = jwtService.extractId(token);
         String effectiveDiscountVoucher = (discountVoucherCode == null || discountVoucherCode.isBlank())
             ? voucherCode : discountVoucherCode;
-        OrderResponseDTO order = orderService.createMyOrder(
+        List<OrderResponseDTO> orders = orderService.createMyOrder(
             userId,
             paymentMethodId,
             effectiveDiscountVoucher,
@@ -70,7 +70,7 @@ public class OrderController {
             toDistrictId,
             toWardCode,
             userService.getClientIpAddress(request));
-        return ResponseEntity.ok(order);
+        return ResponseEntity.ok(orders);
     }
 
     @GetMapping("/buy-now/preview")

@@ -78,7 +78,7 @@ public class OrderMapper {
     }
 
 
-    private CartItemDetailsResponseDTO toCartItemDetailsResponseDTO(OrderItem orderItem) {
+    public CartItemDetailsResponseDTO toCartItemDetailsResponseDTO(OrderItem orderItem) {
         if (orderItem == null) {
             return null;
         }
