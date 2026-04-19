@@ -23,16 +23,40 @@ if (allowedOrigins.length === 0) {
   allowedOrigins.push(
     "http://localhost:3000",
     "http://localhost:3001",
+    "http://localhost:3002",
     "http://127.0.0.1:3000",
     "http://127.0.0.1:3001",
-    'https://haquason.uk',
-    'https://www.haquason.uk'
+    "https://haquason.uk",
+    "https://www.haquason.uk",
+    "https://api.haquason.uk"
   );
 }
 
 // ─── Middleware (non-body-consuming) ───
 app.use(helmet({ crossOriginResourcePolicy: false }));
-app.use(cors({ origin: allowedOrigins, credentials: true }));
+
+// Enhanced CORS Configuration
+const corsOptions = {
+  origin: (origin, callback) => {
+    // Cho phép các yêu cầu không có origin (như mobile apps hoặc curl)
+    if (!origin) return callback(null, true);
+    
+    if (allowedOrigins.indexOf(origin) !== -1 || allowedOrigins.includes("*")) {
+      callback(null, true);
+    } else {
+      console.warn(`[CORS] Blocked origin: ${origin}`);
+      callback(new Error("Not allowed by CORS"));
+    }
+  },
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "Accept"],
+  exposedHeaders: ["Authorization"],
+  preflightContinue: false,
+  optionsSuccessStatus: 204
+};
+
+app.use(cors(corsOptions));
 app.use(morgan("short"));
 
 // ─── Health Check ───

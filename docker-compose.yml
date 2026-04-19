@@ -106,7 +106,8 @@ services:
       - "3000:3000"
     environment:
       PORT: 3000
-      JWT_SECRET: ${JWT_SECRET:-hoaquason_jwt_secret_key_2026_stable!}
+      JWT_SECRET: ${JWT_SECRET}
+      CORS_ORIGINS: "http://localhost:3000,http://localhost:3001,http://localhost:3002,https://haquason.uk,https://www.haquason.uk,https://api.haquason.uk"
       SPRING_URL: http://spring-service:8080
       FASTAPI_URL: http://fastapi-service:8000
       MEDIAMTX_API: http://mediamtx:9997
@@ -140,7 +141,7 @@ services:
       SPRING_DATA_REDIS_PORT: 6379
       SPRING_DATA_REDIS_PASSWORD: ${REDIS_PASSWORD:-redis123}
       ADMIN_EMAILS: ${ADMIN_EMAILS:-admin@hoaquason.com}
-      JWT_SECRET: ${JWT_SECRET:-hoaquason_jwt_secret_key_2026_stable!}
+      JWT_SECRET: ${JWT_SECRET}
       GHN_TOKEN: ${GHN_TOKEN:-}
       GHN_SHOP_ID: ${GHN_SHOP_ID:-}
       GHN_BASE_URL: ${GHN_BASE_URL:-https://dev-online-gateway.ghn.vn/shiip/public-api}
