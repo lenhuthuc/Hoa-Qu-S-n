@@ -7,7 +7,11 @@ interface Props {
 
 async function getProduct(id: number) {
   try {
-    const url = `http://localhost:8080/api/products/${id}`;
+    const apiBaseUrl =
+      process.env.INTERNAL_API_URL ||
+      process.env.NEXT_PUBLIC_API_URL ||
+      "http://localhost:3000";
+    const url = `${apiBaseUrl.replace(/\/$/, "")}/api/products/${id}`;
     const res = await fetch(url, {
       next: { revalidate: 60 },
       headers: {
@@ -15,14 +19,11 @@ async function getProduct(id: number) {
       }
     });
     if (!res.ok) {
-      console.error(`Failed to fetch product: ${res.status}`);
       return null;
     }
     const data = await res.json();
-    console.log('Product data:', data);
     return data;
   } catch (error) {
-    console.error('Error fetching product:', error);
     return null;
   }
 }
