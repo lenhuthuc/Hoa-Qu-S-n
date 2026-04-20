@@ -181,10 +181,10 @@ Trả về JSON hợp lệ DUY NHẤT (KHÔNG markdown, KHÔNG giải thích):
                 return price, note
 
             except Exception:
-                continue  # thử model tiếp theo
+                continue  
 
     except Exception as e:
-        print(f"[pricing] Gemini fallback failed: {e}")
+        pass
 
     # Hard fallback cuối cùng — chỉ khi Gemini cũng lỗi
     mid = round((min_price + max_price) / 2 / 1_000) * 1_000
