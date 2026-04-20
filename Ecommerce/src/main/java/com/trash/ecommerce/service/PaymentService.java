@@ -9,6 +9,9 @@ import jakarta.servlet.http.HttpServletRequest;
 public interface PaymentService {
     public PaymentMethodMessageResponse addPaymentMethod(Long userId, String name);
     public String createPaymentUrl(BigDecimal total_price, String orderInfo, Long orderId, String ipAddress);
+    public String createMoMoPaymentUrl(BigDecimal total_price, String orderInfo, Long orderId);
+    public PaymentMethodMessageResponse handleMoMoReturn(HttpServletRequest request);
+    public Map<String, String> handleMoMoNotify(HttpServletRequest request);
     public Map<String, String> handleProcedurePayment(HttpServletRequest request);
     public Map<String, String> hashFields(HttpServletRequest request);
     public PaymentMethodMessageResponse handleProcedureUserInterface(HttpServletRequest request);

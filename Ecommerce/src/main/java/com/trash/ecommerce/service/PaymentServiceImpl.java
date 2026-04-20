@@ -8,6 +8,10 @@ import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
+
+import com.trash.ecommerce.config.MoMoConfig;
 import com.trash.ecommerce.config.PaymentHashGenerator;
 import com.trash.ecommerce.config.VnPayConfig;
 import com.trash.ecommerce.dto.PaymentMethodMessageResponse;
@@ -17,8 +21,12 @@ import com.trash.ecommerce.exception.PaymentException;
 import com.trash.ecommerce.repository.*;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
+import org.springframework.web.client.RestTemplate;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Value;
 
 @Service
 public class PaymentServiceImpl implements PaymentService {
@@ -31,6 +39,8 @@ public class PaymentServiceImpl implements PaymentService {
     private PaymentMethodRepository paymentMethodRepository;
     @Autowired
     private VnPayConfig vnPayConfig;
+    @Autowired
+    private MoMoConfig moMoConfig;
     @Autowired
     private PaymentHashGenerator paymentHashGenerator;
     @Autowired
@@ -135,6 +145,203 @@ public class PaymentServiceImpl implements PaymentService {
             String vnp_SecureHash = paymentHashGenerator.HmacSHA512(vnPayConfig.getHashSecret(), hashData.toString());
             queryUrl += "&vnp_SecureHash=" + vnp_SecureHash;
         return vnPayConfig.getUrl() + "?" + queryUrl;
+    }
+
+    @Override
+    public String createMoMoPaymentUrl(BigDecimal total_price, String orderInfo, Long orderId) {
+        try {
+            Order order = orderRepository.findById(orderId)
+                    .orElseThrow(() -> new OrderExistsException("Order not found"));
+
+            String partnerCode = moMoConfig.getPartnerCode();
+            String accessKey = moMoConfig.getAccessKey();
+            String secretKey = moMoConfig.getSecretKey();
+            String requestId = String.valueOf(System.currentTimeMillis());
+            String amount = String.valueOf(total_price.longValue());
+            String orderIdStr = String.valueOf(orderId);
+            String redirectUrl = moMoConfig.getReturnUrl();
+            String ipnUrl = moMoConfig.getNotifyUrl();
+            String extraData = "";
+            String requestType = "captureWallet";
+            
+            // Remove Vietnamese accents and special characters for signature
+            String orderInfoTho = "Thanh toan don hang " + orderIdStr;
+            String safeExtraData = (extraData != null) ? extraData : "";
+            // Build raw signature (alphabetical order, no URL encoding, use orderInfoTho without accents)
+            String rawSignature = "accessKey=" + accessKey +
+                    "&amount=" + amount +
+                    "&extraData=" + extraData +
+                    "&ipnUrl=" + ipnUrl +
+                    "&orderId=" + orderIdStr +
+                    "&orderInfo=" + orderInfoTho +
+                    "&partnerCode=" + partnerCode +
+                    "&redirectUrl=" + redirectUrl +
+                    "&requestId=" + requestId +
+                    "&requestType=" + requestType;
+
+            // Generate HMAC-SHA256 signature
+            String signature = generateHmacSHA256(rawSignature, secretKey);
+
+            // Build JSON request (use orderInfoTho for consistency)
+            Map<String, Object> requestBody = new HashMap<>();
+            requestBody.put("partnerCode", partnerCode);
+            requestBody.put("accessKey", accessKey);
+            requestBody.put("requestId", requestId);
+            requestBody.put("amount", Long.parseLong(amount));
+            requestBody.put("orderId", orderIdStr);
+            requestBody.put("orderInfo", orderInfoTho);
+            requestBody.put("redirectUrl", redirectUrl);
+            requestBody.put("ipnUrl", ipnUrl);
+            requestBody.put("lang", "vi");
+            requestBody.put("extraData", extraData);
+            requestBody.put("requestType", requestType);
+            requestBody.put("signature", signature);
+
+            // Call MoMo API
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+            HttpEntity<Map<String, Object>> entity = new HttpEntity<>(requestBody, headers);
+
+            RestTemplate restTemplate = new RestTemplate();
+            Map<String, Object> response = restTemplate.postForObject(moMoConfig.getEndpoint(), entity, Map.class);
+
+            if (response != null && "0".equals(response.get("resultCode"))) {
+                return (String) response.get("payUrl");
+            } else {
+                throw new PaymentException("MoMo payment creation failed: " + response);
+            }
+        } catch (Exception e) {
+            throw new PaymentException("Error creating MoMo payment: " + e.getMessage());
+        }
+    }
+
+    private String generateHmacSHA256(String data, String key) throws Exception {
+    Mac mac = Mac.getInstance("HmacSHA256");
+    SecretKeySpec secretKeySpec = new SecretKeySpec(
+        key.getBytes(StandardCharsets.UTF_8),  // ← phải là UTF-8
+        "HmacSHA256"
+    );
+        mac.init(secretKeySpec);
+        byte[] hash = mac.doFinal(data.getBytes(StandardCharsets.UTF_8)); // ← UTF-8
+        
+        // Chuyển sang hex string (lowercase)
+        StringBuilder hexString = new StringBuilder();
+        for (byte b : hash) {
+            String hex = Integer.toHexString(0xff & b);
+            if (hex.length() == 1) hexString.append('0');
+            hexString.append(hex);
+        }
+        return hexString.toString();
+    }
+
+    private String bytesToHex(byte[] bytes) {
+        StringBuilder result = new StringBuilder();
+        for (byte b : bytes) {
+            result.append(String.format("%02x", b));
+        }
+        return result.toString();
+    }
+
+    @Override
+    public PaymentMethodMessageResponse handleMoMoReturn(HttpServletRequest request) {
+        try {
+            String partnerCode = request.getParameter("partnerCode");
+            String accessKey = request.getParameter("accessKey");
+            String requestId = request.getParameter("requestId");
+            String amount = request.getParameter("amount");
+            String orderId = request.getParameter("orderId");
+            String orderInfo = request.getParameter("orderInfo");
+            String orderType = request.getParameter("orderType");
+            String transId = request.getParameter("transId");
+            String resultCode = request.getParameter("resultCode");
+            String message = request.getParameter("message");
+            String payType = request.getParameter("payType");
+            String responseTime = request.getParameter("responseTime");
+            String extraData = request.getParameter("extraData");
+            String signature = request.getParameter("signature");
+
+            // Build raw signature for verification
+            String rawSignature = "accessKey=" + accessKey +
+                    "&amount=" + amount +
+                    "&extraData=" + extraData +
+                    "&message=" + message +
+                    "&orderId=" + orderId +
+                    "&orderInfo=" + orderInfo +
+                    "&orderType=" + orderType +
+                    "&partnerCode=" + partnerCode +
+                    "&payType=" + payType +
+                    "&requestId=" + requestId +
+                    "&responseTime=" + responseTime +
+                    "&resultCode=" + resultCode +
+                    "&transId=" + transId;
+
+            String expectedSignature = generateHmacSHA256(rawSignature, moMoConfig.getSecretKey());
+
+            if (!expectedSignature.equals(signature)) {
+                return new PaymentMethodMessageResponse("Invalid signature");
+            }
+
+            if ("0".equals(resultCode)) {
+                return new PaymentMethodMessageResponse("Thanh toán MoMo thành công");
+            } else {
+                return new PaymentMethodMessageResponse("Thanh toán MoMo thất bại: " + message);
+            }
+        } catch (Exception e) {
+            return new PaymentMethodMessageResponse("Lỗi xử lý thanh toán MoMo: " + e.getMessage());
+        }
+    }
+
+    @Override
+    public Map<String, String> handleMoMoNotify(HttpServletRequest request) {
+        try {
+            // Similar to return but for IPN
+            String partnerCode = request.getParameter("partnerCode");
+            String accessKey = request.getParameter("accessKey");
+            String requestId = request.getParameter("requestId");
+            String amount = request.getParameter("amount");
+            String orderId = request.getParameter("orderId");
+            String orderInfo = request.getParameter("orderInfo");
+            String orderType = request.getParameter("orderType");
+            String transId = request.getParameter("transId");
+            String resultCode = request.getParameter("resultCode");
+            String message = request.getParameter("message");
+            String payType = request.getParameter("payType");
+            String responseTime = request.getParameter("responseTime");
+            String extraData = request.getParameter("extraData");
+            String signature = request.getParameter("signature");
+
+            String rawSignature = "accessKey=" + accessKey +
+                    "&amount=" + amount +
+                    "&extraData=" + extraData +
+                    "&message=" + message +
+                    "&orderId=" + orderId +
+                    "&orderInfo=" + orderInfo +
+                    "&orderType=" + orderType +
+                    "&partnerCode=" + partnerCode +
+                    "&payType=" + payType +
+                    "&requestId=" + requestId +
+                    "&responseTime=" + responseTime +
+                    "&resultCode=" + resultCode +
+                    "&transId=" + transId;
+
+            String expectedSignature = generateHmacSHA256(rawSignature, moMoConfig.getSecretKey());
+
+            if (!expectedSignature.equals(signature)) {
+                return Map.of("RspCode", "97", "Message", "Invalid signature");
+            }
+
+            if ("0".equals(resultCode)) {
+                // Process successful payment
+                Order order = orderRepository.findById(Long.valueOf(orderId))
+                        .orElseThrow(() -> new OrderExistsException("Order not found"));
+                // Update order status if needed
+                return Map.of("RspCode", "00", "Message", "Success");
+            } else {
+                return Map.of("RspCode", "99", "Message", "Payment failed");
+            }
+        } catch (Exception e) {
+            return Map.of("RspCode", "99", "Message", "Error: " + e.getMessage());
+        }
     }
 
     @Override
