@@ -246,9 +246,6 @@ export default function SellerDashboard() {
         </div>
       </div>
 
-<<<<<<< HEAD
-      <Saleschart />
-=======
       {/* Revenue Chart */}
       <div className="bg-white rounded-xl border p-6 mb-8">
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between mb-4">
@@ -284,7 +281,6 @@ export default function SellerDashboard() {
           </div>
         </div>
       </div>
->>>>>>> c7dc673bec50adec27314e8a8d1b2559074a7e8a
 
       {/* Quick Actions - Product Creation Options */}
       <h2 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
