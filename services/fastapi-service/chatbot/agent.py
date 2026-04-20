@@ -144,7 +144,7 @@ def create_chatbot_graph():
     generator_llm = ChatGroq(
         api_key=settings.groq_api_key,
         model_name="llama-3.3-70b-versatile",
-        temperature=0.2
+        temperature=0
     )
     generator_with_tools = generator_llm.bind_tools(tools_list)
 
@@ -152,53 +152,43 @@ def create_chatbot_graph():
         last_message = state["messages"][-1]
         
         check_prompt = ChatPromptTemplate.from_messages([
-            ("system", """Bạn là bộ phận điều phối khách hàng của nền tảng Hoa Quả Sơn.
-            Nhiệm vụ của bạn là đọc câu hỏi và CHỈ TRẢ VỀ ĐÚNG 1 TRONG 4 TỪ KHÓA SAU (Tuyệt đối không giải thích thêm):
+            ("system", """Bạn là chuyên gia phân tích ý định. CHỈ trả về 1 từ khóa duy nhất:
             
-            - FAQ: Khách hỏi về cách dùng web, đăng bán sản phẩm, đơn hàng, livestream, thanh toán, vận chuyển, chính sách.
-            - PRODUCT: Khách muốn mua hàng, hỏi giá cả, tìm kiếm nông sản, hỏi shop có bán trái cây X không.
-            - AGRI: Khách hỏi về kỹ thuật trồng trọt, phân bón, sâu bệnh, chăm sóc cây, thời tiết nông nghiệp.
-            - REJECT: Khách hỏi các vấn đề ngoài lề không liên quan (toán học, code, chính trị, giải trí, thể thao).
+            - AGRI: Nếu câu hỏi chứa các từ khóa về hành động: trồng, chăm sóc, bón phân, tưới nước, sâu bệnh, kỹ thuật, mùa vụ (ví dụ: 'cách trồng cam', 'cam bị vàng lá').
+            - PRODUCT: Nếu câu hỏi về: giá cả, mua hàng, tìm shop, còn hàng không, phí ship (ví dụ: 'giá cam', 'mua cam ở đâu').
+            - FAQ: Nếu hỏi về: đăng bài, tài khoản, livestream, thanh toán trên web.
+            - REJECT: Các chủ đề khác.
             """),
             ("human", "{question}"),
         ])
         
-
         result = classifier_llm.invoke(check_prompt.format_messages(question=last_message.content))
-        response_text = result.content.strip().upper()
+        intent = result.content.strip().upper()
         
-        # Bắt chuỗi an toàn
-        if "FAQ" in response_text: intent = "FAQ"
-        elif "PRODUCT" in response_text: intent = "PRODUCT"
-        elif "AGRI" in response_text: intent = "AGRI"
-        else: intent = "REJECT"
+        # Logic bóc tách chuỗi an toàn
+        if "AGRI" in intent: final_intent = "AGRI"
+        elif "PRODUCT" in intent: final_intent = "PRODUCT"
+        elif "FAQ" in intent: final_intent = "FAQ"
+        else: final_intent = "REJECT"
         
-        return {"intent": intent}
+        return {"intent": final_intent}
 
     def generate_response(state: ChatState):
         intent = state.get("intent", "")
         msgs = list(state["messages"])
-
-
-        from langchain_core.messages import ToolMessage
-
-        already_has_tool_result = any(isinstance(m, ToolMessage) for m in msgs)
-
+        
+        if not msgs or not isinstance(msgs[0], SystemMessage):
+            msgs = [SystemMessage(content=SYSTEM_PROMPT)] + msgs
+            
         if intent == "PRODUCT":
-            hint = "\n\n[Hướng dẫn nội bộ]: Khách đang muốn mua hàng. BẮT BUỘC gọi tool search_products trước khi trả lời."
-        elif intent == "FAQ":
-            hint = "\n\n[Hướng dẫn nội bộ]: Đọc kỹ phần kiến thức nền tảng để hướng dẫn từng bước."
-        else:
-            hint = ""
 
+            msgs.append(HumanMessage(content="[HỆ THỐNG]: Khách muốn MUA HÀNG. Hãy dùng tool search_products để báo giá."))
+        
+        elif intent == "AGRI":
 
-        combined_system = SYSTEM_PROMPT + (hint if not already_has_tool_result else "")
+            msgs.append(HumanMessage(content="[HỆ THỐNG]: Khách hỏi KỸ THUẬT TRỒNG TRỌT. Trả lời bằng kiến thức của bạn, TUYỆT ĐỐI KHÔNG dùng tool search_products."))
 
-
-        non_system_msgs = [m for m in msgs if not isinstance(m, SystemMessage)]
-        final_msgs = [SystemMessage(content=combined_system)] + non_system_msgs
-
-        response = generator_with_tools.invoke(final_msgs)
+        response = generator_with_tools.invoke(msgs)
         return {"messages": [response]}
 
     def reject_query(state: ChatState):
