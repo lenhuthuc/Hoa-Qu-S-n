@@ -46,6 +46,10 @@ public class CartItemServiceImpl implements CartItemService {
         }
         Product product = productRepository.findById(productId)
                                         .orElseThrow(() -> new ProductFingdingException("product can't be found"));
+        if (product.getSeller() != null && product.getSeller().getId() != null
+                && product.getSeller().getId().equals(userId)) {
+            throw new CartItemException("Bạn không thể mua sản phẩm của chính shop mình");
+        }
         CartItemId cartItemId = new CartItemId(cart.getId(), productId);
         CartItem cartItem = cartItemRepository.findById(cartItemId)
                                             .orElseGet(

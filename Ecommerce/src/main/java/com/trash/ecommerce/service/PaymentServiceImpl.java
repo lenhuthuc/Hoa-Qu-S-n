@@ -467,10 +467,19 @@ public class PaymentServiceImpl implements PaymentService {
                                     user.getEmail(), orderId
                             );
                             emailService.sendEmail(user.getEmail(), subject, body);
-                            if (order.getPaymentMethod() != null && order.getInvoice() == null) {
-                                invoiceService.createInvoice(userId, orderId, order.getPaymentMethod().getId());
-                            } else {
+                            if (order.getPaymentMethod() == null) {
                                 throw new PaymentException("Payment method not found for order");
+                            }
+
+                            if (order.getMasterOrder() != null && order.getMasterOrder()) {
+                                List<Order> childOrders = orderRepository.findByParentOrderIdOrderByCreateAtAsc(order.getId());
+                                for (Order child : childOrders) {
+                                    if (child.getInvoice() == null) {
+                                        invoiceService.createInvoice(userId, child.getId(), order.getPaymentMethod().getId());
+                                    }
+                                }
+                            } else if (order.getInvoice() == null) {
+                                invoiceService.createInvoice(userId, orderId, order.getPaymentMethod().getId());
                             }
 
                             // Notify buyer about successful payment

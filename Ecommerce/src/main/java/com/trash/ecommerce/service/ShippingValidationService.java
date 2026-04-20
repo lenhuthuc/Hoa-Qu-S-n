@@ -3,7 +3,9 @@ package com.trash.ecommerce.service;
 import com.trash.ecommerce.dto.ShippingValidationResponse;
 import com.trash.ecommerce.dto.ShippingValidationResponse.ShippingOption;
 import com.trash.ecommerce.entity.Address;
+import com.trash.ecommerce.entity.OrderItem;
 import com.trash.ecommerce.entity.Product;
+import com.trash.ecommerce.entity.Users;
 import com.trash.ecommerce.repository.ProductRepository;
 import com.trash.ecommerce.repository.ProvinceRepository;
 import com.trash.ecommerce.repository.DistrictRepository;
@@ -18,6 +20,7 @@ import org.springframework.web.reactive.function.client.WebClient;
 
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -256,6 +259,22 @@ public class ShippingValidationService {
         return fallbackWard;
     }
 
+    private int resolveFromDistrictId(Users seller) {
+        Address sellerAddress = seller != null ? seller.getAddress() : null;
+        if (sellerAddress != null && sellerAddress.getGhnDistrictId() != null) {
+            return sellerAddress.getGhnDistrictId();
+        }
+        return ghnDefaultFromDistrictId;
+    }
+
+    private String resolveFromWardCode(Users seller) {
+        Address sellerAddress = seller != null ? seller.getAddress() : null;
+        if (sellerAddress != null && sellerAddress.getGhnWardCode() != null && !sellerAddress.getGhnWardCode().isBlank()) {
+            return sellerAddress.getGhnWardCode();
+        }
+        return ghnDefaultFromWardCode;
+    }
+
     private String buildServiceName(Map<?, ?> service) {
         Object shortName = service.get("short_name");
         if (shortName != null && !shortName.toString().isBlank()) {
@@ -268,6 +287,127 @@ public class ShippingValidationService {
             case 3 -> "Tiết kiệm";
             default -> "Chuẩn";
         };
+    }
+
+    @SuppressWarnings("unchecked")
+    public List<ShippingOption> estimateShippingOptionsForSeller(Users seller,
+                                                                 Collection<OrderItem> orderItems,
+                                                                 String toDistrictId,
+                                                                 String toWardCode) {
+        List<ShippingOption> options = new ArrayList<>();
+        if (!isGhnConfigured() || seller == null || orderItems == null || orderItems.isEmpty()) {
+            return options;
+        }
+
+        int fromDistrictId = resolveFromDistrictId(seller);
+        String fromWardCode = resolveFromWardCode(seller);
+        int toDistrict = Integer.parseInt(toDistrictId);
+        String normalizedToWardCode = resolveToWardCode(toDistrict, toWardCode);
+
+        long totalWeight = 0L;
+        long insurance = 0L;
+        int minShelfLife = Integer.MAX_VALUE;
+        for (OrderItem item : orderItems) {
+            if (item == null || item.getProduct() == null || item.getQuantity() == null || item.getQuantity() <= 0) {
+                continue;
+            }
+            Product product = item.getProduct();
+            long unitWeight = (product.getUnitWeightGrams() != null && product.getUnitWeightGrams() > 0)
+                    ? product.getUnitWeightGrams()
+                    : 500L;
+            totalWeight += unitWeight * item.getQuantity();
+            if (product.getPrice() != null) {
+                insurance += product.getPrice().longValue() * item.getQuantity();
+            }
+            int shelfLife = product.getShelfLifeDays() != null ? product.getShelfLifeDays() : 30;
+            minShelfLife = Math.min(minShelfLife, shelfLife);
+        }
+
+        if (totalWeight <= 0) {
+            totalWeight = 500L;
+        }
+        if (minShelfLife == Integer.MAX_VALUE) {
+            minShelfLife = 30;
+        }
+
+        try {
+            Map<String, Object> response = ghnClient().post()
+                    .uri("/v2/shipping-order/available-services")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .bodyValue(Map.of(
+                            "shop_id", Integer.parseInt(ghnShopId),
+                            "from_district", fromDistrictId,
+                            "to_district", toDistrict
+                    ))
+                    .retrieve()
+                    .bodyToMono(Map.class)
+                    .block();
+
+            if (response == null || !(response.get("data") instanceof List<?> services)) {
+                return options;
+            }
+
+            for (Object svc : services) {
+                if (!(svc instanceof Map<?, ?> service)) {
+                    continue;
+                }
+
+                Object serviceIdObj = service.get("service_id");
+                if (!(serviceIdObj instanceof Number serviceNumber)) {
+                    continue;
+                }
+
+                long serviceId = serviceNumber.longValue();
+                Integer serviceTypeId = null;
+                Object serviceTypeObj = service.get("service_type_id");
+                if (serviceTypeObj instanceof Number serviceTypeNumber) {
+                    serviceTypeId = serviceTypeNumber.intValue();
+                }
+
+                if (serviceTypeId == null || (serviceTypeId != 1 && serviceTypeId != 2)) {
+                    continue;
+                }
+
+                Long fee = fetchFee(fromDistrictId, fromWardCode, toDistrict, normalizedToWardCode,
+                        serviceId, serviceTypeId, totalWeight, insurance);
+                Integer estimatedDays = fetchLeadtimeDays(fromDistrictId, fromWardCode, toDistrict,
+                        normalizedToWardCode, serviceId);
+
+                int defaultFromDistrict = ghnDefaultFromDistrictId != null ? ghnDefaultFromDistrictId : fromDistrictId;
+                String defaultFromWard = (ghnDefaultFromWardCode != null && !ghnDefaultFromWardCode.isBlank())
+                        ? ghnDefaultFromWardCode
+                        : fromWardCode;
+
+                if ((fee == null || estimatedDays == null)
+                        && (fromDistrictId != defaultFromDistrict || !Objects.equals(fromWardCode, defaultFromWard))) {
+                    fee = fetchFee(defaultFromDistrict, defaultFromWard, toDistrict, normalizedToWardCode,
+                            serviceId, serviceTypeId, totalWeight, insurance);
+                    estimatedDays = fetchLeadtimeDays(defaultFromDistrict, defaultFromWard, toDistrict,
+                            normalizedToWardCode, serviceId);
+                }
+
+                if (fee == null || estimatedDays == null) {
+                    continue;
+                }
+
+                if (estimatedDays > minShelfLife) {
+                    continue;
+                }
+
+                options.add(ShippingOption.builder()
+                        .carrier("GHN")
+                        .serviceName(buildServiceName(service))
+                        .serviceTypeId(serviceTypeId)
+                        .estimatedDays(estimatedDays)
+                        .fee(fee)
+                        .compatible(true)
+                        .build());
+            }
+        } catch (Exception e) {
+            return options;
+        }
+
+        return options;
     }
 
     @SuppressWarnings("unchecked")

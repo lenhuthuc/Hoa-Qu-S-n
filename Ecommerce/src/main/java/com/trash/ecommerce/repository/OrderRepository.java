@@ -13,7 +13,7 @@ import java.util.List;
 
 @Repository
 public interface OrderRepository extends JpaRepository<Order, Long> {
-    @Query("SELECT o FROM Order o WHERE o.user.id = :userId AND o.parentOrder IS NULL ORDER BY o.createAt DESC")
+    @Query("SELECT o FROM Order o WHERE o.user.id = :userId AND (o.masterOrder = false OR o.masterOrder IS NULL) ORDER BY o.createAt DESC")
     List<Order> findByUserIdOrderByCreateAtDesc(@Param("userId") Long userId);
 
     List<Order> findByParentOrderIdOrderByCreateAtAsc(Long parentOrderId);

@@ -18,6 +18,7 @@ import lombok.NoArgsConstructor;
 @Data
 public class OrderResponseDTO {
     private Long id;
+    private Long paymentOrderId;
     private String orderNumber;
     @JsonProperty("items")
     private Set<CartItemDetailsResponseDTO> cartItems = new HashSet<>();

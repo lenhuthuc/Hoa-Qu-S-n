@@ -80,7 +80,7 @@ public class OrderServiceImpl implements OrderService {
                 .filter(order -> order != null) 
                 .map(order -> {
                     try {
-                        return orderMapper.toOrderSummaryDTO(order, null);
+                        return orderMapper.toOrderSummaryDTO(order, resolvePaymentUrl(order, ipAddress));
                     } catch (Exception e) {
                         return orderMapper.toOrderSummaryDTO(order, null);
                     }
@@ -112,7 +112,7 @@ public class OrderServiceImpl implements OrderService {
             throw new AccessDeniedException("You do not have permission to view this order");
         }
 
-        OrderResponseDTO dto = orderMapper.toOrderResponseDTO(order, null);
+        OrderResponseDTO dto = orderMapper.toOrderResponseDTO(order, resolvePaymentUrl(order, IpAddress));
         if (order.getMasterOrder() != null && order.getMasterOrder()) {
             List<Order> childOrders = orderRepository.findByParentOrderIdOrderByCreateAtAsc(order.getId());
             dto.setSubOrders(childOrders.stream().map(this::toSubOrderDTO).collect(Collectors.toList()));
@@ -186,18 +186,21 @@ public class OrderServiceImpl implements OrderService {
         Set<OrderItem> orderItems = previewContext.orderItems;
         PaymentMethod paymentMethod = paymentMethodRepository.findById(paymentMethodId)
                 .orElseThrow(() -> new PaymentException("Payment method not found"));
-
         com.trash.ecommerce.entity.Address address = user.getAddress();
         if (address == null) {
             throw new OrderValidException("User address is required to create an order");
         }
 
-        OrderStatus initialStatus = OrderStatus.PLACED;
+        boolean onlinePayment = isOnlinePaymentMethod(paymentMethod);
+        OrderStatus initialStatus = onlinePayment ? OrderStatus.PENDING_PAYMENT : OrderStatus.PLACED;
 
         Map<Long, Set<OrderItem>> itemsBySeller = new LinkedHashMap<>();
         Map<Long, BigDecimal> subtotalBySeller = new HashMap<>();
         for (OrderItem item : orderItems) {
             Long sellerId = item.getProduct().getSeller().getId();
+            if (sellerId != null && sellerId.equals(userId)) {
+                throw new OrderValidException("Bạn không thể mua sản phẩm của chính shop mình");
+            }
             itemsBySeller.computeIfAbsent(sellerId, k -> new LinkedHashSet<>()).add(item);
             BigDecimal lineAmount = item.getPrice().multiply(BigDecimal.valueOf(item.getQuantity()));
             subtotalBySeller.merge(sellerId, lineAmount, BigDecimal::add);
@@ -214,6 +217,27 @@ public class OrderServiceImpl implements OrderService {
             ? previewContext.preview.getDiscountAmount() : BigDecimal.ZERO;
         BigDecimal totalShippingDiscount = previewContext.preview.getShippingDiscountAmount() != null
             ? previewContext.preview.getShippingDiscountAmount() : BigDecimal.ZERO;
+
+        Order paymentOrder = null;
+        if (onlinePayment) {
+            BigDecimal paymentShippingFee = totalShipping.subtract(totalShippingDiscount);
+            if (paymentShippingFee.compareTo(BigDecimal.ZERO) < 0) {
+                paymentShippingFee = BigDecimal.ZERO;
+            }
+
+            paymentOrder = new Order();
+            paymentOrder.setCreateAt(new Date());
+            paymentOrder.setUser(user);
+            paymentOrder.setSeller(null);
+            paymentOrder.setParentOrder(null);
+            paymentOrder.setMasterOrder(true);
+            paymentOrder.setPaymentMethod(paymentMethod);
+            paymentOrder.setAddress(address);
+            paymentOrder.setStatus(OrderStatus.PENDING_PAYMENT);
+            paymentOrder.setShippingFee(paymentShippingFee);
+            paymentOrder.setTotalPrice(previewContext.preview.getTotalAmount());
+            orderRepository.save(paymentOrder);
+        }
 
         List<OrderResponseDTO> createdOrders = new ArrayList<>();
         BigDecimal allocatedDiscount = BigDecimal.ZERO;
@@ -259,7 +283,7 @@ public class OrderServiceImpl implements OrderService {
             order.setCreateAt(new Date());
             order.setUser(user);
             order.setSeller(seller);
-            order.setParentOrder(null);
+            order.setParentOrder(paymentOrder);
             order.setMasterOrder(false);
             order.setPaymentMethod(paymentMethod);
             order.setAddress(address);
@@ -286,6 +310,7 @@ public class OrderServiceImpl implements OrderService {
 
             createdOrders.add(new OrderResponseDTO(
                 order.getId(),
+                paymentOrder != null ? paymentOrder.getId() : order.getId(),
                 order.getOrderNumber(),
                 sellerItems.stream().map(orderMapper::toCartItemDetailsResponseDTO).collect(Collectors.toSet()),
                 order.getTotalPrice(),
@@ -341,6 +366,7 @@ public class OrderServiceImpl implements OrderService {
 
         PaymentMethod paymentMethod = paymentMethodRepository.findById(paymentMethodId)
                 .orElseThrow(() -> new PaymentException("Payment method not found"));
+        boolean onlinePayment = isOnlinePaymentMethod(paymentMethod);
 
         com.trash.ecommerce.entity.Address address = user.getAddress();
         if (address == null) {
@@ -357,7 +383,7 @@ public class OrderServiceImpl implements OrderService {
         order.setAddress(address);
         order.setTotalPrice(previewContext.preview.getTotalAmount());
         order.setShippingFee(previewContext.preview.getShippingFee().subtract(previewContext.preview.getShippingDiscountAmount()));
-        order.setStatus(OrderStatus.PLACED);
+        order.setStatus(onlinePayment ? OrderStatus.PENDING_PAYMENT : OrderStatus.PLACED);
         orderRepository.save(order);
 
         Set<OrderItem> orderItems = previewContext.orderItems;
@@ -374,7 +400,7 @@ public class OrderServiceImpl implements OrderService {
             }
         }
 
-        if (paymentMethod.getId() == 1L && order.getInvoice() == null) {
+        if (!onlinePayment && order.getInvoice() == null) {
             invoiceService.createInvoice(userId, order.getId(), paymentMethodId);
         }
 
@@ -393,6 +419,7 @@ public class OrderServiceImpl implements OrderService {
 
         return new OrderResponseDTO(
                 order.getId(),
+            order.getId(),
                 order.getOrderNumber(),
                 previewContext.responseItems,
                 order.getTotalPrice(),
@@ -613,24 +640,50 @@ public class OrderServiceImpl implements OrderService {
     public String retryPendingPayment(Long userId, Long orderId, String IpAddress) {
         Order order = orderRepository.findById(orderId)
                 .orElseThrow(() -> new ResourceNotFoundException("Order not found"));
-        if (order.getParentOrder() != null) {
-            throw new OrderValidException("Vui lòng thanh toán bằng đơn tổng");
-        }
         if (order.getUser() == null || !order.getUser().getId().equals(userId)) {
             throw new AccessDeniedException("You do not have permission to retry this order");
         }
-        if (order.getStatus() != OrderStatus.PENDING_PAYMENT) {
+        Order paymentOrder = order;
+        if (order.getParentOrder() != null) {
+            paymentOrder = order.getParentOrder();
+        }
+
+        if (paymentOrder.getStatus() != OrderStatus.PENDING_PAYMENT) {
             throw new OrderValidException("Order is not waiting for payment");
         }
-        if (isPaymentExpired(order)) {
-            releaseReservedStock(order);
-            order.setStatus(OrderStatus.CANCELLED);
-            orderRepository.save(order);
+        if (isPaymentExpired(paymentOrder)) {
+            List<Order> targetOrders = (paymentOrder.getMasterOrder() != null && paymentOrder.getMasterOrder())
+                    ? orderRepository.findByParentOrderIdOrderByCreateAtAsc(paymentOrder.getId())
+                    : List.of(paymentOrder);
+            for (Order targetOrder : targetOrders) {
+                releaseReservedStock(targetOrder);
+                targetOrder.setStatus(OrderStatus.CANCELLED);
+                orderRepository.save(targetOrder);
+            }
+            paymentOrder.setStatus(OrderStatus.CANCELLED);
+            orderRepository.save(paymentOrder);
             throw new OrderValidException("Đơn hàng đã hết hạn thanh toán");
         }
-        order.setStatus(OrderStatus.PLACED);
-        orderRepository.save(order);
-        return "OK";
+
+        if (paymentOrder.getPaymentMethod() == null) {
+            throw new PaymentException("Payment method not found");
+        }
+
+        if (paymentOrder.getPaymentMethod().getId() == 2L) {
+            return paymentService.createPaymentUrl(
+                    paymentOrder.getTotalPrice(),
+                    "Thanh toán đơn hàng #" + paymentOrder.getId(),
+                    paymentOrder.getId(),
+                    IpAddress);
+        }
+        if (paymentOrder.getPaymentMethod().getId() == 3L) {
+            return paymentService.createMoMoPaymentUrl(
+                    paymentOrder.getTotalPrice(),
+                    "Thanh toan don hang #" + paymentOrder.getId(),
+                    paymentOrder.getId());
+        }
+
+        throw new OrderValidException("Phương thức thanh toán không hỗ trợ retry");
     }
 
     @Override
@@ -678,12 +731,13 @@ public class OrderServiceImpl implements OrderService {
         Set<OrderItem> orderItems = new HashSet<>();
         Set<CartItemDetailsResponseDTO> responseItems = new HashSet<>();
         List<String> shippingWarnings = new ArrayList<>();
-        List<String> standardBlockedProducts = new ArrayList<>();
-        List<String> expressBlockedProducts = new ArrayList<>();
+        List<String> standardBlockedShops = new ArrayList<>();
+        List<String> expressBlockedShops = new ArrayList<>();
         boolean canStandard = true;
         boolean canExpress = true;
         Map<Long, BigDecimal> standardShippingBySeller = new HashMap<>();
         Map<Long, BigDecimal> expressShippingBySeller = new HashMap<>();
+        Map<Long, Set<OrderItem>> itemsBySeller = new LinkedHashMap<>();
 
         for (CartItem cartItem : cart.getItems()) {
             if (cartItem == null) continue;
@@ -691,6 +745,10 @@ public class OrderServiceImpl implements OrderService {
             Long quantityBuy = cartItem.getQuantity();
             if (product == null || quantityBuy == null || quantityBuy <= 0) {
                 throw new OrderValidException("Giỏ hàng chứa sản phẩm không hợp lệ");
+            }
+            if (product.getSeller() != null && product.getSeller().getId() != null
+                    && product.getSeller().getId().equals(user.getId())) {
+                throw new OrderValidException("Bạn không thể mua sản phẩm của chính shop mình");
             }
             if (product.getQuantity() == null || product.getQuantity() < quantityBuy) {
                 throw new ProductQuantityValidation("Sản phẩm " + product.getProductName() + " đã hết hàng!");
@@ -706,6 +764,12 @@ public class OrderServiceImpl implements OrderService {
             orderItem.setPrice(currentPrice);
             orderItems.add(orderItem);
 
+            Long sellerId = product.getSeller() != null ? product.getSeller().getId() : null;
+            if (sellerId == null) {
+                throw new OrderValidException("Sản phẩm " + product.getProductName() + " chưa có thông tin nhà vườn");
+            }
+            itemsBySeller.computeIfAbsent(sellerId, key -> new LinkedHashSet<>()).add(orderItem);
+
             CartItemDetailsResponseDTO dto = new CartItemDetailsResponseDTO();
             dto.setProductId(product.getId());
             dto.setProductName(product.getProductName());
@@ -713,53 +777,54 @@ public class OrderServiceImpl implements OrderService {
             dto.setQuantity(quantityBuy);
             dto.setImageUrl(product.getPrimaryImagePath() != null ? "/api/products/" + product.getId() + "/img" : null);
             responseItems.add(dto);
+        }
 
-            ShippingValidationResponse shippingValidation = shippingValidationService.validateShipping(
-                    product.getId(), normalizedDistrictId, normalizedWardCode);
-            boolean itemHasStandard = shippingValidation.getAvailableMethods().stream()
-                    .anyMatch(this::isStandardOption);
-            boolean itemHasExpress = shippingValidation.getAvailableMethods().stream()
-                    .anyMatch(this::isExpressOption);
+        for (Map.Entry<Long, Set<OrderItem>> entry : itemsBySeller.entrySet()) {
+            Long sellerId = entry.getKey();
+            Users seller = userRepository.findById(sellerId)
+                    .orElseThrow(() -> new ResourceNotFoundException("Seller not found"));
+            String sellerName = resolveSellerDisplayName(seller);
 
-                Long standardFee = shippingValidation.getAvailableMethods().stream()
+            List<ShippingValidationResponse.ShippingOption> sellerOptions =
+                    shippingValidationService.estimateShippingOptionsForSeller(
+                            seller,
+                            entry.getValue(),
+                            normalizedDistrictId,
+                            normalizedWardCode);
+
+            Long standardFee = sellerOptions.stream()
                     .filter(this::isStandardOption)
                     .map(ShippingValidationResponse.ShippingOption::getFee)
                     .filter(Objects::nonNull)
                     .min(Long::compareTo)
                     .orElse(null);
-
-                Long expressFee = shippingValidation.getAvailableMethods().stream()
+            Long expressFee = sellerOptions.stream()
                     .filter(this::isExpressOption)
                     .map(ShippingValidationResponse.ShippingOption::getFee)
                     .filter(Objects::nonNull)
                     .min(Long::compareTo)
                     .orElse(null);
 
-            Long sellerId = product.getSeller() != null ? product.getSeller().getId() : null;
-
-            if (!itemHasStandard) {
+            if (standardFee == null) {
                 canStandard = false;
-                standardBlockedProducts.add(product.getProductName());
-            } else if (standardFee != null && sellerId != null) {
-                BigDecimal fee = BigDecimal.valueOf(standardFee);
-                standardShippingBySeller.merge(sellerId, fee, BigDecimal::max);
+                standardBlockedShops.add(sellerName);
+            } else {
+                standardShippingBySeller.put(sellerId, BigDecimal.valueOf(standardFee));
             }
-            if (!itemHasExpress) {
+
+            if (expressFee == null) {
                 canExpress = false;
-                expressBlockedProducts.add(product.getProductName());
-            } else if (expressFee != null && sellerId != null) {
-                BigDecimal fee = BigDecimal.valueOf(expressFee);
-                expressShippingBySeller.merge(sellerId, fee, BigDecimal::max);
+                expressBlockedShops.add(sellerName);
+            } else {
+                expressShippingBySeller.put(sellerId, BigDecimal.valueOf(expressFee));
             }
         }
 
-        if (!standardBlockedProducts.isEmpty()) {
-            shippingWarnings.add("Giao tiêu chuẩn: Không hỗ trợ " + joinProductNames(standardBlockedProducts)
-                    + " vì thời gian vận chuyển dài hơn hạn sử dụng.");
+        if (!standardBlockedShops.isEmpty()) {
+            shippingWarnings.add("Giao tiêu chuẩn: Một số shop chưa hỗ trợ tuyến này (" + joinProductNames(standardBlockedShops) + ").");
         }
-        if (!expressBlockedProducts.isEmpty()) {
-            shippingWarnings.add("Giao hỏa tốc: Không hỗ trợ " + joinProductNames(expressBlockedProducts)
-                    + " vì GHN hiện không cung cấp dịch vụ hỏa tốc cho tuyến giao này.");
+        if (!expressBlockedShops.isEmpty()) {
+            shippingWarnings.add("Giao hỏa tốc: Một số shop chưa hỗ trợ tuyến này (" + joinProductNames(expressBlockedShops) + ").");
         }
 
         List<String> availableDeliveryTypes = new ArrayList<>();
@@ -850,6 +915,10 @@ public class OrderServiceImpl implements OrderService {
 
         Product product = productRepository.findById(productId)
                 .orElseThrow(() -> new ResourceNotFoundException("Product not found"));
+        if (product.getSeller() != null && product.getSeller().getId() != null
+                && product.getSeller().getId().equals(user.getId())) {
+            throw new OrderValidException("Bạn không thể mua sản phẩm của chính shop mình");
+        }
         if (product.getQuantity() == null || product.getQuantity() < quantity) {
             throw new ProductQuantityValidation("Sản phẩm " + product.getProductName() + " đã hết hàng!");
         }
@@ -1076,23 +1145,95 @@ public class OrderServiceImpl implements OrderService {
         Map<Long, BigDecimal> shippingBySeller = new HashMap<>();
 
         for (Map.Entry<Long, Set<OrderItem>> entry : itemsBySeller.entrySet()) {
-            BigDecimal sellerFee = BigDecimal.ZERO;
-            for (OrderItem item : entry.getValue()) {
-                ShippingValidationResponse validation = shippingValidationService.validateShipping(
-                        item.getProduct().getId(), toDistrictId, toWardCode);
+            Users seller = userRepository.findById(entry.getKey())
+                    .orElseThrow(() -> new ResourceNotFoundException("Seller not found"));
 
-                Long itemFee = validation.getAvailableMethods().stream()
-                        .filter(option -> "EXPRESS".equals(normalizedType) ? isExpressOption(option) : isStandardOption(option))
-                        .map(ShippingValidationResponse.ShippingOption::getFee)
-                        .filter(Objects::nonNull)
-                        .min(Long::compareTo)
-                        .orElse(0L);
+            List<ShippingValidationResponse.ShippingOption> sellerOptions =
+                    shippingValidationService.estimateShippingOptionsForSeller(
+                            seller,
+                            entry.getValue(),
+                            toDistrictId,
+                            toWardCode);
 
-                sellerFee = sellerFee.max(BigDecimal.valueOf(itemFee));
+            Long sellerFee = sellerOptions.stream()
+                    .filter(option -> "EXPRESS".equals(normalizedType) ? isExpressOption(option) : isStandardOption(option))
+                    .map(ShippingValidationResponse.ShippingOption::getFee)
+                    .filter(Objects::nonNull)
+                    .min(Long::compareTo)
+                    .orElse(null);
+
+            if (sellerFee == null) {
+                throw new OrderValidException("Shop " + resolveSellerDisplayName(seller) + " không hỗ trợ phương thức giao hàng đã chọn");
             }
-            shippingBySeller.put(entry.getKey(), sellerFee);
+            shippingBySeller.put(entry.getKey(), BigDecimal.valueOf(sellerFee));
         }
         return shippingBySeller;
+    }
+
+    private boolean isOnlinePaymentMethod(PaymentMethod paymentMethod) {
+        if (paymentMethod == null) {
+            return false;
+        }
+        if (paymentMethod.getId() != null && (paymentMethod.getId() == 2L || paymentMethod.getId() == 3L)) {
+            return true;
+        }
+        String methodName = paymentMethod.getMethodName();
+        if (methodName == null) {
+            return false;
+        }
+        String normalized = methodName.trim().toUpperCase(Locale.ROOT);
+        return normalized.contains("VNPAY") || normalized.contains("MOMO");
+    }
+
+    private String resolvePaymentUrl(Order order, String ipAddress) {
+        if (order == null || !isOnlinePaymentMethod(order.getPaymentMethod())) {
+            return null;
+        }
+        Order paymentOrder = order;
+        if (order.getParentOrder() != null && order.getParentOrder().getMasterOrder() != null
+                && order.getParentOrder().getMasterOrder()) {
+            paymentOrder = order.getParentOrder();
+        }
+
+        if (paymentOrder.getStatus() != OrderStatus.PENDING_PAYMENT || isPaymentExpired(paymentOrder)) {
+            return null;
+        }
+
+        if (paymentOrder.getPaymentMethod() == null || paymentOrder.getPaymentMethod().getId() == null) {
+            return null;
+        }
+
+        try {
+            if (paymentOrder.getPaymentMethod().getId() == 2L) {
+                return paymentService.createPaymentUrl(
+                        paymentOrder.getTotalPrice(),
+                        "Thanh toán đơn hàng #" + paymentOrder.getId(),
+                        paymentOrder.getId(),
+                        ipAddress);
+            }
+            if (paymentOrder.getPaymentMethod().getId() == 3L) {
+                return paymentService.createMoMoPaymentUrl(
+                        paymentOrder.getTotalPrice(),
+                        "Thanh toan don hang #" + paymentOrder.getId(),
+                        paymentOrder.getId());
+            }
+        } catch (Exception ignored) {
+            return null;
+        }
+        return null;
+    }
+
+    private String resolveSellerDisplayName(Users seller) {
+        if (seller == null) {
+            return "Shop";
+        }
+        if (seller.getFullName() != null && !seller.getFullName().isBlank()) {
+            return seller.getFullName();
+        }
+        if (seller.getUsername() != null && !seller.getUsername().isBlank()) {
+            return seller.getUsername();
+        }
+        return "Shop #" + seller.getId();
     }
 
     private BigDecimal proportion(BigDecimal totalValue, BigDecimal part, BigDecimal denominator) {

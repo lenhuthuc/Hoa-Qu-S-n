@@ -76,7 +76,7 @@ export default function WishlistPage() {
                   <div className="h-48 bg-gray-100 flex items-center justify-center overflow-hidden">
                     {item.image ? (
                       <img
-                        src={`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000"}/api/products/${item.productId}/img`}
+                        src={`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:3003"}/api/products/${item.productId}/img`}
                         alt={item.productName}
                         className="w-full h-full object-cover"
                       />

@@ -177,9 +177,14 @@ export default function OrderDetailPage() {
     if (!order) return;
     setPayingVnPay(true);
     try {
-      await orderApi.retryPayment(order.id);
-      setOrder((prev) => (prev ? { ...prev, status: "PLACED" } : prev));
-      toast.success("Thanh toán VNPay đã được ghi nhận");
+      const res = await orderApi.retryPayment(order.id);
+      const payload = res.data?.data || res.data;
+      const paymentUrl = payload?.paymentUrl;
+      if (typeof paymentUrl === "string" && paymentUrl.startsWith("http")) {
+        window.location.href = paymentUrl;
+        return;
+      }
+      toast.error("Không thể tạo liên kết thanh toán");
     } catch {
       toast.error("Lỗi tạo thanh toán VNPay");
     } finally {
@@ -339,10 +344,15 @@ export default function OrderDetailPage() {
     }
   };
 
-  const handleSellerUpdateStatus = async (newStatus: "PREPARING" | "SHIPPED") => {
+  const handleSellerUpdateStatus = async (newStatus: "PREPARING" | "SHIPPED" | "CANCELLED") => {
     if (!order || order.viewerRole !== "SELLER") return;
 
-    const label = newStatus === "PREPARING" ? "Xác nhận đơn" : "Giao hàng";
+    const labelMap: Record<string, string> = {
+      PREPARING: "Xác nhận đơn",
+      SHIPPED: "Giao hàng",
+      CANCELLED: "Hủy đơn",
+    };
+    const label = labelMap[newStatus] || newStatus;
     if (!confirm(`${label} cho đơn #${order.id}?`)) return;
 
     setUpdatingSellerStatus(true);
@@ -481,13 +491,14 @@ export default function OrderDetailPage() {
     .map((line) => line.trim())
     .filter(Boolean);
   const deliveryPhone = (order.phone || profilePhone || "").trim();
+  const backPath = order.viewerRole === "SELLER" ? "/seller/orders" : "/orders";
 
   return (
     <div className="bg-gray-50 min-h-screen pb-20">
       {/* Header */}
       <div className="fixed top-0 w-full z-40 bg-white border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-4 lg:px-8 py-4 flex items-center justify-between">
-          <button onClick={() => router.push("/orders")} className="flex items-center gap-2 text-gray-600 hover:text-green-700 font-medium transition">
+          <button onClick={() => router.push(backPath)} className="flex items-center gap-2 text-gray-600 hover:text-green-700 font-medium transition">
             <ChevronLeft className="w-5 h-5" /> Quay lại đơn hàng
           </button>
           <div className="hidden md:block text-center">
@@ -763,6 +774,23 @@ export default function OrderDetailPage() {
                 </div>
               )}
 
+              {order.viewerRole === "SELLER" && (order.status === "PLACED" || order.status === "PREPARING") && (
+                <button
+                  onClick={() => handleSellerUpdateStatus("CANCELLED")}
+                  disabled={updatingSellerStatus}
+                  className="w-full py-3 bg-red-100 text-red-700 font-bold rounded-xl hover:bg-red-200 transition disabled:opacity-50 flex items-center justify-center gap-2 mt-2"
+                >
+                  {updatingSellerStatus ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Đang xử lý...
+                    </>
+                  ) : (
+                    "Hủy đơn"
+                  )}
+                </button>
+              )}
+
               {hasReturnRequest && (
                 <Link
                   href={`/returns#order-${order.id}`}
@@ -787,12 +815,14 @@ export default function OrderDetailPage() {
                 </div>
               )}
 
-              <Link
-                href="/search"
-                className="block w-full text-center py-3 text-green-700 font-medium hover:bg-green-50 rounded-xl transition mt-2"
-              >
-                Tiếp tục mua sắm
-              </Link>
+              {order.viewerRole !== "SELLER" && (
+                <Link
+                  href="/search"
+                  className="block w-full text-center py-3 text-green-700 font-medium hover:bg-green-50 rounded-xl transition mt-2"
+                >
+                  Tiếp tục mua sắm
+                </Link>
+              )}
             </div>
           </div>
         </div>

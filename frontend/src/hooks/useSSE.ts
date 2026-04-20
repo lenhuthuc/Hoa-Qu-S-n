@@ -17,7 +17,7 @@ export function useSSE(handlers: SSEHandlers) {
   handlersRef.current = handlers;
 
   useEffect(() => {
-    const url = `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000"}/api/sse`;
+    const url = `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:3003"}/api/sse`;
     let es: EventSource;
     let closed = false;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;

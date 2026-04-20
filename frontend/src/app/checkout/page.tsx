@@ -359,17 +359,14 @@ function CheckoutPageInner() {
       }
 
       const res = isBuyNowMode && buyNowItem
-        ? await orderApi.createBuyNow(
-            buyNowItem.productId,
-            buyNowItem.quantity,
+        ? await orderApi.createBuyNow({
+            productId: buyNowItem.productId,
+            quantity: buyNowItem.quantity,
             paymentMethod,
-            undefined,
-            undefined,
-            undefined,
-            latestPreview.deliveryType || deliveryType,
-            selectedDistrictId,
-            selectedWardCode
-          )
+            deliveryType: latestPreview.deliveryType || deliveryType,
+            toDistrictId: selectedDistrictId,
+            toWardCode: selectedWardCode,
+          })
         : await orderApi.create(
             paymentMethod,
             undefined,
@@ -382,6 +379,8 @@ function CheckoutPageInner() {
       const payload = res.data?.data || res.data;
       const createdOrders = Array.isArray(payload) ? payload : (payload ? [payload] : []);
       const firstOrder = createdOrders[0];
+      const paymentOrderId = firstOrder?.paymentOrderId || firstOrder?.id;
+      const createdTotal = createdOrders.reduce((sum, order) => sum + Number(order?.totalAmount || 0), 0);
 
       toast.success("Đặt hàng thành công!");
 
@@ -389,9 +388,9 @@ function CheckoutPageInner() {
         localStorage.removeItem(BUY_NOW_STORAGE_KEY);
       }
 
-      if (paymentMethod === 2 && firstOrder?.id) {
-        const orderInfo = `Thanh toán đơn hàng #${firstOrder.id}`;
-        const urlRes = await paymentApi.createVnPayUrl(total, orderInfo, firstOrder.id);
+      if (paymentMethod === 2 && paymentOrderId) {
+        const orderInfo = `Thanh toán đơn hàng #${paymentOrderId}`;
+        const urlRes = await paymentApi.createVnPayUrl(createdTotal || total, orderInfo, paymentOrderId);
         const vnpayUrl = urlRes.data;
         if (typeof vnpayUrl === "string" && vnpayUrl.startsWith("http")) {
           window.location.href = vnpayUrl;
@@ -399,9 +398,9 @@ function CheckoutPageInner() {
         }
       }
 
-      if (paymentMethod === 3 && firstOrder?.id) {
-        const orderInfo = `Thanh toán đơn hàng #${firstOrder.id}`;
-        const urlRes = await paymentApi.createMoMoUrl(total, orderInfo, firstOrder.id);
+      if (paymentMethod === 3 && paymentOrderId) {
+        const orderInfo = `Thanh toán đơn hàng #${paymentOrderId}`;
+        const urlRes = await paymentApi.createMoMoUrl(createdTotal || total, orderInfo, paymentOrderId);
         const momoUrl = urlRes.data;
         if (typeof momoUrl === "string" && momoUrl.startsWith("http")) {
           window.location.href = momoUrl;

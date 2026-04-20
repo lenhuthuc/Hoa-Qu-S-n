@@ -57,19 +57,11 @@ function PaymentReturnContent() {
               Đơn hàng {orderId && `#${orderId}`} của bạn đã được thanh toán thành công.
             </p>
             <div className="flex gap-3 justify-center">
-              {orderId && (
-                <Link
-                  href={`/orders/${orderId}`}
-                  className="px-6 py-2.5 bg-primary-600 text-white rounded-xl font-medium hover:bg-primary-700 transition"
-                >
-                  Xem đơn hàng
-                </Link>
-              )}
               <Link
                 href="/orders"
-                className="px-6 py-2.5 border rounded-xl text-gray-700 font-medium hover:bg-gray-50 transition"
+                className="px-6 py-2.5 bg-primary-600 text-white rounded-xl font-medium hover:bg-primary-700 transition"
               >
-                Danh sách đơn
+                Xem danh sách đơn
               </Link>
             </div>
           </>
@@ -81,19 +73,11 @@ function PaymentReturnContent() {
               Giao dịch không thành công. Vui lòng thử lại hoặc chọn phương thức thanh toán khác.
             </p>
             <div className="flex gap-3 justify-center">
-              {orderId && (
-                <Link
-                  href={`/orders/${orderId}`}
-                  className="px-6 py-2.5 bg-primary-600 text-white rounded-xl font-medium hover:bg-primary-700 transition"
-                >
-                  Xem đơn hàng
-                </Link>
-              )}
               <Link
-                href="/cart"
-                className="px-6 py-2.5 border rounded-xl text-gray-700 font-medium hover:bg-gray-50 transition"
+                href="/orders"
+                className="px-6 py-2.5 bg-primary-600 text-white rounded-xl font-medium hover:bg-primary-700 transition"
               >
-                Quay lại giỏ hàng
+                Về danh sách đơn
               </Link>
             </div>
           </>

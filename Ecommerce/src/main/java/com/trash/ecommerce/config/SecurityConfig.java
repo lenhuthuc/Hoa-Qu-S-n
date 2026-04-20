@@ -110,6 +110,7 @@ public class SecurityConfig {
             "http://localhost:3001",
             "http://127.0.0.1:3000",
             "http://127.0.0.1:3001",
+            "https://refertilizable-margareta-heliacally.ngrok-free.dev",
             "https://haquason.uk",
             "https://www.haquason.uk",
             "https://api.haquason.uk"
