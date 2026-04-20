@@ -2,7 +2,7 @@ const express = require("express");
 const jwt = require("jsonwebtoken");
 const router = express.Router();
 
-const JWT_SECRET = process.env.JWT_SECRET || "hoaquason_secret_key_2026";
+const JWT_SECRET = process.env.JWT_SECRET || "hoaquason_jwt_secret_key_2026_stable!";
 
 // userId (string) → Set<Response>
 const clients = new Map();

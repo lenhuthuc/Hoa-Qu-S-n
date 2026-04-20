@@ -3,7 +3,8 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { Upload, Sparkles, Loader2, Check, ArrowRight, ImageIcon, Leaf, Tag, TrendingUp, BarChart3, QrCode } from "lucide-react";
-import { aiApi, searchApi, categoryApi, facebookApi, isLoggedIn, batchApi } from "@/lib/api";
+import { aiApi, searchApi, categoryApi, facebookApi, isLoggedIn, batchApi, sellerApi } from "@/lib/api";
+import { shareToFacebookDialog } from "@/lib/facebookShare";
 import toast from "react-hot-toast";
 
 interface AIResult {
@@ -64,8 +65,8 @@ export default function CreatePostPage() {
   const [result, setResult] = useState<AIResult | null>(null);
   const [editable, setEditable] = useState<EditableFields | null>(null);
   const [categories, setCategories] = useState<CategoryOption[]>([]);
-  const [facebookPages, setFacebookPages] = useState<FacebookPage[]>([]);
   const [postToFacebook, setPostToFacebook] = useState(false);
+  const [facebookPages, setFacebookPages] = useState<FacebookPage[]>([]);
   const [facebookPageId, setFacebookPageId] = useState("");
   const [facebookMessage, setFacebookMessage] = useState("");
   const [connectingFacebook, setConnectingFacebook] = useState(false);
@@ -99,6 +100,9 @@ export default function CreatePostPage() {
   useEffect(() => {
     if (!isLoggedIn()) { router.push("/login"); }
     void loadCategories();
+  }, [router, loadCategories]);
+
+  useEffect(() => {
     batchApi.getMyBatches()
       .then((res) => {
         const list = res.data?.data || res.data || [];
@@ -288,62 +292,48 @@ export default function CreatePostPage() {
         batchId: editable.batchId,
       };
 
-      let productId = Date.now();
-      let dbSuccess = true;
+      let productId: number | null = null;
 
-      if (postToFacebook) {
-        if (!facebookPageId) {
-          toast.error("Vui lòng chọn Facebook Page trước khi đăng đồng bộ");
-          return;
-        }
-
-        const createRes = await aiApi.createProductWithFacebook(
+      // Nếu có chọn Facebook Page và tick đăng FB, dùng API publish-with-facebook (server-side)
+      if (postToFacebook && facebookPageId) {
+        const res = await sellerApi.createProductWithFacebook(
           payload,
           image,
           facebookPageId,
-          facebookMessage || editable.title
+          facebookMessage || `Sản phẩm mới: ${editable.product_name} - Giá chỉ ${formatPrice(editable.priceVnd)}/${editable.unitWeightGrams}g. #hoaquason #nongsan`
         );
-
-        dbSuccess = Boolean(createRes.data?.databaseSuccess);
-        const facebookSuccess = Boolean(createRes.data?.facebookSuccess);
-        const createdProduct = createRes.data?.database?.data;
-        productId = createdProduct?.productId || productId;
-
-        if (dbSuccess && facebookSuccess) {
-          toast.success("Đã đăng sản phẩm và đồng bộ Facebook thành công");
-        } else if (dbSuccess && !facebookSuccess) {
-          toast.success("Đã tạo sản phẩm, nhưng Facebook đăng bài thất bại");
-        } else if (!dbSuccess && facebookSuccess) {
-          toast.error("Facebook đăng bài thành công, nhưng lưu DB thất bại");
-        } else {
-          toast.error("Cả lưu DB và đăng Facebook đều thất bại");
-          return;
-        }
+        const data = res.data?.data || res.data;
+        productId = data?.productId || data?.id;
+        toast.success("✅ Đã tạo sản phẩm và đăng lên Facebook thành công!");
       } else {
+        // Ngược lại tạo bình thường
         const createRes = await aiApi.createProduct(payload, image);
-        if (createRes.status !== 200) {
-          toast.error("Không thể tạo sản phẩm");
-          return;
+        const data = createRes.data?.data || createRes.data;
+        productId = data?.productId || data?.id;
+        toast.success("✅ Đã tạo sản phẩm thành công!");
+
+        // Nếu tick đăng FB nhưng không có PageId (có thể user muốn dùng Share Dialog client-side)
+        if (postToFacebook && !facebookPageId) {
+          const shared = await shareToFacebookDialog({
+            productId: productId || Date.now(),
+            productName: editable.product_name,
+            price: editable.priceVnd,
+          });
+          if (shared) toast.success("✅ Đã share lên Facebook!");
         }
-        const createdProduct = createRes.data?.data || createRes.data;
-        productId = createdProduct?.productId || productId;
-        toast.success("Đã tạo sản phẩm thành công!");
       }
 
-      // 2. Embed product into Qdrant for semantic search
-      if (dbSuccess) {
+      // Bước 2: Embed product vào Qdrant (optional, silently)
+      if (productId) {
         try {
-        await searchApi.embedProduct({
-          product_id: productId,
-          product_name: editable.product_name,
-          description: editable.description,
-          category: categories.find((c) => c.id === editable.categoryId)?.name || "",
-          price: editable.priceVnd,
-        });
-        } catch {
-          // Embedding is non-critical; product was already created
-          console.warn("Embed product failed — semantic search may not include this item");
-        }
+          await searchApi.embedProduct({
+            product_id: productId,
+            product_name: editable.product_name,
+            description: editable.description,
+            category: categories.find((c) => c.id === resolvedCategoryId)?.name || "",
+            price: editable.priceVnd,
+          });
+        } catch { /* ignore */ }
       }
 
       router.push("/seller/dashboard");
@@ -618,9 +608,20 @@ export default function CreatePostPage() {
                       Mặc định tự tính từ giá AI theo kg và trọng lượng mỗi sản phẩm, bạn vẫn có thể sửa tay.
                     </p>
                   </div>
-                </div>
-
                   <div>
+                    <label className="flex items-center gap-2 text-sm font-medium text-slate-500 mb-1.5 uppercase tracking-wider">
+                      <Tag className="w-4 h-4" /> Danh mục sản phẩm
+                    </label>
+                    <select
+                      value={editable?.categoryId ?? (categories[0]?.id || 0)}
+                      onChange={(e) => setEditable((prev) => prev ? { ...prev, categoryId: Number(e.target.value) } : prev)}
+                      className="w-full bg-white/60 border border-slate-200 rounded-xl px-4 py-3 text-slate-800 font-medium focus:ring-2 focus:ring-primary-400 outline-none transition-all shadow-sm"
+                    >
+                      {categories.map((c) => (
+                        <option key={c.id} value={c.id}>{c.name}</option>
+                      ))}
+                    </select>
+                  </div>
 
                   <div>
                     <label className="flex items-center gap-2 text-sm font-medium text-slate-500 mb-1.5 uppercase tracking-wider">
@@ -635,7 +636,7 @@ export default function CreatePostPage() {
                   </div>
 
                   {/* Traceability Fields */}
-                  <div className="grid grid-cols-2 gap-5">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                     <div>
                       <label className="flex items-center gap-2 text-sm font-medium text-slate-500 mb-1.5 uppercase tracking-wider">
                         <QrCode className="w-4 h-4" /> Luống / Mã lô hàng *
@@ -645,31 +646,27 @@ export default function CreatePostPage() {
                           type="text"
                           value={batchSearch}
                           onChange={(e) => setBatchSearch(e.target.value)}
-                          placeholder="Tìm luống theo tên..."
-                          className="w-full bg-white/60 border border-slate-200 rounded-xl px-4 py-2.5 text-slate-700 focus:ring-2 focus:ring-primary-400 outline-none transition-all shadow-sm"
+                          placeholder="Tìm luống..."
+                          className="w-full bg-white/60 border border-slate-200 rounded-xl px-4 py-2.5 text-slate-700 focus:ring-2 focus:ring-primary-400 outline-none shadow-sm"
                         />
-                        <div className="max-h-56 overflow-auto rounded-xl border border-slate-200 bg-white/80 shadow-sm">
+                        <div className="max-h-40 overflow-auto rounded-xl border border-slate-200 bg-white/80 shadow-sm">
                           {filteredBatchOptions.length > 0 ? (
                             filteredBatchOptions.map((b) => (
                               <button
                                 key={b.batchId}
                                 type="button"
                                 onClick={() => setEditable((prev) => prev ? { ...prev, batchId: b.batchId } : prev)}
-                                className={`w-full text-left px-4 py-3 border-b border-slate-100 last:border-b-0 transition-colors ${editable?.batchId === b.batchId ? "bg-primary-50 text-primary-700" : "hover:bg-slate-50 text-slate-700"}`}
+                                className={`w-full text-left px-4 py-2 text-sm border-b border-slate-100 last:border-b-0 ${editable?.batchId === b.batchId ? "bg-primary-50 text-primary-700" : "hover:bg-slate-50"}`}
                               >
-                                <div className="font-medium">{b.batchName}</div>
-                                {b.cropType ? <div className="text-xs text-slate-500 mt-0.5">{b.cropType}</div> : null}
+                                {b.batchName} {b.cropType ? `(${b.cropType})` : ""}
                               </button>
                             ))
                           ) : (
-                            <div className="px-4 py-3 text-sm text-slate-500">Không tìm thấy luống phù hợp</div>
+                            <div className="px-4 py-2 text-xs text-slate-500">Không tìm thấy luống</div>
                           )}
                         </div>
-                        {editable?.batchId ? (
-                          <p className="text-xs text-primary-700">Đã chọn luống: {batchOptions.find((b) => b.batchId === editable.batchId)?.batchName || ""}</p>
-                        ) : null}
-                        {batchOptions.length === 0 && (
-                          <p className="text-xs text-amber-600">Bạn chưa có luống nào. Hãy vào Nhật ký canh tác để tạo luống trước.</p>
+                        {editable?.batchId && (
+                           <p className="text-xs text-primary-700">Đã chọn: {batchOptions.find(b => b.batchId === editable.batchId)?.batchName}</p>
                         )}
                       </div>
                     </div>
@@ -679,46 +676,44 @@ export default function CreatePostPage() {
                   <div className="rounded-xl border border-blue-100 bg-blue-50/60 p-4 space-y-3">
                     <div className="flex items-center justify-between">
                       <label className="flex items-center gap-2 text-sm font-semibold text-blue-700 uppercase tracking-wider">
-                        Đồng bộ Facebook Page
+                        <input
+                          type="checkbox"
+                          checked={postToFacebook}
+                          onChange={(e) => setPostToFacebook(e.target.checked)}
+                          className="rounded border-slate-300 cursor-pointer"
+                        />
+                        Đăng bài lên Facebook
                       </label>
                       <button
                         type="button"
                         onClick={handleConnectFacebook}
                         disabled={connectingFacebook}
-                        className="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700 disabled:opacity-60"
+                        className="px-3 py-1 rounded-lg bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700 disabled:opacity-60"
                       >
-                        {connectingFacebook ? "Đang kết nối..." : "Kết nối Facebook"}
+                        {connectingFacebook ? "Đang kết nối..." : "Kết nối Facebook Page"}
                       </button>
                     </div>
-
-                    <label className="flex items-center gap-2 text-sm text-slate-700">
-                      <input
-                        type="checkbox"
-                        checked={postToFacebook}
-                        onChange={(e) => setPostToFacebook(e.target.checked)}
-                        className="rounded border-slate-300"
-                      />
-                      Đăng bài cùng Facebook khi tạo sản phẩm
-                    </label>
-
                     {postToFacebook && (
-                      <div className="grid md:grid-cols-2 gap-3">
+                      <div className="grid grid-cols-1 gap-3 ml-6 animate-in slide-in-from-top-2 duration-300">
                         <select
                           value={facebookPageId}
                           onChange={(e) => setFacebookPageId(e.target.value)}
-                          className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-slate-700 focus:ring-2 focus:ring-blue-400 outline-none"
+                          className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-700 focus:ring-2 focus:ring-blue-400 outline-none"
                         >
-                          <option value="">Chọn Facebook Page</option>
+                          <option value="">-- Chọn Facebook Page --</option>
                           {facebookPages.map((p) => (
-                            <option key={p.pageId} value={p.pageId}>{p.pageName} ({p.pageId})</option>
+                            <option key={p.pageId} value={p.pageId}>{p.pageName}</option>
                           ))}
                         </select>
                         <input
                           value={facebookMessage}
                           onChange={(e) => setFacebookMessage(e.target.value)}
-                          placeholder="Nội dung đăng FB (để trống sẽ tự tạo)"
-                          className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-slate-700 focus:ring-2 focus:ring-blue-400 outline-none"
+                          placeholder="Thông điệp khi đăng FB (để trống sẽ tự tạo)"
+                          className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-700 focus:ring-2 focus:ring-blue-400 outline-none"
                         />
+                        {facebookPages.length === 0 && !connectingFacebook && (
+                          <p className="text-[10px] text-amber-600">Bạn chưa có page nào được kết nối.</p>
+                        )}
                       </div>
                     )}
                   </div>

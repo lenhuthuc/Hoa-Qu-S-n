@@ -21,5 +21,7 @@ public class ProductRequestDTO {
     private String description;
     private String batchId;
     private String origin;
+    private Boolean publishToFacebook;
+    private String facebookPageId;
 }
 

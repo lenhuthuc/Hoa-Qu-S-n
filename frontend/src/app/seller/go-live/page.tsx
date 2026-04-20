@@ -133,7 +133,7 @@ export default function GoLivePage() {
     const stopRemote = () => {
       if (!isLiveRef.current || !streamKeyRef.current) return;
       const token = typeof window !== "undefined" ? localStorage.getItem("hqs_token") : null;
-      const base = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000";
+      const base = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3003";
       // keepalive: true — request hoàn thành dù page đã unload
       fetch(`${base}/api/livestream/stop`, {
         method: "POST",

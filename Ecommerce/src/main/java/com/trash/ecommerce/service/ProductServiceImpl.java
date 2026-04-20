@@ -48,6 +48,11 @@ public class ProductServiceImpl implements ProductService {
     private CategoryRepository categoryRepository;
     @Autowired
     private ProductImageRepository productImageRepository;
+    @Autowired
+    private FacebookIntegrationService facebookIntegrationService;
+    @Autowired
+    private FacebookPageCredentialRepository facebookPageCredentialRepository;
+    
     @Override
     public ProductDetailsResponseDTO findProductById(Long id) {
         ProductDetailsResponseDTO productDTO = new ProductDetailsResponseDTO();
@@ -136,6 +141,37 @@ public class ProductServiceImpl implements ProductService {
 
         ProductResponseDTO response = new ProductResponseDTO("creating product is successful");
         response.setProductId(product.getId());
+        
+        // Handle Facebook publishing if enabled
+        if (productRequestDTO.getPublishToFacebook() != null && productRequestDTO.getPublishToFacebook()) {
+            try {
+                // Validate seller has Facebook token
+                String pageId = productRequestDTO.getFacebookPageId();
+                if (pageId == null || pageId.isBlank()) {
+                    // Try to get default (first) page
+                    var pages = facebookPageCredentialRepository.findBySellerIdOrderByTokenLastUpdatedAtDesc(sellerId);
+                    if (pages.isEmpty()) {
+                        response.setPublishStatus("SKIPPED");
+                        response.setFacebookError("Chưa kết nối tài khoản Facebook");
+                        return response;
+                    }
+                    pageId = pages.get(0).getPageId();
+                }
+                
+                // Publish to Facebook
+                var fbResult = facebookIntegrationService.publishExistingProduct(sellerId, pageId, product.getId(), null);
+                
+                response.setPublishStatus("SUCCESS");
+                response.setFacebookPostId((String) fbResult.get("postId"));
+            } catch (Exception e) {
+                // Graceful failure - product created successfully, just log FB error
+                response.setPublishStatus("FAILED");
+                response.setFacebookError(e.getMessage());
+            }
+        } else {
+            response.setPublishStatus("SKIPPED");
+        }
+        
         return response;
     }
 

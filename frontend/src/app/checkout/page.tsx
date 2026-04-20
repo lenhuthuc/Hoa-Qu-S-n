@@ -359,17 +359,14 @@ function CheckoutPageInner() {
       }
 
       const res = isBuyNowMode && buyNowItem
-        ? await orderApi.createBuyNow(
-            buyNowItem.productId,
-            buyNowItem.quantity,
+        ? await orderApi.createBuyNow({
+            productId: buyNowItem.productId,
+            quantity: buyNowItem.quantity,
             paymentMethod,
-            undefined,
-            undefined,
-            undefined,
-            latestPreview.deliveryType || deliveryType,
-            selectedDistrictId,
-            selectedWardCode
-          )
+            deliveryType: latestPreview.deliveryType || deliveryType,
+            toDistrictId: selectedDistrictId,
+            toWardCode: selectedWardCode,
+          })
         : await orderApi.create(
             paymentMethod,
             undefined,

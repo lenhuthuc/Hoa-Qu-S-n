@@ -1,8 +1,9 @@
 "use client";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowRight, Save, Loader2, Tag, Leaf, QrCode, ImageIcon, Upload, BarChart3, Sparkles } from "lucide-react";
+import { ArrowLeft, ArrowRight, Save, Loader2, Package, Tag, Leaf, QrCode, ImageIcon, Upload, BarChart3, Sparkles } from "lucide-react";
 import { sellerApi, categoryApi, aiApi, facebookApi, batchApi } from "@/lib/api";
+import { shareToFacebookDialog } from "@/lib/facebookShare";
 import toast from "react-hot-toast";
 
 interface CategoryOption {
@@ -49,7 +50,8 @@ export default function ManualCreateProductPage() {
     categoryId: 0,
     description: "",
     batchId: "",
-    shelfLifeDays: 30
+    shelfLifeDays: 30,
+    origin: ""
   });
 
   const calculatedQuantity =
@@ -227,44 +229,40 @@ export default function ManualCreateProductPage() {
         price: parsedPrice,
         categoryId: resolvedCategoryId,
         quantity: calculatedQuantity,
-        batchId: formData.batchId
+        batchId: formData.batchId || undefined,
+        origin: formData.origin || undefined
       };
 
-      if (postToFacebook) {
-        if (!facebookPageId) {
-          toast.error("Vui lòng chọn Facebook Page trước khi đăng đồng bộ");
-          return;
-        }
-        if (!image) {
-          toast.error("Cần ảnh sản phẩm để đăng đồng bộ Facebook");
-          return;
-        }
-
-        const createRes = await aiApi.createProductWithFacebook(
+      let productId: number | null = null;
+      
+      // Bước 1: Tạo sản phẩm
+      if (postToFacebook && facebookPageId) {
+        const createRes = await sellerApi.createProductWithFacebook(
           payload,
-          image,
+          image || undefined,
           facebookPageId,
-          facebookMessage || formData.productName
+          facebookMessage || `Sản phẩm mới: ${formData.productName} - Giá chỉ ${new Intl.NumberFormat("vi-VN", { style: "currency", currency: "VND" }).format(parsedPrice)}/${formData.unitWeightGrams}g. #hoaquason #nongsan`
         );
-
-        const dbSuccess = Boolean(createRes.data?.databaseSuccess);
-        const facebookSuccess = Boolean(createRes.data?.facebookSuccess);
-
-        if (dbSuccess && facebookSuccess) {
-          toast.success("Đã tạo sản phẩm và đồng bộ Facebook thành công");
-        } else if (dbSuccess && !facebookSuccess) {
-          toast.success("Đã tạo sản phẩm, nhưng Facebook đăng bài thất bại");
-        } else if (!dbSuccess && facebookSuccess) {
-          toast.error("Facebook đăng bài thành công, nhưng lưu DB thất bại");
-          return;
-        } else {
-          toast.error("Cả lưu DB và đăng Facebook đều thất bại");
-          return;
-        }
+        const data = createRes.data?.data || createRes.data;
+        productId = data?.productId || data?.id;
+        toast.success("✅ Đã tạo sản phẩm và đăng lên Facebook thành công!");
       } else {
-        await sellerApi.createProduct(payload, image || undefined);
-        toast.success("Tạo sản phẩm thành công!");
+        const createRes = await sellerApi.createProduct(payload, image || undefined);
+        const data = createRes.data?.data || createRes.data;
+        productId = data?.productId || data?.id;
+        toast.success("✅ Tạo sản phẩm thành công!");
+
+        // Fallback to client-side share if no pageId but checkbox is checked
+        if (postToFacebook && !facebookPageId) {
+          const shared = await shareToFacebookDialog({
+            productId: productId || Date.now(),
+            productName: formData.productName,
+            price: parsedPrice,
+          });
+          if (shared) toast.success("✅ Đã share lên Facebook!");
+        }
       }
+
       router.push("/seller/products");
     } catch (err: any) {
       toast.error(err.response?.data?.message || "Lỗi khi tạo sản phẩm");
@@ -371,6 +369,23 @@ export default function ManualCreateProductPage() {
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-5">
+              <div className="group">
+                <label className="flex items-center gap-2 text-sm font-medium text-slate-500 mb-1.5 uppercase tracking-wider">
+                  <Tag className="w-4 h-4" /> Danh mục sản phẩm *
+                </label>
+                <select
+                  required
+                  value={formData.categoryId || (categories[0]?.id || 0)}
+                  onChange={(e) => setFormData({ ...formData, categoryId: Number(e.target.value) })}
+                  className="w-full bg-white/60 border border-slate-200 rounded-xl px-4 py-3 text-slate-800 font-medium focus:ring-2 focus:ring-primary-400 outline-none transition-all shadow-sm"
+                >
+                  <option value="">-- Chọn danh mục --</option>
+                  {categories.map((c) => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+                </select>
+              </div>
+
               <div className="group">
                 <label className="flex items-center gap-2 text-sm font-medium text-slate-500 mb-1.5 uppercase tracking-wider">
                   <Tag className="w-4 h-4" /> Tên sản phẩm *

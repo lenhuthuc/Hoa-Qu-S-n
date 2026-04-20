@@ -23,10 +23,22 @@ public class SellerFacebookController {
     @GetMapping("/oauth-url")
     public ResponseEntity<?> getOAuthUrl(@RequestHeader("Authorization") String token,
                                          @RequestParam String redirectUri) {
-        Long sellerId = jwtService.extractId(token);
-        String state = "seller-" + sellerId + "-" + System.currentTimeMillis();
-        String url = facebookService.buildOAuthUrl(redirectUri, state);
-        return ResponseEntity.ok(Map.of("oauthUrl", url, "state", state));
+        try {
+            Long sellerId = jwtService.extractId(token);
+            String state = "seller-" + sellerId + "-" + System.currentTimeMillis();
+            String url = facebookService.buildOAuthUrl(redirectUri, state);
+            return ResponseEntity.ok(Map.of("oauthUrl", url, "state", state));
+        } catch (IllegalStateException e) {
+            return ResponseEntity.status(400).body(Map.of(
+                "error", "FACEBOOK_NOT_CONFIGURED",
+                "message", e.getMessage() + " - Liên hệ admin để cấu hình Facebook App"
+            ));
+        } catch (Exception e) {
+            return ResponseEntity.status(500).body(Map.of(
+                "error", "INTERNAL_ERROR",
+                "message", e.getMessage()
+            ));
+        }
     }
 
     @PostMapping("/oauth/callback")
@@ -45,6 +57,16 @@ public class SellerFacebookController {
     public ResponseEntity<?> getConnectedPages(@RequestHeader("Authorization") String token) {
         Long sellerId = jwtService.extractId(token);
         return ResponseEntity.ok(facebookService.listConnectedPages(sellerId));
+    }
+
+    @GetMapping("/check-connected")
+    public ResponseEntity<?> checkFacebookConnected(@RequestHeader("Authorization") String token) {
+        Long sellerId = jwtService.extractId(token);
+        List<Map<String, Object>> pages = facebookService.listConnectedPages(sellerId);
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("isConnected", !pages.isEmpty());
+        result.put("pages", pages);
+        return ResponseEntity.ok(result);
     }
 
     @PostMapping("/publish/product/{productId}")
