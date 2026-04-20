@@ -10,5 +10,6 @@ public interface ReturnService {
     List<ReturnRequestDTO> getMyReturnRequests(Long userId);
     List<ReturnRequestDTO> getSellerReturnRequests(Long sellerId);
     ReturnRequestDTO sellerRespond(Long sellerId, Long returnId, String action, String response);
+    ReturnRequestDTO buyerDecision(Long buyerId, Long returnId, String action);
     ReturnRequestDTO getReturnById(Long userId, Long returnId);
 }

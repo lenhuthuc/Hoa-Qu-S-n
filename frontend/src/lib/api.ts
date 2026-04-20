@@ -12,6 +12,38 @@ const api = axios.create({
   headers: { "Content-Type": "application/json" },
 });
 
+const RETURN_WINDOW_HOURS = 24;
+const EVIDENCE_VIDEO_EXTENSIONS = ["mp4", "webm", "ogg", "mov", "m4v"];
+
+export function isWithinReturnWindowFromConfirmation(buyerConfirmedAt?: string): boolean {
+  if (!buyerConfirmedAt) return false;
+  const confirmedTime = new Date(buyerConfirmedAt).getTime();
+  if (Number.isNaN(confirmedTime)) return false;
+  return Date.now() - confirmedTime <= RETURN_WINDOW_HOURS * 60 * 60 * 1000;
+}
+
+export function getFileExtension(url: string): string {
+  const cleanUrl = url.split("?")[0].split("#")[0];
+  const match = cleanUrl.match(/\.([a-z0-9]+)$/i);
+  return match ? match[1].toLowerCase() : "";
+}
+
+export function isVideoEvidenceUrl(url: string): boolean {
+  return EVIDENCE_VIDEO_EXTENSIONS.includes(getFileExtension(url));
+}
+
+export function getReturnEvidenceMediaSrc(mediaUrl: string): string {
+  return `${API_URL}/api/returns/evidence/media?url=${encodeURIComponent(mediaUrl)}`;
+}
+
+export function parseEvidenceUrls(rawUrls?: string | null): string[] {
+  if (!rawUrls) return [];
+  return rawUrls
+    .split(/\n|,/)
+    .map((url) => url.trim())
+    .filter(Boolean);
+}
+
 // Attach JWT token to requests
 api.interceptors.request.use((config) => {
   if (typeof window !== "undefined") {
@@ -34,7 +66,7 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (res) => res,
   (err) => {
-    if (typeof window !== "undefined" && (err.response?.status === 401 || err.response?.status === 403)) {
+    if (typeof window !== "undefined" && err.response?.status === 401) {
       localStorage.removeItem("hqs_token");
       localStorage.removeItem("hqs_refresh_token");
     }
@@ -83,16 +115,28 @@ export const productApi = {
 
 // ─── AI Post ───
 export const aiApi = {
-  generatePost: (image: File) => {
+  generatePost: (images: File | File[]) => {
     const form = new FormData();
-    form.append("image", image);
+    const files = Array.isArray(images) ? images : [images];
+    files.forEach((f) => form.append("images", f));
     return api.post("/api/ai/generate-post", form, {
       headers: { "Content-Type": "multipart/form-data" },
-      timeout: 60000,
+      timeout: 90000,
     });
   },
   createProduct: (
-    product: { productName: string; price: number; quantity: number; categoryId: number; description: string; batchId?: string; origin?: string },
+    product: {
+      productName: string;
+      price: number;
+      quantity?: number;
+      unitWeightGrams: number;
+      totalStockWeightKg: number;
+      shelfLifeDays?: number;
+      categoryId: number;
+      description: string;
+      batchId?: string;
+      origin?: string;
+    },
     imageFile: File
   ) => {
     const form = new FormData();
@@ -103,7 +147,18 @@ export const aiApi = {
     });
   },
   createProductWithFacebook: (
-    product: { productName: string; price: number; quantity: number; categoryId: number; description: string; batchId?: string; origin?: string },
+    product: {
+      productName: string;
+      price: number;
+      quantity?: number;
+      unitWeightGrams: number;
+      totalStockWeightKg: number;
+      shelfLifeDays?: number;
+      categoryId: number;
+      description: string;
+      batchId?: string;
+      origin?: string;
+    },
     imageFile: File,
     pageId: string,
     message?: string
@@ -167,8 +222,21 @@ export const traceApi = {
   getQrCode: (batchId: string) => api.get(`/api/traceability/${batchId}/qr-base64`),
 };
 
+// ─── Seller Batches ───
+export const batchApi = {
+  getMyBatches: () => api.get("/api/seller/batches"),
+  create: (payload: {
+    batchName: string;
+    cropType?: string;
+    startDate?: string;
+  }) => api.post("/api/seller/batches", payload),
+};
+
 // ─── Shipping ───
 export const shippingApi = {
+  provinces: () => api.get("/api/shipping/provinces"),
+  districts: (provinceId: number) => api.get(`/api/shipping/districts?provinceId=${provinceId}`),
+  wards: (districtId: number) => api.get(`/api/shipping/wards?districtId=${districtId}`),
   validate: (productId: number, districtId?: string, wardCode?: string) =>
     api.get("/api/shipping/validate", {
       params: { productId, toDistrictId: districtId, toWardCode: wardCode },
@@ -180,6 +248,13 @@ export const livestreamApi = {
   start: (title: string) => api.post("/api/livestream/start", { title }),
   stop: (streamKey: string) => api.post("/api/livestream/stop", { streamKey }),
   getActive: () => api.get("/api/livestream/active"),
+  /** Lấy thông tin phiên live (title, seller, products, status) */
+  getStream: (streamKey: string) => api.get(`/api/livestream/${streamKey}`),
+  /** Cập nhật danh sách sản phẩm đang bán trong phiên */
+  updateProducts: (streamKey: string, products: Array<{ id: number; name: string; price: number }>) =>
+    api.put(`/api/livestream/${streamKey}/products`, { products }),
+  /** Lấy lịch sử chat (50 tin gần nhất) */
+  getChatHistory: (streamKey: string) => api.get(`/api/livestream/${streamKey}/chat-history`),
 };
 
 // ─── Cart & Orders ───
@@ -196,8 +271,62 @@ export const orderApi = {
   getMyOrders: () => api.get("/api/orders/my-orders"),
   getAll: () => api.get("/api/orders/my-orders"),
   getById: (id: number) => api.get(`/api/orders/${id}`),
-  create: (paymentMethod: number, voucherCode?: string) =>
-    api.post(`/api/orders/create?paymentMethod=${paymentMethod}${voucherCode ? `&voucherCode=${encodeURIComponent(voucherCode)}` : ""}`),
+  preview: (params?: {
+    discountVoucherCode?: string;
+    shippingVoucherCode?: string;
+    deliveryType?: "STANDARD" | "EXPRESS";
+    toDistrictId?: string;
+    toWardCode?: string;
+  }) =>
+    api.get("/api/orders/preview", { params }),
+  previewBuyNow: (params: {
+    productId: number;
+    quantity: number;
+    discountVoucherCode?: string;
+    shippingVoucherCode?: string;
+    deliveryType?: "STANDARD" | "EXPRESS";
+    toDistrictId?: string;
+    toWardCode?: string;
+  }) => api.get("/api/orders/buy-now/preview", { params }),
+  create: (
+    paymentMethod: number,
+    voucherCode?: string,
+    discountVoucherCode?: string,
+    shippingVoucherCode?: string,
+    deliveryType: "STANDARD" | "EXPRESS" = "STANDARD",
+    toDistrictId?: string,
+    toWardCode?: string
+  ) =>
+    api.post(
+      `/api/orders/create?paymentMethod=${paymentMethod}` +
+      `${voucherCode ? `&voucherCode=${encodeURIComponent(voucherCode)}` : ""}` +
+      `${discountVoucherCode ? `&discountVoucherCode=${encodeURIComponent(discountVoucherCode)}` : ""}` +
+      `${shippingVoucherCode ? `&shippingVoucherCode=${encodeURIComponent(shippingVoucherCode)}` : ""}` +
+      `${deliveryType ? `&deliveryType=${encodeURIComponent(deliveryType)}` : ""}` +
+      `${toDistrictId ? `&toDistrictId=${encodeURIComponent(toDistrictId)}` : ""}` +
+      `${toWardCode ? `&toWardCode=${encodeURIComponent(toWardCode)}` : ""}`
+    ),
+  createBuyNow: (
+    productId: number,
+    quantity: number,
+    paymentMethod: number,
+    voucherCode?: string,
+    discountVoucherCode?: string,
+    shippingVoucherCode?: string,
+    deliveryType: "STANDARD" | "EXPRESS" = "STANDARD",
+    toDistrictId?: string,
+    toWardCode?: string
+  ) =>
+    api.post(
+      `/api/orders/buy-now/create?productId=${productId}&quantity=${quantity}&paymentMethod=${paymentMethod}` +
+      `${voucherCode ? `&voucherCode=${encodeURIComponent(voucherCode)}` : ""}` +
+      `${discountVoucherCode ? `&discountVoucherCode=${encodeURIComponent(discountVoucherCode)}` : ""}` +
+      `${shippingVoucherCode ? `&shippingVoucherCode=${encodeURIComponent(shippingVoucherCode)}` : ""}` +
+      `${deliveryType ? `&deliveryType=${encodeURIComponent(deliveryType)}` : ""}` +
+      `${toDistrictId ? `&toDistrictId=${encodeURIComponent(toDistrictId)}` : ""}` +
+      `${toWardCode ? `&toWardCode=${encodeURIComponent(toWardCode)}` : ""}`
+    ),
+  retryPayment: (id: number) => api.post(`/api/orders/${id}/retry-payment`),
   delete: (id: number) => api.delete(`/api/orders/${id}`),
   updateStatus: (id: number, status: string) =>
     api.put(`/api/orders/${id}/status?status=${status}`),
@@ -213,7 +342,25 @@ export const categoryApi = {
 // ─── User Profile ───
 export const userApi = {
   getProfile: () => api.get("/api/user/profile"),
-  update: (id: number, data: { fullName?: string; phone?: string; avatar?: string; province?: string; district?: string; ward?: string; streetDetail?: string }) =>
+  uploadAvatar: (file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return api.post("/api/user/profile/avatar", form, {
+      headers: { "Content-Type": "multipart/form-data" },
+    });
+  },
+  update: (id: number, data: {
+    fullName?: string;
+    phone?: string;
+    avatar?: string;
+    province?: string;
+    district?: string;
+    ward?: string;
+    streetDetail?: string;
+    ghnProvinceId?: number;
+    ghnDistrictId?: number;
+    ghnWardCode?: string;
+  }) =>
     api.put(`/api/user/updation/${id}`, data),
   refresh: (refreshToken: string) =>
     api.get("/api/user/refresh", { headers: { Authorization: `Bearer ${refreshToken}` } }),
@@ -225,11 +372,27 @@ export const userApi = {
     api.post(`/api/user/auth/change-password?email=${encodeURIComponent(email)}&newPassword=${encodeURIComponent(newPassword)}&otp=${otp}`),
 };
 
+// ─── Seller Onboarding ───
+export const sellerOnboardingApi = {
+  submit: (data: Record<string, unknown>) => api.post("/api/user/seller-applications", data),
+  uploadDocuments: (formData: FormData) =>
+    api.post("/api/user/seller-applications/documents", formData, { headers: { "Content-Type": "multipart/form-data" } }),
+  getMine: () => api.get("/api/user/seller-applications/me"),
+  getAll: (status?: string) => api.get(`/api/admin/seller-applications${status ? `?status=${encodeURIComponent(status)}` : ""}`),
+  review: (id: number, action: "APPROVE" | "NEEDS_REVISION" | "REJECT", note?: string) =>
+    api.put(`/api/admin/seller-applications/${id}/review`, { action, note }),
+};
+
 // ─── Reviews ───
 export const reviewApi = {
   getByProduct: (productId: number) => api.get(`/api/reviews/products/${productId}`),
+  getEligibility: (productId: number) => api.get(`/api/reviews/products/${productId}/eligibility`),
   create: (productId: number, data: { rating: number; comment: string }) =>
     api.post(`/api/reviews/products/${productId}`, data),
+  createWithMedia: (productId: number, formData: FormData) =>
+    api.post(`/api/reviews/products/${productId}/attachments`, formData, {
+      headers: { "Content-Type": "multipart/form-data" },
+    }),
   delete: (productId: number, reviewId: number) =>
     api.delete(`/api/reviews/products/${productId}/${reviewId}`),
 };
@@ -251,6 +414,8 @@ export const invoiceApi = {
 export const paymentApi = {
   createVnPayUrl: (totalPrice: number, orderInfo: string, orderId: number) =>
     api.post(`/api/payments/createUrl?totalPrice=${totalPrice}&orderInfo=${encodeURIComponent(orderInfo)}&orderId=${orderId}`),
+  createMoMoUrl: (totalPrice: number, orderInfo: string, orderId: number) =>
+    api.post(`/api/payments/createMoMoUrl?totalPrice=${totalPrice}&orderInfo=${encodeURIComponent(orderInfo)}&orderId=${orderId}`),
   addMethod: (name: string) => api.post(`/api/payments/methods?name=${encodeURIComponent(name)}`),
 };
 
@@ -272,6 +437,14 @@ export const adminApi = {
     return api.put(`/api/admin/products/${id}`, form, { headers: { "Content-Type": "multipart/form-data" } });
   },
   deleteProduct: (id: number) => api.delete(`/api/admin/products/${id}`),
+  getSellerApplications: (status?: string) =>
+    api.get(`/api/admin/seller-applications${status ? `?status=${encodeURIComponent(status)}` : ""}`),
+  getSellerApplicationDocument: (id: number, type: "front" | "back" | "license" | "food-safety") =>
+    api.get(`/api/admin/seller-applications/${id}/documents/${type}`, { responseType: "blob" }),
+  startReviewSellerApplication: (id: number) =>
+    api.put(`/api/admin/seller-applications/${id}/start-review`),
+  reviewSellerApplication: (id: number, action: "APPROVE" | "NEEDS_REVISION" | "REJECT", note?: string) =>
+    api.put(`/api/admin/seller-applications/${id}/review`, { action, note }),
 };
 
 // ─── User Interactions ───
@@ -290,16 +463,44 @@ export const trustScoreApi = {
 export const returnApi = {
   create: (data: { orderId: number; reasonCode: string; description: string; evidenceUrls?: string; refundAmount?: number }) =>
     api.post("/api/returns", data),
+  uploadEvidence: (files: File[]) => {
+    const form = new FormData();
+    files.forEach((file) => form.append("files", file));
+    return api.post("/api/returns/evidence", form, {
+      headers: { "Content-Type": "multipart/form-data" },
+    });
+  },
   getMyRequests: () => api.get("/api/returns/my-requests"),
   getSellerRequests: () => api.get("/api/returns/seller-requests"),
   getById: (id: number) => api.get(`/api/returns/${id}`),
   respond: (returnId: number, action: string, response?: string) =>
     api.post(`/api/returns/${returnId}/respond?action=${action}`, { response }),
+  buyerDecision: (returnId: number, action: "ACCEPT_REJECTION" | "ESCALATE") =>
+    api.post(`/api/returns/${returnId}/buyer-decision?action=${action}`),
 };
 
 // ─── Seller ───
 export const sellerApi = {
   getDashboard: () => api.get("/api/seller/dashboard"),
+  getShopSettings: () => api.get("/api/seller/shop-settings"),
+  uploadShopAvatar: (file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return api.post("/api/seller/shop-settings/avatar", form, {
+      headers: { "Content-Type": "multipart/form-data" },
+    });
+  },
+  updateShopSettings: (data: {
+    shopName: string;
+    avatar?: string;
+    province?: string;
+    district?: string;
+    ward?: string;
+    streetDetail?: string;
+    ghnProvinceId?: number | null;
+    ghnDistrictId?: number | null;
+    ghnWardCode?: string | null;
+  }) => api.put("/api/seller/shop-settings", data),
   getProducts: () => api.get("/api/seller/products"),
   deleteProduct: (id: number) => api.delete(`/api/seller/products/${id}`),
   updateStock: (id: number, quantity: number) =>
@@ -373,10 +574,12 @@ export const coinApi = {
 export const storyApi = {
   getAll: (page = 0, size = 20) => api.get(`/api/stories?page=${page}&size=${size}`),
   getBySeller: (sellerId: number) => api.get(`/api/stories/seller/${sellerId}`),
-  getMyStories: () => api.get("/api/stories/my-stories"),
-  create: (data: { title: string; content: string; imageUrl?: string; videoUrl?: string; batchId?: string; farmingLogId?: string; activityType?: string }) =>
-    api.post("/api/stories", data),
-  delete: (id: number) => api.delete(`/api/stories/${id}`),
+  getMyStories: () => api.get("/api/seller/stories/my"),
+  create: (data: FormData) =>
+    api.post("/api/seller/stories", data, {
+      headers: { "Content-Type": "multipart/form-data" },
+    }),
+  delete: (id: number) => api.delete(`/api/seller/stories/${id}`),
 };
 
 // ─── Admin Analytics ───
@@ -384,6 +587,9 @@ export const adminAnalyticsApi = {
   getOverview: () => api.get("/api/admin/analytics/overview"),
   getTopProducts: () => api.get("/api/admin/analytics/top-products"),
   getTopSellers: () => api.get("/api/admin/analytics/top-sellers"),
+  getEscalatedReturns: () => api.get("/api/admin/analytics/escalated-returns"),
+  resolveEscalatedReturn: (returnId: number, action: "REFUND" | "KEEP_REJECT", note: string) =>
+    api.post(`/api/admin/analytics/returns/${returnId}/resolve?action=${action}`, { note }),
 };
 
 export default api;

@@ -71,14 +71,30 @@ public class ReturnController {
             @RequestHeader("Authorization") String token,
             @PathVariable Long returnId,
             @RequestParam String action,
-            @RequestBody(required = false) Map<String, String> body) {
+            @RequestBody(required = false) Map<String, Object> body) {
         try {
             Long userId = jwtService.extractId(token);
-            String response = body != null ? body.get("response") : null;
+            String response = body != null && body.get("response") != null ? String.valueOf(body.get("response")) : null;
             ReturnRequestDTO result = returnService.sellerRespond(userId, returnId, action, response);
             return ResponseEntity.ok(result);
         } catch (Exception e) {
             logger.error("Error responding to return request", e);
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(Map.of("message", e.getMessage()));
+        }
+    }
+
+    @PostMapping("/{returnId}/buyer-decision")
+    public ResponseEntity<?> buyerDecision(
+            @RequestHeader("Authorization") String token,
+            @PathVariable Long returnId,
+            @RequestParam String action) {
+        try {
+            Long userId = jwtService.extractId(token);
+            ReturnRequestDTO result = returnService.buyerDecision(userId, returnId, action);
+            return ResponseEntity.ok(result);
+        } catch (Exception e) {
+            logger.error("Error processing buyer decision on return request", e);
             return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                     .body(Map.of("message", e.getMessage()));
         }

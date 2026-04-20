@@ -1,5 +1,6 @@
 "use client";
 
+import Saleschart from './saleschart';
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -16,9 +17,9 @@ import {
   RotateCcw,
   ClipboardList,
   Star,
-  Tag,
+  Store,
 } from "lucide-react";
-import { sellerApi, trustScoreApi, isLoggedIn, parseToken } from "@/lib/api";
+import { sellerApi, trustScoreApi, isLoggedIn, parseToken, hasRole, userApi } from "@/lib/api";
 
 interface RevenueHistoryPoint {
   date: string;
@@ -66,6 +67,29 @@ export default function SellerDashboard() {
     if (!isLoggedIn()) { router.push("/login"); return; }
     (async () => {
       try {
+        if (!hasRole("SELLER") && !hasRole("ADMIN")) {
+          const refreshToken = localStorage.getItem("hqs_refresh_token");
+          if (refreshToken) {
+            try {
+              const refreshRes = await userApi.refresh(refreshToken);
+              const tokenData = refreshRes.data;
+              if (tokenData?.access) {
+                localStorage.setItem("hqs_token", tokenData.access);
+              }
+              if (tokenData?.refresh) {
+                localStorage.setItem("hqs_refresh_token", tokenData.refresh);
+              }
+            } catch {
+              // ignore refresh error and fallback to register redirect
+            }
+          }
+
+          if (!hasRole("SELLER") && !hasRole("ADMIN")) {
+            router.replace("/seller/register");
+            return;
+          }
+        }
+
         const [dashRes, trustRes] = await Promise.allSettled([
           sellerApi.getDashboard(),
           trustScoreApi.get(parseToken()?.id || 0),
@@ -75,7 +99,7 @@ export default function SellerDashboard() {
       } catch {}
       setLoading(false);
     })();
-  }, []);
+  }, [router]);
 
   const quickLinks = [
     { href: "/seller/products", icon: Package, label: "Quản lý sản phẩm", color: "text-green-600 bg-green-50" },
@@ -83,9 +107,8 @@ export default function SellerDashboard() {
     { href: "/seller/create-post", icon: Sparkles, label: "Tạo bài với AI", color: "text-purple-600 bg-purple-50" },
     { href: "/seller/go-live", icon: Radio, label: "Phát sóng trực tiếp", color: "text-red-600 bg-red-50" },
     { href: "/seller/journal", icon: BookOpen, label: "Nhật ký canh tác", color: "text-green-600 bg-green-50" },
-    { href: "/seller/stories", icon: BookOpen, label: "Câu chuyện nhà nông", color: "text-teal-600 bg-teal-50" },
-    { href: "/seller/vouchers", icon: Tag, label: "Quản lý Voucher", color: "text-orange-600 bg-orange-50" },
     { href: "/search", icon: TrendingUp, label: "Tìm kiếm ngữ nghĩa", color: "text-blue-600 bg-blue-50" },
+    { href: "/seller/shop-settings", icon: Store, label: "Chỉnh sửa thông tin shop", color: "text-emerald-700 bg-emerald-50" },
   ];
 
   const fmt = (v: number) => new Intl.NumberFormat("vi-VN").format(v);
@@ -223,6 +246,7 @@ export default function SellerDashboard() {
         </div>
       </div>
 
+<<<<<<< HEAD
       {/* Revenue Chart */}
       <div className="bg-white rounded-xl border p-6 mb-8">
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between mb-4">
@@ -258,6 +282,9 @@ export default function SellerDashboard() {
           </div>
         </div>
       </div>
+=======
+      <Saleschart />
+>>>>>>> fd80c1f037c9743db2252c3f9e6487ff5f8974e1
 
       {/* Quick Actions - Product Creation Options */}
       <h2 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
@@ -303,8 +330,8 @@ export default function SellerDashboard() {
       </div>
 
       {/* Quick Links */}
-      <h2 className="text-lg font-semibold text-gray-800 mb-3">Truy cập nhanh</h2>
-      <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
+      <h2 className="text-sm font-semibold text-gray-800 mb-3 uppercase tracking-wider opacity-60">Các chức năng khác</h2>
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
         {quickLinks.map((l) => (
           <Link
             key={l.href}
@@ -314,7 +341,7 @@ export default function SellerDashboard() {
             <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${l.color}`}>
               <l.icon className="w-5 h-5" />
             </div>
-            <span className="font-medium text-gray-700 text-sm group-hover:text-green-700 transition">
+            <span className="font-medium text-gray-700 text-xs group-hover:text-green-700 transition">
               {l.label}
             </span>
           </Link>

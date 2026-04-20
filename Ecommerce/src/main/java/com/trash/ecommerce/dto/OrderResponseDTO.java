@@ -3,6 +3,7 @@ package com.trash.ecommerce.dto;
 import java.math.BigDecimal;
 import java.util.Date;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -27,6 +28,8 @@ public class OrderResponseDTO {
     private String address;
     private String paymentUrl;
     private Date createdAt;
+    private Date buyerConfirmedAt;
+    private List<OrderSubOrderDTO> subOrders;
     @JsonProperty("paymentMethod")
     private String paymentMethodName;
     private String viewerRole;

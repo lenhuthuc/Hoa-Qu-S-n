@@ -17,6 +17,8 @@ public class ProductDetailsResponseDTO {
     private String product_name;
     private BigDecimal price;
     private Long quantity;
+    private Long unitWeightGrams;
+    private BigDecimal totalStockWeightKg;
     private Long categoryId;
     private String categoryName;
     private String description;
@@ -27,6 +29,8 @@ public class ProductDetailsResponseDTO {
     private Double rating;
     private Long sellerId;
     private String sellerName;
+    private String shopName;
+    private String shopAvatar;
     private String batchId;
     private String origin;
 }

@@ -36,3 +36,4 @@ docker-compose.override.yml
 # ── Uploads & temp ──
 **/uploads/
 *.log
+build_tail.txt

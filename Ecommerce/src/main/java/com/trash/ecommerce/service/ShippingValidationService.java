@@ -2,23 +2,36 @@ package com.trash.ecommerce.service;
 
 import com.trash.ecommerce.dto.ShippingValidationResponse;
 import com.trash.ecommerce.dto.ShippingValidationResponse.ShippingOption;
+import com.trash.ecommerce.entity.Address;
 import com.trash.ecommerce.entity.Product;
 import com.trash.ecommerce.repository.ProductRepository;
+import com.trash.ecommerce.repository.ProvinceRepository;
+import com.trash.ecommerce.repository.DistrictRepository;
+import com.trash.ecommerce.repository.WardRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 
+import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class ShippingValidationService {
 
     private final ProductRepository productRepository;
+    private final ProvinceRepository provinceRepository;
+    private final DistrictRepository districtRepository;
+    private final WardRepository wardRepository;
 
     @Value("${ghn.token:}")
     private String ghnToken;
@@ -26,67 +39,33 @@ public class ShippingValidationService {
     @Value("${ghn.shopId:}")
     private String ghnShopId;
 
-    private static final String GHN_API = "https://online-gateway.ghn.vn/shiip/public-api/v2";
+    @Value("${ghn.baseUrl:https://dev-online-gateway.ghn.vn/shiip/public-api}")
+    private String ghnBaseUrl;
+
+    @Value("${ghn.defaultFromDistrictId:1542}")
+    private Integer ghnDefaultFromDistrictId;
+
+    @Value("${ghn.defaultFromWardCode:21012}")
+    private String ghnDefaultFromWardCode;
 
     public ShippingValidationResponse validateShipping(Long productId, String toDistrictId, String toWardCode) {
         Product product = productRepository.findById(productId)
                 .orElseThrow(() -> new RuntimeException("Product not found: " + productId));
 
         int shelfLifeDays = product.getShelfLifeDays() != null ? product.getShelfLifeDays() : 30;
-        
-        // 1. Get Seller Coordinates from OSM
-        String sellerAddress = product.getSeller().getAddress().getFullAddress();
-        double[] sellerCoords = getCoordinatesFromOSM(sellerAddress);
-        double sellerLat = sellerCoords[0];
-        double sellerLon = sellerCoords[1];
-        String sellerProvince = product.getSeller().getAddress().getProvince();
-
-        // 2. Get Buyer Coordinates (for simulation, we assume specific hardcoded names for demo IDs)
-        // Default to Hanoi as requested
-        String buyerAddressQuery = "Quận Ba Đình, Hà Nội"; 
-        String buyerProvince = "Thành phố Hà Nội";
-
-        if (toDistrictId.equals("1444")) { // ID 1444 simulates a shift to HCM
-            buyerAddressQuery = "Quận 1, Thành phố Hồ Chí Minh";
-            buyerProvince = "Thành phố Hồ Chí Minh";
-        }
-
-        double[] buyerCoords = getCoordinatesFromOSM(buyerAddressQuery);
-        double buyerLat = buyerCoords[0];
-        double buyerLon = buyerCoords[1];
-
-        double distanceKm = calculateDistance(sellerLat, sellerLon, buyerLat, buyerLon);
 
         // Fetch shipping options from GHN API
-        List<ShippingOption> allOptions = fetchGhnShippingOptions(toDistrictId, toWardCode);
+        List<ShippingOption> allOptions = fetchGhnShippingOptions(product, toDistrictId, toWardCode);
         List<ShippingOption> available = new ArrayList<>();
         List<ShippingOption> disabled = new ArrayList<>();
 
         for (ShippingOption option : allOptions) {
-            String serviceMode = option.getServiceName().toLowerCase();
-            
             if (option.getEstimatedDays() > shelfLifeDays) {
                 option.setCompatible(false);
                 option.setReason(String.format("ETD (%d ngày) > Hạn sử dụng (%d ngày)", 
                         option.getEstimatedDays(), shelfLifeDays));
                 disabled.add(option);
                 continue;
-            }
-
-            if (serviceMode.contains("hỏa tốc") || serviceMode.contains("express")) {
-                if (distanceKm > 30) {
-                    option.setCompatible(false);
-                    option.setReason(String.format("Giao hỏa tốc chỉ hỗ trợ < 30km (Tính toán thực tế: %d km)", Math.round(distanceKm)));
-                    disabled.add(option);
-                    continue;
-                }
-                if (!sellerProvince.toLowerCase().contains(buyerProvince.toLowerCase()) && 
-                    !buyerProvince.toLowerCase().contains(sellerProvince.toLowerCase())) {
-                    option.setCompatible(false);
-                    option.setReason("Giao hỏa tốc chỉ hỗ trợ nội tỉnh/thành phố");
-                    disabled.add(option);
-                    continue;
-                }
             }
 
             option.setCompatible(true);
@@ -102,129 +81,393 @@ public class ShippingValidationService {
                 .build();
     }
 
-    private double[] getCoordinatesFromOSM(String address) {
-        try {
-            WebClient client = WebClient.builder()
-                    .baseUrl("https://nominatim.openstreetmap.org")
-                    .defaultHeader(HttpHeaders.USER_AGENT, "HoaQuaSon-Ecommerce-App/1.0")
-                    .build();
-
-            List<Map<String, Object>> results = client.get()
-                    .uri(uriBuilder -> uriBuilder
-                            .path("/search")
-                            .queryParam("q", address)
-                            .queryParam("format", "json")
-                            .queryParam("limit", 1)
-                            .build())
-                    .retrieve()
-                    .bodyToMono(List.class)
-                    .block();
-
-            if (results != null && !results.isEmpty()) {
-                Map<String, Object> first = results.get(0);
-                double lat = Double.parseDouble((String) first.get("lat"));
-                double lon = Double.parseDouble((String) first.get("lon"));
-                return new double[]{lat, lon};
-            }
-        } catch (Exception e) {
-            System.err.println("OSM Geocoding error: " + e.getMessage());
+    public List<Map<String, Object>> getProvinces() {
+        if (!isGhnConfigured()) {
+            return getLocalProvinces();
         }
-        // Fallback to District 1, Ho Chi Minh City if API fails or no results
-        return new double[]{10.7769, 106.7009};
+
+        try {
+            Map<String, Object> response = ghnClient().get()
+                    .uri("/master-data/province")
+                    .retrieve()
+                    .bodyToMono(Map.class)
+                    .block();
+            return mapProvinceList(response);
+        } catch (Exception e) {
+            // Fallback to local DB if GHN is down or returns 400
+            return getLocalProvinces();
+        }
     }
 
-    private double calculateDistance(double lat1, double lon1, double lat2, double lon2) {
-        final int R = 6371; // Radius of the earth
-        double latDistance = Math.toRadians(lat2 - lat1);
-        double lonDistance = Math.toRadians(lon2 - lon1);
-        double a = Math.sin(latDistance / 2) * Math.sin(latDistance / 2)
-                + Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2))
-                * Math.sin(lonDistance / 2) * Math.sin(lonDistance / 2);
-        double c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-        return R * c;
+    private List<Map<String, Object>> getLocalProvinces() {
+        return provinceRepository.findAll().stream()
+                .map(p -> Map.<String, Object>of("id", Integer.parseInt(p.getCode()), "name", p.getName(), "code", p.getCode()))
+                .toList();
+    }
+
+    public List<Map<String, Object>> getDistricts(Integer provinceId) {
+        if (!isGhnConfigured()) {
+            return getLocalDistricts(provinceId);
+        }
+
+        try {
+            Map<String, Object> response = ghnClient().post()
+                    .uri("/master-data/district")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .bodyValue(Map.of("province_id", provinceId))
+                    .retrieve()
+                    .bodyToMono(Map.class)
+                    .block();
+            return mapDistrictList(response);
+        } catch (Exception e) {
+            return getLocalDistricts(provinceId);
+        }
+    }
+
+    private List<Map<String, Object>> getLocalDistricts(Integer provinceId) {
+        String pCode = String.format("%02d", provinceId);
+        return districtRepository.findByProvinceCode(pCode).stream()
+                .map(d -> Map.<String, Object>of("id", Integer.parseInt(d.getCode()), "name", d.getName(), "provinceId", provinceId, "code", d.getCode()))
+                .toList();
+    }
+
+    public List<Map<String, Object>> getWards(Integer districtId) {
+        if (!isGhnConfigured()) {
+            return getLocalWards(districtId);
+        }
+
+        try {
+            Map<String, Object> response = ghnClient().post()
+                    .uri("/master-data/ward")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .bodyValue(Map.of("district_id", districtId))
+                    .retrieve()
+                    .bodyToMono(Map.class)
+                    .block();
+            return mapWardList(response);
+        } catch (Exception e) {
+            return getLocalWards(districtId);
+        }
+    }
+
+    private List<Map<String, Object>> getLocalWards(Integer districtId) {
+        String dCode = String.format("%03d", districtId);
+        return wardRepository.findByDistrictCode(dCode).stream()
+                .map(w -> Map.<String, Object>of("code", w.getCode(), "name", w.getName(), "districtId", districtId))
+                .toList();
     }
 
     @SuppressWarnings("unchecked")
-    private List<ShippingOption> fetchGhnShippingOptions(String toDistrictId, String toWardCode) {
+    private List<Map<String, Object>> mapProvinceList(Map<String, Object> response) {
+        List<Map<String, Object>> mapped = new ArrayList<>();
+        if (response == null || !(response.get("data") instanceof List<?> list)) {
+            return mapped;
+        }
+        for (Object item : list) {
+            if (item instanceof Map<?, ?> raw) {
+                Map<String, Object> row = new HashMap<>();
+                row.put("id", raw.get("ProvinceID"));
+                row.put("name", raw.get("ProvinceName"));
+                row.put("code", raw.get("Code"));
+                mapped.add(row);
+            }
+        }
+        return mapped;
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<Map<String, Object>> mapDistrictList(Map<String, Object> response) {
+        List<Map<String, Object>> mapped = new ArrayList<>();
+        if (response == null || !(response.get("data") instanceof List<?> list)) {
+            return mapped;
+        }
+        for (Object item : list) {
+            if (item instanceof Map<?, ?> raw) {
+                Map<String, Object> row = new HashMap<>();
+                row.put("id", raw.get("DistrictID"));
+                row.put("name", raw.get("DistrictName"));
+                row.put("provinceId", raw.get("ProvinceID"));
+                row.put("code", raw.get("Code"));
+                mapped.add(row);
+            }
+        }
+        return mapped;
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<Map<String, Object>> mapWardList(Map<String, Object> response) {
+        List<Map<String, Object>> mapped = new ArrayList<>();
+        if (response == null || !(response.get("data") instanceof List<?> list)) {
+            return mapped;
+        }
+        for (Object item : list) {
+            if (item instanceof Map<?, ?> raw) {
+                Map<String, Object> row = new HashMap<>();
+                row.put("code", raw.get("WardCode"));
+                row.put("name", raw.get("WardName"));
+                row.put("districtId", raw.get("DistrictID"));
+                mapped.add(row);
+            }
+        }
+        return mapped;
+    }
+
+    private boolean isGhnConfigured() {
+        return ghnToken != null && !ghnToken.isBlank() && ghnShopId != null && !ghnShopId.isBlank();
+    }
+
+    private int resolveFromDistrictId(Product product) {
+        Address sellerAddress = product.getSeller() != null ? product.getSeller().getAddress() : null;
+        if (sellerAddress != null && sellerAddress.getGhnDistrictId() != null) {
+            return sellerAddress.getGhnDistrictId();
+        }
+        return ghnDefaultFromDistrictId;
+    }
+
+    private String resolveFromWardCode(Product product) {
+        Address sellerAddress = product.getSeller() != null ? product.getSeller().getAddress() : null;
+        if (sellerAddress != null && sellerAddress.getGhnWardCode() != null && !sellerAddress.getGhnWardCode().isBlank()) {
+            return sellerAddress.getGhnWardCode();
+        }
+        return ghnDefaultFromWardCode;
+    }
+
+    private String resolveToWardCode(int toDistrictId, String toWardCode) {
+        List<Map<String, Object>> wards = getWards(toDistrictId);
+        if (wards == null || wards.isEmpty()) {
+            return toWardCode;
+        }
+
+        if (toWardCode != null && !toWardCode.isBlank()) {
+            boolean valid = wards.stream()
+                    .map(w -> w.get("code"))
+                    .filter(Objects::nonNull)
+                    .map(Object::toString)
+                    .anyMatch(code -> code.equalsIgnoreCase(toWardCode));
+            if (valid) {
+                return toWardCode;
+            }
+        }
+
+        Object firstCode = wards.get(0).get("code");
+        String fallbackWard = firstCode != null ? firstCode.toString() : toWardCode;
+        log.warn("Invalid toWardCode '{}' for toDistrictId {}. Fallback to ward '{}'",
+                toWardCode, toDistrictId, fallbackWard);
+        return fallbackWard;
+    }
+
+    private String buildServiceName(Map<?, ?> service) {
+        Object shortName = service.get("short_name");
+        if (shortName != null && !shortName.toString().isBlank()) {
+            return shortName.toString();
+        }
+        Object type = service.get("service_type_id");
+        int typeId = type instanceof Number ? ((Number) type).intValue() : 2;
+        return switch (typeId) {
+            case 1 -> "Express";
+            case 3 -> "Tiết kiệm";
+            default -> "Chuẩn";
+        };
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<ShippingOption> fetchGhnShippingOptions(Product product, String toDistrictId, String toWardCode) {
         List<ShippingOption> options = new ArrayList<>();
 
-        // If GHN Token is missing, provide mock services to test logic
-        if (ghnToken == null || ghnToken.isEmpty()) {
-            options.add(ShippingOption.builder()
-                    .carrier("GHN").serviceName("Giao hàng tiêu chuẩn")
-                    .estimatedDays(3).fee(30000L).build());
-            options.add(ShippingOption.builder()
-                    .carrier("GHN").serviceName("Giao hàng hỏa tốc")
-                    .estimatedDays(1).fee(60000L).build());
+        if (!isGhnConfigured()) {
             return options;
         }
-// (rest of the code remains same)
+
+        int fromDistrictId = resolveFromDistrictId(product);
+        String fromWardCode = resolveFromWardCode(product);
+        int toDistrict = Integer.parseInt(toDistrictId);
+        String normalizedToWardCode = resolveToWardCode(toDistrict, toWardCode);
+        long weight = (product.getUnitWeightGrams() != null && product.getUnitWeightGrams() > 0)
+                ? product.getUnitWeightGrams()
+                : 500L;
+        long insurance = product.getPrice() != null ? product.getPrice().longValue() : 0L;
 
         try {
-            WebClient client = WebClient.builder()
-                    .baseUrl(GHN_API)
-                    .defaultHeader("Token", ghnToken)
-                    .defaultHeader(HttpHeaders.CONTENT_TYPE, "application/json")
-                    .build();
+            Map<String, Object> response = ghnClient().post()
+                    .uri("/v2/shipping-order/available-services")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .bodyValue(Map.of(
+                            "shop_id", Integer.parseInt(ghnShopId),
+                            "from_district", fromDistrictId,
+                            "to_district", toDistrict
+                    ))
+                    .retrieve()
+                    .bodyToMono(Map.class)
+                    .block();
 
-            Map<String, Object> body = Map.of(
-                    "shop_id", Integer.parseInt(ghnShopId),
-                    "from_district", 1542,
-                    "to_district", Integer.parseInt(toDistrictId)
-            );
+            if (response == null || !(response.get("data") instanceof List<?> services)) {
+                return options;
+            }
 
-            Map<String, Object> response = client.post()
-                    .uri("/shipping-order/available-services")
+            for (Object svc : services) {
+                if (!(svc instanceof Map<?, ?> service)) {
+                    continue;
+                }
+
+                Object serviceIdObj = service.get("service_id");
+                if (!(serviceIdObj instanceof Number serviceNumber)) {
+                    continue;
+                }
+
+                long serviceId = serviceNumber.longValue();
+                Integer serviceTypeId = null;
+                Object serviceTypeObj = service.get("service_type_id");
+                if (serviceTypeObj instanceof Number serviceTypeNumber) {
+                    serviceTypeId = serviceTypeNumber.intValue();
+                }
+
+                // Checkout only supports GHN Nhanh (1) and Chuan (2).
+                if (serviceTypeId == null || (serviceTypeId != 1 && serviceTypeId != 2)) {
+                    continue;
+                }
+
+                Long fee = fetchFee(fromDistrictId, fromWardCode, toDistrict, normalizedToWardCode,
+                        serviceId, serviceTypeId, weight, insurance);
+                Integer estimatedDays = fetchLeadtimeDays(fromDistrictId, fromWardCode, toDistrict,
+                    normalizedToWardCode, serviceId);
+
+                int defaultFromDistrict = ghnDefaultFromDistrictId != null ? ghnDefaultFromDistrictId : fromDistrictId;
+                String defaultFromWard = (ghnDefaultFromWardCode != null && !ghnDefaultFromWardCode.isBlank())
+                        ? ghnDefaultFromWardCode
+                        : fromWardCode;
+
+                // Retry with configured default pickup if seller pickup address causes GHN fee API failure.
+                if ((fee == null || estimatedDays == null)
+                    && (fromDistrictId != defaultFromDistrict || !Objects.equals(fromWardCode, defaultFromWard))) {
+                    fee = fetchFee(defaultFromDistrict, defaultFromWard, toDistrict, normalizedToWardCode,
+                        serviceId, serviceTypeId, weight, insurance);
+                    estimatedDays = fetchLeadtimeDays(defaultFromDistrict, defaultFromWard, toDistrict,
+                        normalizedToWardCode, serviceId);
+                }
+
+                if (fee == null || estimatedDays == null) {
+                    continue;
+                }
+
+                options.add(ShippingOption.builder()
+                        .carrier("GHN")
+                        .serviceName(buildServiceName(service))
+                        .serviceTypeId(serviceTypeId)
+                        .estimatedDays(estimatedDays)
+                        .fee(fee)
+                        .build());
+            }
+        } catch (Exception e) {
+            return options;
+        }
+
+        return options;
+    }
+
+    @SuppressWarnings("unchecked")
+    private Long fetchFee(int fromDistrictId, String fromWardCode, int toDistrictId,
+                          String toWardCode, long serviceId, Integer serviceTypeId,
+                          long weight, long insuranceValue) {
+        Map<String, Object> feeBody = new HashMap<>();
+        feeBody.put("from_district_id", fromDistrictId);
+        feeBody.put("from_ward_code", fromWardCode);
+        feeBody.put("service_id", serviceId);
+        if (serviceTypeId != null) {
+            feeBody.put("service_type_id", serviceTypeId);
+        }
+        feeBody.put("to_district_id", toDistrictId);
+        feeBody.put("to_ward_code", toWardCode);
+        feeBody.put("height", 10);
+        feeBody.put("length", 10);
+        feeBody.put("width", 10);
+        feeBody.put("weight", weight);
+        feeBody.put("insurance_value", Math.max(insuranceValue, 0));
+        feeBody.put("cod_value", 0);
+        feeBody.put("cod_failed_amount", 0);
+        feeBody.put("coupon", null);
+        feeBody.put("items", List.of(Map.of(
+                "name", "ITEM",
+                "quantity", 1,
+                "height", 10,
+                "length", 10,
+                "width", 10,
+                "weight", weight
+        )));
+
+        try {
+            Map<String, Object> response = ghnClientWithShopId().post()
+                    .uri("/v2/shipping-order/fee")
+                    .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(feeBody)
+                    .retrieve()
+                    .bodyToMono(Map.class)
+                    .block();
+
+            if (response == null || !(response.get("data") instanceof Map<?, ?> data)) {
+                return null;
+            }
+            Object total = data.get("total");
+            if (total instanceof Number number) {
+                return number.longValue();
+            }
+            return null;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private Integer fetchLeadtimeDays(int fromDistrictId, String fromWardCode, int toDistrictId,
+                                      String toWardCode, long serviceId) {
+        Map<String, Object> body = new HashMap<>();
+        body.put("from_district_id", fromDistrictId);
+        body.put("from_ward_code", fromWardCode);
+        body.put("to_district_id", toDistrictId);
+        body.put("to_ward_code", toWardCode);
+        body.put("service_id", serviceId);
+
+        try {
+            Map<String, Object> response = ghnClientWithShopId().post()
+                    .uri("/v2/shipping-order/leadtime")
+                    .contentType(MediaType.APPLICATION_JSON)
                     .bodyValue(body)
                     .retrieve()
                     .bodyToMono(Map.class)
                     .block();
 
-            if (response != null && response.get("data") instanceof List<?> services) {
-                for (Object svc : services) {
-                    if (svc instanceof Map<?, ?> s) {
-                        // Calculate ETD for this service
-                        Map<String, Object> etdBody = Map.of(
-                                "service_id", s.get("service_id"),
-                                "from_district_id", 1542,
-                                "to_district_id", Integer.parseInt(toDistrictId),
-                                "to_ward_code", toWardCode
-                        );
-
-                        Map<String, Object> etdResponse = client.post()
-                                .uri("/shipping-order/leadtime")
-                                .bodyValue(etdBody)
-                                .retrieve()
-                                .bodyToMono(Map.class)
-                                .block();
-
-                        int estimatedDays = 5; // default
-                        if (etdResponse != null && etdResponse.get("data") instanceof Map<?, ?> etdData) {
-                            Object leadtime = etdData.get("leadtime");
-                            if (leadtime instanceof Number) {
-                                // leadtime is unix timestamp — calculate days from now
-                                long leadtimeSec = ((Number) leadtime).longValue();
-                                long nowSec = System.currentTimeMillis() / 1000;
-                                estimatedDays = Math.max(1, (int) ((leadtimeSec - nowSec) / 86400));
-                            }
-                        }
-
-                        options.add(ShippingOption.builder()
-                                .carrier("GHN")
-                                .serviceName((String) s.get("short_name"))
-                                .estimatedDays(estimatedDays)
-                                .fee(s.get("service_id") != null ? 25000L : 0L)
-                                .build());
-                    }
-                }
+            if (response == null || !(response.get("data") instanceof Map<?, ?> data)) {
+                return null;
             }
-        } catch (Exception e) {
-            // Fallback to mock data on API failure
-            options.add(ShippingOption.builder()
-                    .carrier("GHN").serviceName("Giao hàng nhanh")
-                    .estimatedDays(3).fee(25000L).build());
-        }
 
-        return options;
+            Object leadtimeObj = data.get("leadtime");
+            if (!(leadtimeObj instanceof Number leadtimeNum)) {
+                return null;
+            }
+
+            long leadtimeEpoch = leadtimeNum.longValue();
+            long nowEpoch = Instant.now().getEpochSecond();
+            long secondsDiff = Math.max(leadtimeEpoch - nowEpoch, 0);
+            long days = (long) Math.ceil(secondsDiff / 86400.0);
+            return (int) Math.max(days, 1);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private WebClient ghnClient() {
+        return WebClient.builder()
+                .baseUrl(ghnBaseUrl)
+                .defaultHeader("Token", ghnToken)
+                .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
+                .build();
+    }
+
+    private WebClient ghnClientWithShopId() {
+        return WebClient.builder()
+                .baseUrl(ghnBaseUrl)
+                .defaultHeader("Token", ghnToken)
+                .defaultHeader("ShopId", ghnShopId)
+                .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
+                .build();
     }
 }

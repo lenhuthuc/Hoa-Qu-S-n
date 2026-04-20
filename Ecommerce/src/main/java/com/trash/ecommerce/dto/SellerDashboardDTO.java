@@ -11,10 +11,12 @@ import java.util.List;
 public class SellerDashboardDTO {
     private BigDecimal totalRevenue;
     private BigDecimal netRevenue;
+    private BigDecimal refundedRevenue;
     private Integer totalOrders;
     private Integer pendingOrders;
     private Integer shippedOrders;
     private Integer completedOrders;
+    private Integer refundedOrders;
     private Integer cancelledOrders;
     private Integer totalProducts;
     private BigDecimal cancelRate;

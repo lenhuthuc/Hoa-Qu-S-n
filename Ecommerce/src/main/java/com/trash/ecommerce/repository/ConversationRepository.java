@@ -13,7 +13,7 @@ import java.util.Optional;
 @Repository
 public interface ConversationRepository extends JpaRepository<Conversation, Long> {
 
-    @Query("SELECT c FROM Conversation c WHERE c.buyer.id = :userId OR c.seller.id = :userId ORDER BY c.lastMessageAt DESC")
+    @Query("SELECT c FROM Conversation c WHERE (c.buyer.id = :userId AND c.deletedByBuyer = false) OR (c.seller.id = :userId AND c.deletedBySeller = false) ORDER BY c.lastMessageAt DESC")
     List<Conversation> findByUserId(Long userId);
 
     @Query("SELECT c FROM Conversation c WHERE (c.buyer.id = :buyerId AND c.seller.id = :sellerId) OR (c.buyer.id = :sellerId AND c.seller.id = :buyerId)")

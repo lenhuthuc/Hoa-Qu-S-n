@@ -6,17 +6,34 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import com.trash.ecommerce.entity.Order;
+import com.trash.ecommerce.entity.OrderStatus;
 
+import java.util.Date;
 import java.util.List;
 
 @Repository
 public interface OrderRepository extends JpaRepository<Order, Long> {
-    List<Order> findByUserIdOrderByCreateAtDesc(Long userId);
+    @Query("SELECT o FROM Order o WHERE o.user.id = :userId AND o.parentOrder IS NULL ORDER BY o.createAt DESC")
+    List<Order> findByUserIdOrderByCreateAtDesc(@Param("userId") Long userId);
+
+    List<Order> findByParentOrderIdOrderByCreateAtAsc(Long parentOrderId);
+
+    List<Order> findBySellerIdOrderByCreateAtDesc(Long sellerId);
+
+    @Query("SELECT o FROM Order o WHERE o.status = :status AND o.createAt < :cutoffTime AND o.parentOrder IS NULL")
+    List<Order> findByStatusAndCreateAtBefore(@Param("status") OrderStatus status, @Param("cutoffTime") Date cutoffTime);
     
     @Query("SELECT COUNT(o) > 0 FROM Order o " +
            "JOIN o.orderItems oi " +
            "WHERE o.user.id = :userId " +
            "AND oi.product.id = :productId " +
-           "AND o.status IN (com.trash.ecommerce.entity.OrderStatus.PAID, com.trash.ecommerce.entity.OrderStatus.PLACED)")
+            "AND o.status = com.trash.ecommerce.entity.OrderStatus.FINISHED")
     boolean existsByUserIdAndProductIdAndStatusPaid(@Param("userId") Long userId, @Param("productId") Long productId);
+
+        @Query("SELECT COUNT(DISTINCT o.id) FROM Order o " +
+            "JOIN o.orderItems oi " +
+            "WHERE o.user.id = :userId " +
+            "AND oi.product.id = :productId " +
+            "AND o.status = com.trash.ecommerce.entity.OrderStatus.FINISHED")
+        long countFinishedOrdersByUserIdAndProductId(@Param("userId") Long userId, @Param("productId") Long productId);
 }

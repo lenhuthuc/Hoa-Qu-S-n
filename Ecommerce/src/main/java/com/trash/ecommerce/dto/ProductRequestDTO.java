@@ -13,8 +13,10 @@ public class ProductRequestDTO {
     private String productName;
     @NotNull
     private BigDecimal price;
-    @NotNull
     private Long quantity;
+    private Long unitWeightGrams;
+    private BigDecimal totalStockWeightKg;
+    private Integer shelfLifeDays;
     private Long categoryId;
     private String description;
     private String batchId;

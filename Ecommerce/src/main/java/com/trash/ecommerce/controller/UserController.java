@@ -4,17 +4,22 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 
 import com.trash.ecommerce.dto.*;
 import com.trash.ecommerce.exception.ProductCreatingException;
 import com.trash.ecommerce.exception.UserAuthorizationException;
+import com.trash.ecommerce.service.SellerApplicationService;
 import com.trash.ecommerce.service.JwtService;
 import com.trash.ecommerce.service.ProductService;
+import com.trash.ecommerce.service.StorageService;
 import io.jsonwebtoken.ExpiredJwtException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.validation.BindingResult;
@@ -37,6 +42,8 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.util.List;
+
 
 
 @RestController
@@ -51,6 +58,10 @@ public class UserController {
     private ProductService productService;
     @Autowired
     private FacebookIntegrationService facebookIntegrationService;
+    @Autowired
+    private SellerApplicationService sellerApplicationService;
+    @Autowired
+    private StorageService storageService;
 
     @PostMapping("auth/register")
     public ResponseEntity<UserRegisterResponseDTO> createUser(
@@ -156,9 +167,31 @@ public class UserController {
         try {
 
             UserProfileDTO userProfileDTO = userService.getOwnProfile(userId);
+            userProfileDTO.setAvatar(resolveMediaUrlForClient(userProfileDTO.getAvatar()));
             return ResponseEntity.ok(userProfileDTO);
         } catch (Exception e) {
             throw new FindingUserError(e.getMessage());
+        }
+    }
+
+    @PostMapping(value = "/profile/avatar", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<?> uploadProfileAvatar(
+            @RequestHeader("Authorization") String token,
+            @RequestPart("file") MultipartFile file
+    ) {
+        try {
+            Long userId = jwtService.extractId(token);
+            String avatarUrl = storageService.uploadReviewMedia(userId, file, "image");
+
+            UserUpdateRequestDTO updateRequestDTO = new UserUpdateRequestDTO();
+            updateRequestDTO.setAvatar(avatarUrl);
+            userService.updateUser(updateRequestDTO, userId, userId);
+
+            return ResponseEntity.ok(Map.of("avatarUrl", resolveMediaUrlForClient(avatarUrl)));
+        } catch (Exception e) {
+            logger.error("Error uploading profile avatar", e);
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(Map.of("message", e.getMessage()));
         }
     }
 
@@ -239,6 +272,7 @@ public class UserController {
             @RequestPart("file") MultipartFile file
     ) {
         try {
+            ensureSellerAccess(token);
             Long sellerId = jwtService.extractId(token);
             ProductResponseDTO productResponseDTO = productService.createProduct(productRequestDTO, file, sellerId);
             return ResponseEntity.ok(productResponseDTO);
@@ -257,7 +291,11 @@ public class UserController {
     ) {
         Long sellerId;
         try {
+            ensureSellerAccess(token);
             sellerId = jwtService.extractId(token);
+        } catch (RuntimeException e) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(Map.of("message", e.getMessage()));
         } catch (Exception e) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(Map.of("message", "Token không hợp lệ"));
@@ -315,16 +353,129 @@ public class UserController {
 
     @PutMapping("/products/{id}")
     public ResponseEntity<ProductResponseDTO> updateProduct(
+            @RequestHeader("Authorization") String token,
             @RequestPart("products") ProductRequestDTO productRequestDTO,
             @PathVariable Long id,
             @RequestPart("file") MultipartFile file
     ) {
         try {
+            ensureSellerAccess(token);
             ProductResponseDTO productResponseDTO = productService.updateProduct(productRequestDTO, id, file);
             return ResponseEntity.ok(productResponseDTO);
         } catch (Exception e) {
             logger.error("Update product error", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
+    }
+
+    @PostMapping("/seller-applications")
+    public ResponseEntity<?> submitSellerApplication(
+            @RequestHeader("Authorization") String token,
+            @Valid @RequestBody SellerApplicationSubmitRequestDTO request,
+            BindingResult result
+    ) {
+        if (result.hasErrors()) {
+            Map<String, String> errors = new HashMap<>();
+            result.getFieldErrors().forEach(error -> errors.put(error.getField(), error.getDefaultMessage()));
+            return ResponseEntity.badRequest().body(Map.of("message", "Dữ liệu không hợp lệ", "errors", errors));
+        }
+        try {
+            Long userId = jwtService.extractId(token);
+            SellerApplicationResponseDTO response = sellerApplicationService.submit(userId, request);
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("message", e.getMessage()));
+        }
+    }
+
+    @GetMapping("/seller-applications/me")
+    public ResponseEntity<?> getMySellerApplication(@RequestHeader("Authorization") String token) {
+        try {
+            Long userId = jwtService.extractId(token);
+            SellerApplicationResponseDTO response = sellerApplicationService.getMine(userId);
+            if (response == null) {
+                return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("message", "Bạn chưa có hồ sơ đăng ký người bán"));
+            }
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("message", e.getMessage()));
+        }
+    }
+
+    @PostMapping(value = "/seller-applications/documents", consumes = "multipart/form-data")
+    public ResponseEntity<?> uploadSellerApplicationDocuments(
+            @RequestHeader("Authorization") String token,
+            @RequestPart(value = "idCardFront", required = false) MultipartFile idCardFront,
+            @RequestPart(value = "idCardBack", required = false) MultipartFile idCardBack,
+            @RequestPart(value = "businessLicense", required = false) MultipartFile businessLicense,
+            @RequestPart(value = "foodSafetyDocument", required = false) MultipartFile foodSafetyDocument
+    ) {
+        try {
+            Long userId = jwtService.extractId(token);
+            boolean hasAnyFile = (idCardFront != null && !idCardFront.isEmpty())
+                    || (idCardBack != null && !idCardBack.isEmpty())
+                    || (businessLicense != null && !businessLicense.isEmpty())
+                    || (foodSafetyDocument != null && !foodSafetyDocument.isEmpty());
+            if (!hasAnyFile) {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                        .body(Map.of("message", "Vui lòng chọn ít nhất 1 tài liệu để tải lên"));
+            }
+
+            SellerDocumentUploadResponseDTO response = new SellerDocumentUploadResponseDTO();
+            if (idCardFront != null && !idCardFront.isEmpty()) {
+                response.setIdCardFrontUrl(storageService.uploadSellerDocument(userId, idCardFront, "id-front"));
+            }
+            if (idCardBack != null && !idCardBack.isEmpty()) {
+                response.setIdCardBackUrl(storageService.uploadSellerDocument(userId, idCardBack, "id-back"));
+            }
+            if (businessLicense != null && !businessLicense.isEmpty()) {
+                response.setBusinessLicenseUrl(storageService.uploadSellerDocument(userId, businessLicense, "business-license"));
+            }
+            if (foodSafetyDocument != null && !foodSafetyDocument.isEmpty()) {
+                response.setFoodSafetyDocumentUrl(storageService.uploadSellerDocument(userId, foodSafetyDocument, "food-safety"));
+            }
+
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("message", e.getMessage()));
+        }
+    }
+
+    private void ensureSellerAccess(String token) {
+        Object rolesObj = jwtService.extractClaim(token, claims -> claims.get("roles"));
+        if (!(rolesObj instanceof List<?> roles)) {
+            throw new RuntimeException("Bạn chưa có quyền người bán");
+        }
+        boolean allowed = roles.stream().anyMatch(role -> {
+            String roleValue = String.valueOf(role);
+            return "SELLER".equalsIgnoreCase(roleValue) || "ADMIN".equalsIgnoreCase(roleValue);
+        });
+        if (!allowed) {
+            throw new RuntimeException("Bạn cần được duyệt người bán trước khi đăng sản phẩm");
+        }
+    }
+
+    private String resolveMediaUrlForClient(String rawUrl) {
+        if (rawUrl == null || rawUrl.isBlank()) {
+            return null;
+        }
+
+        String value = rawUrl.trim();
+        if (value.startsWith("/api/reviews/media")) {
+            return value;
+        }
+        if (value.contains(".r2.cloudflarestorage.com/")) {
+            return "/api/reviews/media?url=" + URLEncoder.encode(value, StandardCharsets.UTF_8);
+        }
+        if (value.startsWith("http://") || value.startsWith("https://")) {
+            return value;
+        }
+        if (value.startsWith("local:")) {
+            return "/api/reviews/media?url=" + URLEncoder.encode(value, StandardCharsets.UTF_8);
+        }
+        if (value.startsWith("review-media/") || value.startsWith("reviews/")) {
+            return "/api/reviews/media?url=" + URLEncoder.encode("local:" + value, StandardCharsets.UTF_8);
+        }
+        return value;
     }
 }

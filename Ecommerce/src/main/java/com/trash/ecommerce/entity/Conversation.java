@@ -38,6 +38,18 @@ public class Conversation {
     @Column(name = "seller_unread", nullable = false)
     private Integer sellerUnread = 0;
 
+    @Column(name = "deleted_by_buyer", nullable = false)
+    private Boolean deletedByBuyer = false;
+
+    @Column(name = "deleted_by_seller", nullable = false)
+    private Boolean deletedBySeller = false;
+
+    @Column(name = "deleted_at_buyer")
+    private LocalDateTime deletedAtBuyer;
+
+    @Column(name = "deleted_at_seller")
+    private LocalDateTime deletedAtSeller;
+
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;
 

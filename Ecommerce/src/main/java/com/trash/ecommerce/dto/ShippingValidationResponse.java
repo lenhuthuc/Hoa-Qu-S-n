@@ -22,6 +22,7 @@ public class ShippingValidationResponse {
     public static class ShippingOption {
         private String carrier;
         private String serviceName;
+        private Integer serviceTypeId;
         private Integer estimatedDays;
         private Long fee;
         private boolean compatible;

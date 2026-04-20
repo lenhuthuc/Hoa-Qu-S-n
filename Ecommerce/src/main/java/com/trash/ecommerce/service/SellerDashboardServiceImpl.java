@@ -5,9 +5,12 @@ import com.trash.ecommerce.dto.TrustScoreDTO;
 import com.trash.ecommerce.entity.Order;
 import com.trash.ecommerce.entity.OrderItem;
 import com.trash.ecommerce.entity.OrderStatus;
+import com.trash.ecommerce.entity.ReturnRequest;
+import com.trash.ecommerce.entity.ReturnStatus;
 import com.trash.ecommerce.entity.Product;
 import com.trash.ecommerce.repository.OrderRepository;
 import com.trash.ecommerce.repository.ProductRepository;
+import com.trash.ecommerce.repository.ReturnRequestRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -27,12 +30,15 @@ public class SellerDashboardServiceImpl implements SellerDashboardService {
     @Autowired
     private OrderRepository orderRepository;
     @Autowired
+    private ReturnRequestRepository returnRequestRepository;
+    @Autowired
     private TrustScoreService trustScoreService;
 
     @Override
     public SellerDashboardDTO getDashboard(Long sellerId) {
         List<Product> products = productRepository.findBySellerId(sellerId);
         Set<Long> productIds = products.stream().map(Product::getId).collect(Collectors.toSet());
+        List<ReturnRequest> sellerReturns = returnRequestRepository.findBySellerIdOrderByCreatedAtDesc(sellerId);
 
         // Get all orders containing seller's products
         List<Order> allOrders = orderRepository.findAll();
@@ -42,6 +48,7 @@ public class SellerDashboardServiceImpl implements SellerDashboardService {
                 .collect(Collectors.toList());
 
         BigDecimal totalRevenue = BigDecimal.ZERO;
+<<<<<<< HEAD
         BigDecimal refundedRevenue = BigDecimal.ZERO;
         int pendingOrders = 0, shippedOrders = 0, completedOrders = 0, cancelledOrders = 0;
         int refundedOrders = 0;
@@ -50,6 +57,11 @@ public class SellerDashboardServiceImpl implements SellerDashboardService {
         LocalDate today = LocalDate.now(ZoneId.systemDefault());
         LocalDate startDate = today.minusDays(364);
         DateTimeFormatter dateFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd");
+=======
+    BigDecimal refundedRevenue = BigDecimal.ZERO;
+        int pendingOrders = 0, shippedOrders = 0, completedOrders = 0, cancelledOrders = 0;
+    int refundedOrders = 0;
+>>>>>>> fd80c1f037c9743db2252c3f9e6487ff5f8974e1
 
         // Top products tracking
         Map<Long, SellerDashboardDTO.TopProductDTO> topMap = new HashMap<>();
@@ -64,10 +76,13 @@ public class SellerDashboardServiceImpl implements SellerDashboardService {
             }
 
             if (order.getStatus() == OrderStatus.FINISHED) {
+<<<<<<< HEAD
                 LocalDate orderDate = order.getCreateAt() != null
                         ? order.getCreateAt().toInstant().atZone(ZoneId.systemDefault()).toLocalDate()
                         : null;
 
+=======
+>>>>>>> fd80c1f037c9743db2252c3f9e6487ff5f8974e1
                 for (OrderItem oi : order.getOrderItems()) {
                     if (productIds.contains(oi.getProduct().getId())) {
                         BigDecimal lineTotal = oi.getPrice().multiply(BigDecimal.valueOf(oi.getQuantity()));
@@ -97,10 +112,13 @@ public class SellerDashboardServiceImpl implements SellerDashboardService {
             }
         }
 
+<<<<<<< HEAD
         for (LocalDate date = startDate; !date.isAfter(today); date = date.plusDays(1)) {
             revenueByDate.computeIfAbsent(date, key -> BigDecimal.ZERO);
         }
 
+=======
+>>>>>>> fd80c1f037c9743db2252c3f9e6487ff5f8974e1
         for (ReturnRequest returnRequest : sellerReturns) {
             if (returnRequest.getStatus() == ReturnStatus.REFUNDED) {
                 refundedOrders++;
@@ -129,11 +147,13 @@ public class SellerDashboardServiceImpl implements SellerDashboardService {
 
         SellerDashboardDTO dto = new SellerDashboardDTO();
         dto.setTotalRevenue(totalRevenue);
-        dto.setNetRevenue(totalRevenue); // No platform fee calculation yet
+        dto.setNetRevenue(netRevenue);
+        dto.setRefundedRevenue(refundedRevenue);
         dto.setTotalOrders(totalOrders);
         dto.setPendingOrders(pendingOrders);
         dto.setShippedOrders(shippedOrders);
         dto.setCompletedOrders(completedOrders);
+        dto.setRefundedOrders(refundedOrders);
         dto.setCancelledOrders(cancelledOrders);
         dto.setTotalProducts(products.size());
         dto.setCancelRate(cancelRate);

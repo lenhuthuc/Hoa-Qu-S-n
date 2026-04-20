@@ -3,6 +3,8 @@ package com.trash.ecommerce.mapper;
 import com.trash.ecommerce.dto.ProductDetailsResponseDTO;
 import com.trash.ecommerce.entity.Product;
 import com.trash.ecommerce.entity.ProductImage;
+import com.trash.ecommerce.repository.SellerApplicationRepository;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
@@ -11,11 +13,16 @@ import java.util.stream.Collectors;
 @Component
 public class ProductMapper {
 
+    @Autowired
+    private SellerApplicationRepository sellerApplicationRepository;
+
     public ProductDetailsResponseDTO mapperProduct(Product product) {
         ProductDetailsResponseDTO productDTO = new ProductDetailsResponseDTO();
         productDTO.setId(product.getId());
         productDTO.setProduct_name(product.getProductName());
         productDTO.setQuantity(product.getQuantity());
+        productDTO.setUnitWeightGrams(product.getUnitWeightGrams());
+        productDTO.setTotalStockWeightKg(product.getTotalStockWeightKg());
         productDTO.setPrice(product.getPrice());
         // Category
         if (product.getCategory() != null) {
@@ -40,6 +47,23 @@ public class ProductMapper {
             productDTO.setSellerId(product.getSeller().getId());
             productDTO.setSellerName(product.getSeller().getFullName() != null
                     ? product.getSeller().getFullName() : product.getSeller().getEmail());
+            // Get shop name from SellerApplication
+            try {
+                var sellerApp = sellerApplicationRepository.findByUserId(product.getSeller().getId()).orElse(null);
+                if (sellerApp != null && sellerApp.getShopName() != null) {
+                    productDTO.setShopName(sellerApp.getShopName());
+                } else {
+                    productDTO.setShopName(product.getSeller().getFullName());
+                }
+
+                String rawShopAvatar = sellerApp != null && sellerApp.getShopAvatar() != null && !sellerApp.getShopAvatar().isBlank()
+                        ? sellerApp.getShopAvatar().trim()
+                        : product.getSeller().getAvatar();
+                productDTO.setShopAvatar(rawShopAvatar);
+            } catch (Exception e) {
+                productDTO.setShopName(product.getSeller().getFullName());
+                productDTO.setShopAvatar(product.getSeller().getAvatar());
+            }
         }
         // Traceability
         productDTO.setBatchId(product.getBatchId());

@@ -2,14 +2,18 @@
 
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
-import { QrCode, MapPin, Cloud, Calendar, Leaf, Package, ChevronDown, Loader2 } from "lucide-react";
+import { QrCode, MapPin, Cloud, Calendar, Leaf, Package, Loader2 } from "lucide-react";
 import { traceApi } from "@/lib/api";
+
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000";
 
 interface LogEntry {
   id: string;
+  title?: string;
   note: string;
   imageUrl?: string;
   videoUrl?: string;
+  mediaType?: string;
   activityType: string;
   weatherCondition?: string;
   gpsLat?: number;
@@ -21,9 +25,35 @@ interface LogEntry {
 interface Traceability {
   batchId: string;
   productName: string;
+  cropType?: string;
+  sellerName?: string;
   origin: string;
+  harvestAt?: string;
   totalEntries: number;
   timeline: LogEntry[];
+}
+
+function resolveTraceMediaUrl(raw?: string | null): string | null {
+  if (!raw) return null;
+
+  const value = raw.trim();
+  if (!value) return null;
+  if (value.startsWith("http://") || value.startsWith("https://") || value.startsWith("data:") || value.startsWith("blob:")) {
+    return value;
+  }
+  if (value.startsWith("/api/reviews/media") || value.startsWith("/api/farming-journal/media")) {
+    return `${API_BASE}${value}`;
+  }
+  if (value.startsWith("local:") || value.startsWith("review-media/") || value.startsWith("reviews/") || value.includes(".r2.cloudflarestorage.com/")) {
+    return `${API_BASE}/api/reviews/media?url=${encodeURIComponent(value)}`;
+  }
+  if (value.startsWith("/uploads/farming/") || value.startsWith("uploads/farming/")) {
+    return `${API_BASE}/api/farming-journal/media?url=${encodeURIComponent(value)}`;
+  }
+  if (value.startsWith("/uploads/") || value.startsWith("uploads/")) {
+    return `${API_BASE}/api/farming-journal/media?url=${encodeURIComponent(value)}`;
+  }
+  return value;
 }
 
 const activityIcons: Record<string, any> = {
@@ -97,8 +127,12 @@ export default function TracePage() {
             <p className="font-semibold">{data.productName || "—"}</p>
           </div>
           <div>
-            <span className="text-green-200">Xuất xứ:</span>
-            <p className="font-semibold">{data.origin || "—"}</p>
+            <span className="text-green-200">Nhà vườn:</span>
+            <p className="font-semibold">{data.sellerName || "—"}</p>
+          </div>
+          <div>
+            <span className="text-green-200">Loại cây:</span>
+            <p className="font-semibold">{data.cropType || "—"}</p>
           </div>
           <div>
             <span className="text-green-200">Số bước ghi nhận:</span>
@@ -141,13 +175,24 @@ export default function TracePage() {
                     </span>
                   </div>
 
-                  <p className="text-gray-700 text-sm">{entry.note}</p>
+                  {entry.title && <p className="text-sm font-semibold text-gray-900">{entry.title}</p>}
+                  <p className="mt-1 text-gray-700 text-sm">{entry.note || "Không có ghi chú"}</p>
 
-                  {entry.imageUrl && (
+                  {resolveTraceMediaUrl(entry.imageUrl) && (
                     <img
-                      src={entry.imageUrl}
+                      src={resolveTraceMediaUrl(entry.imageUrl) || undefined}
                       alt="Ảnh nhật ký"
-                      className="mt-3 rounded-lg max-h-48 object-cover"
+                      className="mt-3 rounded-lg max-h-48 w-full object-cover"
+                    />
+                  )}
+
+                  {resolveTraceMediaUrl(entry.videoUrl) && (
+                    <video
+                      src={resolveTraceMediaUrl(entry.videoUrl) || undefined}
+                      controls
+                      playsInline
+                      preload="metadata"
+                      className="mt-3 rounded-lg max-h-56 w-full bg-black object-contain"
                     />
                   )}
 

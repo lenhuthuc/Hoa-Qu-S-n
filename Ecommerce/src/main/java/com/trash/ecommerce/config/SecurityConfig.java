@@ -35,12 +35,14 @@ public class SecurityConfig {
                 .cors(cors -> cors.configurationSource(configurationSource()))
                 .csrf(customize -> customize.disable())
                 .authorizeHttpRequests(auth -> auth
+                    .requestMatchers("/health").permitAll()
                         .requestMatchers("/error").permitAll()
                         .requestMatchers("/api/user/auth/login", "/api/user/auth/register", "/api/user/auth/logout").permitAll()
                         .requestMatchers("/api/user/auth/reset-password", "/api/user/auth/verify-otp", "/api/user/auth/change-password").permitAll()
                         .requestMatchers("/api/products/**").permitAll()
                         .requestMatchers("/api/categories/**").permitAll()
                         .requestMatchers("GET", "/api/reviews/products/**").permitAll()
+                        .requestMatchers("GET", "/api/reviews/media/**").permitAll()
                         .requestMatchers("/api/reviews/**").authenticated()
                         .requestMatchers("/api/admin/**").hasAuthority("ADMIN")
                         .requestMatchers("/api/user/**").hasAnyAuthority("USER", "ADMIN")
@@ -49,11 +51,12 @@ public class SecurityConfig {
                         .requestMatchers("GET", "/api/market-prices/**").permitAll()
                         .requestMatchers("/api/farming-journal/**").authenticated()
                         .requestMatchers("/api/traceability/**").authenticated()
-                        .requestMatchers("/api/shipping/**").authenticated()
+                        .requestMatchers("/api/shipping/**").permitAll()
                         .requestMatchers("GET", "/api/trust-score/**").permitAll()
                         .requestMatchers("/api/trust-score/**").authenticated()
+                        .requestMatchers("GET", "/api/returns/evidence/media", "/api/returns/evidence/media/**").permitAll()
                         .requestMatchers("/api/returns/**").authenticated()
-                        .requestMatchers("/api/seller/**").authenticated()
+                        .requestMatchers("/api/seller/**").hasAnyAuthority("SELLER", "ADMIN")
                         .requestMatchers("/api/notifications/**").authenticated()
                         .requestMatchers("GET", "/api/vouchers/available").permitAll()
                         .requestMatchers("POST", "/api/vouchers/validate").permitAll()
@@ -106,7 +109,10 @@ public class SecurityConfig {
             "http://localhost:3000",
             "http://localhost:3001",
             "http://127.0.0.1:3000",
-            "http://127.0.0.1:3001"
+            "http://127.0.0.1:3001",
+            "https://haquason.uk",
+            "https://www.haquason.uk",
+            "https://api.haquason.uk"
         ));
         config.setAllowedMethods(List.of("*"));
         config.setAllowedHeaders(List.of("*"));

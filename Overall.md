@@ -1,12 +1,33 @@
-# HOA QUẢ SƠN — TÀI LIỆU KIẾN TRÚC & CHỨC NĂNG HỆ THỐNG
+## TỔNG QUAN KIẾN TRÚC
 
----
+Dự án được xây dựng theo mô hình **Microservices hybrid**, kết hợp Java Spring (Nghiệp vụ), Python FastAPI (AI) và Node.js Express (Gateway).
 
-## TỔNG QUAN DỰ ÁN
-
-Nền tảng thương mại điện tử nông sản **"Hoa Quả Sơn"** — kết nối nông hộ Việt Nam với người tiêu dùng đô thị.
-
----
+```mermaid
+graph TD
+    User((Người dùng)) -->|Next.js 14| Frontend[Frontend UI]
+    Frontend -->|REST/WS| Gateway[API Gateway - Node.js]
+    
+    subgraph "Core Backend"
+        Gateway -->|Proxy| Spring[Spring Boot Core]
+        Spring -->|JDBC| MySQL[(MySQL - Cổng chính)]
+    end
+    
+    subgraph "AI & Analytics"
+        Gateway -->|Internal| FastAPI[FastAPI - AI Service]
+        FastAPI -->|Vector Search| Qdrant[(Qdrant Vector DB)]
+        FastAPI -->|LLM| Groq[[Groq - LLaMA 3.1]]
+        FastAPI -->|Vision| Gemini[[Gemini 2.0 Flash]]
+    end
+    
+    subgraph "Satellite Databases"
+        Spring -->|JPA| Postgres[(PostgreSQL - Analytics)]
+        Spring -->|NoSQL| MongoDB[(MongoDB - Logging)]
+        Gateway -->|Sub/Pub| Redis[(Redis - Cache/RT)]
+    end
+    
+    Spring -.->|Internal Call| FastAPI
+    Gateway -->|Stream Control| MediaMTX[[MediaMTX - HLS/WebRTC]]
+```
 
 ## CẤU TRÚC THƯ MỤC
 
@@ -44,15 +65,16 @@ hoa-qua-son/
 
 | Service        | Tech              | Port                                   | Trạng thái   |
 |----------------|-------------------|----------------------------------------|--------------|
-| gateway        | Node.js Express   | 3000                                   | BUILD MỚI    |
-| spring-service | Java Spring Boot  | 8080                                   | CÓ SẴN       |
-| fastapi-service| Python FastAPI    | 8000                                   | BUILD MỚI    |
-| frontend       | Next.js 14        | 3001                                   | BUILD MỚI    |
-| mediamtx       | Go (binary)       | 1935 (RTMP), 8888 (HLS), 9997 (HTTP API) | DOCKER IMAGE |
-| postgres       | PostgreSQL 16     | 5432                                   | DOCKER IMAGE |
-| mongodb        | MongoDB 7         | 27017                                  | DOCKER IMAGE |
-| redis          | Redis 7           | 6379                                   | DOCKER IMAGE |
-| qdrant         | Qdrant            | 6333                                   | DOCKER IMAGE |
+| gateway        | Node.js Express   | 3000                                   | Vận hành     |
+| spring-service | Java Spring Boot  | 8080                                   | Vận hành     |
+| fastapi-service| Python FastAPI    | 8000                                   | Vận hành     |
+| frontend       | Next.js 14        | 3001                                   | Vận hành     |
+| mediamtx       | Go binary         | 1935 (RTMP), 8888 (HLS), 9997 (API)    | Vận hành     |
+| mysql          | MySQL 8.0         | 3306                                   | Vận hành     |
+| postgres       | PostgreSQL 16     | 5432                                   | Vận hành     |
+| mongodb        | MongoDB 7         | 27017                                  | Vận hành     |
+| redis          | Redis 7           | 6379                                   | Vận hành     |
+| qdrant         | Qdrant            | 6333                                   | Vận hành     |
 
 ---
 
@@ -102,23 +124,27 @@ Cần build:
 
 ---
 
-## DATABASE SCHEMA
+## DATABASE SCHEMA (POLYGLOT PERSISTENCE)
 
-### PostgreSQL (spring-service dùng)
-```sql
--- Thiết kế tối ưu (xem bảng chính bên dưới)
+Hệ thống sử dụng mô hình lưu trữ đa dạng để tối ưu cho từng loại nghiệp vụ.
+
+### 1. Sơ đồ Thực thể (ER Diagram)
+
+```mermaid
+erDiagram
+    USER ||--o{ PRODUCT : "sở hữu"
+    USER ||--o{ ORDER : "đặt hàng"
+    USER ||--o{ VOUCHER : "sử dụng"
+    PRODUCT ||--o{ ORDER_ITEM : "nằm trong"
+    ORDER ||--o{ ORDER_ITEM : "bao gồm"
+    PRODUCT ||--o{ SHIPPING_RULE : "áp dụng"
+    PRODUCT ||--o{ PRODUCT_EMBEDDING : "ánh xạ tìm kiếm"
+    SELLER ||--o{ FARMING_BATCH : "canh tác"
+    FARMING_BATCH ||--o{ FARMING_LOG : "có nhật ký"
+    LIVESTREAM ||--|| USER : "tổ chức bởi"
 ```
 
-### MongoDB (fastapi + spring dùng)
-
-```json
-// farming_logs collection
-{ "_id": "", "batch_id": "", "seller_id": "", "image_url": "", "note": "",
-  "gps_lat": 0, "gps_lng": 0, "captured_at": "", "created_at": "" }
-
-// chat_messages collection
-{ "_id": "", "room_id": "", "sender_id": "", "content": "", "type": "", "created_at": "" }
-```
+### 2. Cấu trúc chi tiết
 
 ### Các bảng PostgreSQL chính
 
@@ -184,14 +210,23 @@ CLOUDFLARE_R2_ENDPOINT=
 
 ## LUỒNG CHÍNH
 
-### Luồng đăng bán với AI
+### Luồng đăng bán Sản phẩm (Hybrid)
 ```
+[Cách 1: AI Flow]
 Seller upload ảnh (Frontend)
 → POST /ai/generate-post (FastAPI)
-→ Gemini Flash phân tích ảnh
-→ Trả về title, description, price
-→ Seller confirm → POST /products (Spring)
-→ POST /search/embed-product (FastAPI) để index Qdrant
+→ Gemini Flash phân tích ảnh → Trả về title, description, price
+→ Seller kiểm tra & nhập số lượng (mặc định 100kg)
+→ POST /api/user/products (Spring)
+
+[Cách 2: Manual Flow]
+Seller nhập tay thông tin trực tiếp (Frontend) 
+→ Upload ảnh sản phẩm (Bắt buộc)
+→ POST /api/user/products (Spring)
+
+[Hậu xử lý]
+→ Spring lưu DB MySQL 
+→ Gọi POST /search/embed-product (FastAPI) để index vector vào Qdrant
 ```
 
 ### Luồng livestream
