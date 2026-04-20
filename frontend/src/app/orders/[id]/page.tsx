@@ -177,9 +177,14 @@ export default function OrderDetailPage() {
     if (!order) return;
     setPayingVnPay(true);
     try {
-      await orderApi.retryPayment(order.id);
-      setOrder((prev) => (prev ? { ...prev, status: "PLACED" } : prev));
-      toast.success("Thanh toán VNPay đã được ghi nhận");
+      const res = await orderApi.retryPayment(order.id);
+      const payload = res.data?.data || res.data;
+      const paymentUrl = payload?.paymentUrl;
+      if (typeof paymentUrl === "string" && paymentUrl.startsWith("http")) {
+        window.location.href = paymentUrl;
+        return;
+      }
+      toast.error("Không thể tạo liên kết thanh toán");
     } catch {
       toast.error("Lỗi tạo thanh toán VNPay");
     } finally {
