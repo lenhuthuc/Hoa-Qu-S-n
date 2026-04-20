@@ -89,23 +89,6 @@ export default function SellerOrdersPage() {
     }
   }
 
-  async function handleUpdateStatus(orderId: number, newStatus: string) {
-    const labels: Record<string, string> = {
-      PREPARING: "Xác nhận đơn hàng",
-      SHIPPED: "Xác nhận giao hàng",
-      CANCELLED: "Hủy đơn",
-    };
-    if (!confirm(`${labels[newStatus] || newStatus} cho đơn #${orderId}?`)) return;
-    try {
-      await sellerApi.updateOrderStatus(orderId, newStatus);
-      setOrders((prev) =>
-        prev.map((o) => (o.orderId === orderId ? { ...o, status: newStatus } : o))
-      );
-    } catch (err: any) {
-      alert(err.response?.data?.message || "Không thể cập nhật trạng thái");
-    }
-  }
-
   async function handleReturnRespond(returnId: number, action: "ACCEPT" | "REJECT", response?: string) {
     if (action === "REJECT" && !response?.trim()) {
       alert("Vui lòng nhập lý do từ chối");
@@ -185,73 +168,36 @@ export default function SellerOrdersPage() {
               <div className="space-y-4">
                 {filteredOrders.map((order) => (
                   <div key={order.orderId} className="bg-white rounded-lg shadow p-5">
-                    <div className="flex items-center justify-between mb-3">
-                      <div className="flex items-center gap-3">
-                        <span className="font-bold text-gray-800">Đơn #{order.orderId}</span>
-                        <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_MAP[order.status]?.color || "bg-gray-100"}`}>
-                          {STATUS_MAP[order.status]?.label || order.status}
-                        </span>
-                      </div>
-                      <span className="text-sm text-gray-500">
-                        {new Date(order.createdAt).toLocaleDateString("vi-VN")}
-                      </span>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-4 mb-3 text-sm">
-                      <div>
-                        <span className="text-gray-500">Khách hàng:</span>{" "}
-                        <span className="font-medium">{order.buyerName}</span>
-                      </div>
-                      <div>
-                        <span className="text-gray-500">Địa chỉ:</span>{" "}
-                        <span>{order.address}</span>
-                      </div>
-                    </div>
-
-                    <div className="border-t pt-3 mb-3">
-                      {order.items.map((item, i) => (
-                        <div key={i} className="flex justify-between text-sm py-1">
-                          <span>{item.productName} × {item.quantity}</span>
-                          <span className="font-medium">{Number(item.price * item.quantity).toLocaleString("vi-VN")}₫</span>
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-3">
+                          <span className="font-bold text-gray-800">Đơn #{order.orderId}</span>
+                          <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_MAP[order.status]?.color || "bg-gray-100"}`}>
+                            {STATUS_MAP[order.status]?.label || order.status}
+                          </span>
                         </div>
-                      ))}
-                      <div className="flex justify-between font-bold text-base pt-2 border-t mt-2">
-                        <span>Tổng cộng</span>
-                        <span className="text-green-600">{Number(order.totalPrice).toLocaleString("vi-VN")}₫</span>
-                      </div>
-                    </div>
 
-                    {/* Action buttons */}
-                    <div className="flex gap-2 justify-end">
-                      {(order.status === "PLACED" || order.status === "PAID") && (
-                        <button
-                          onClick={() => handleUpdateStatus(order.orderId, "PREPARING")}
-                          className="px-3 py-1.5 bg-orange-600 text-white text-sm rounded-lg hover:bg-orange-700"
-                        >
-                          Xác nhận đơn
-                        </button>
-                      )}
-                      {order.status === "PREPARING" && (
-                        <button
-                          onClick={() => handleUpdateStatus(order.orderId, "SHIPPED")}
-                          className="px-3 py-1.5 bg-purple-600 text-white text-sm rounded-lg hover:bg-purple-700"
-                        >
-                          Giao hàng
-                        </button>
-                      )}
-                      {order.status === "SHIPPED" && (
-                        <span className="px-3 py-1.5 bg-purple-50 text-purple-700 text-sm rounded-lg">
-                          Chờ người mua xác nhận đã nhận hàng
+                        <div className="text-sm">
+                          <span className="text-gray-500">Khách hàng:</span>{" "}
+                          <span className="font-medium text-gray-800">{order.buyerName}</span>
+                        </div>
+
+                        <div className="text-sm">
+                          <span className="text-gray-500">Tổng giá trị:</span>{" "}
+                          <span className="font-bold text-green-600">{Number(order.totalPrice).toLocaleString("vi-VN")}₫</span>
+                        </div>
+                      </div>
+                      <div className="flex flex-col items-end gap-2">
+                        <span className="text-sm text-gray-500">
+                          {new Date(order.createdAt).toLocaleDateString("vi-VN")}
                         </span>
-                      )}
-                      {(order.status === "PLACED" || order.status === "PREPARING") && (
-                        <button
-                          onClick={() => handleUpdateStatus(order.orderId, "CANCELLED")}
-                          className="px-3 py-1.5 bg-red-100 text-red-600 text-sm rounded-lg hover:bg-red-200"
+                        <Link
+                          href={`/orders/${order.orderId}`}
+                          className="px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700"
                         >
-                          Hủy đơn
-                        </button>
-                      )}
+                          Xem chi tiết đơn
+                        </Link>
+                      </div>
                     </div>
                   </div>
                 ))}
