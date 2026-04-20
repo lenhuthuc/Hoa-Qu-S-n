@@ -414,6 +414,8 @@ export const invoiceApi = {
 export const paymentApi = {
   createVnPayUrl: (totalPrice: number, orderInfo: string, orderId: number) =>
     api.post(`/api/payments/createUrl?totalPrice=${totalPrice}&orderInfo=${encodeURIComponent(orderInfo)}&orderId=${orderId}`),
+  createMoMoUrl: (totalPrice: number, orderInfo: string, orderId: number) =>
+    api.post(`/api/payments/createMoMoUrl?totalPrice=${totalPrice}&orderInfo=${encodeURIComponent(orderInfo)}&orderId=${orderId}`),
   addMethod: (name: string) => api.post(`/api/payments/methods?name=${encodeURIComponent(name)}`),
 };
 

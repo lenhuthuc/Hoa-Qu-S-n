@@ -399,6 +399,18 @@ function CheckoutPageInner() {
         }
       }
 
+      if (paymentMethod === 3 && firstOrder?.id) {
+        const orderInfo = `Thanh toán đơn hàng #${firstOrder.id}`;
+        const urlRes = await paymentApi.createMoMoUrl(total, orderInfo, firstOrder.id);
+        const momoUrl = urlRes.data;
+        if (typeof momoUrl === "string" && momoUrl.startsWith("http")) {
+          window.location.href = momoUrl;
+          return;
+        }
+        toast.error("Không thể tạo liên kết thanh toán MoMo");
+        return;
+      }
+
       if (createdOrders.length === 1 && firstOrder?.id) {
         router.push(`/orders/${firstOrder.id}`);
       } else {
@@ -619,7 +631,7 @@ function CheckoutPageInner() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-3 gap-4">
                 <button
                   type="button"
                   onClick={() => setPaymentMethod(1)}
@@ -634,11 +646,19 @@ function CheckoutPageInner() {
                   className={`flex flex-col items-center justify-center p-6 rounded-xl border-2 transition ${paymentMethod === 2 ? "border-green-600 bg-green-50" : "border-gray-200 hover:border-gray-300 bg-white"}`}
                 >
                   <CreditCard className={`w-8 h-8 mb-2 ${paymentMethod === 2 ? "text-green-600" : "text-gray-400"}`} />
-                  <span className="text-sm font-bold text-center text-gray-900">Thanh toán online</span>
+                  <span className="text-sm font-bold text-center text-gray-900">VNPay</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPaymentMethod(3)}
+                  className={`flex flex-col items-center justify-center p-6 rounded-xl border-2 transition ${paymentMethod === 3 ? "border-green-600 bg-green-50" : "border-gray-200 hover:border-gray-300 bg-white"}`}
+                >
+                  <CreditCard className={`w-8 h-8 mb-2 ${paymentMethod === 3 ? "text-green-600" : "text-gray-400"}`} />
+                  <span className="text-sm font-bold text-center text-gray-900">MoMo</span>
                 </button>
               </div>
 
-              {paymentMethod === 2 && (
+              {(paymentMethod === 2 || paymentMethod === 3) && (
                 <div className="space-y-4 pt-6 mt-6 border-t border-gray-200">
                   <div className="flex items-center gap-2 mb-4">
                     <CreditCard className="w-5 h-5 text-gray-400" />
@@ -646,12 +666,11 @@ function CheckoutPageInner() {
                   </div>
                   <div className="flex flex-col gap-2">
                     <label className="text-xs font-bold uppercase tracking-wider text-gray-700">Phương thức thanh toán</label>
-                    <select className="bg-gray-100 border-none rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-green-600 focus:ring-offset-0 outline-none font-medium">
-                      <option>VNPay</option>
-                      <option>Ngân hàng điện tử</option>
+                    <select className="bg-gray-100 border-none rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-green-600 focus:ring-offset-0 outline-none font-medium" disabled>
+                      <option>{paymentMethod === 2 ? 'VNPay' : 'MoMo'}</option>
                     </select>
                   </div>
-                  <p className="text-xs text-gray-500 mt-3">Bạn sẽ được chuyển hướng đến ngân hàng để thanh toán an toàn</p>
+                  <p className="text-xs text-gray-500 mt-3">Bạn sẽ được chuyển hướng đến {paymentMethod === 2 ? 'VNPay' : 'MoMo'} để thanh toán an toàn</p>
                 </div>
               )}
             </section>
