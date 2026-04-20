@@ -44,7 +44,7 @@ export async function shareToFacebookDialog(options: ShareOptions): Promise<bool
     const shareParams: any = {
       method: 'share',
       href: shareUrl,
-      hashtag: 'Hãy đến với Hoa Quả Sơn và tìm mua những hoa quả chất lượng cao\n#hoaquason #nongsan #fresh #vietnam',
+      hashtag: '#hoaquason',
     };
 
     // Thêm picture nếu có (Facebook sẽ crawl OG tags từ URL, nhưng picture param là fallback)
