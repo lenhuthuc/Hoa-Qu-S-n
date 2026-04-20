@@ -21,7 +21,16 @@ public class SellerDashboardDTO {
     private Integer totalProducts;
     private BigDecimal cancelRate;
     private List<TopProductDTO> topProducts;
+    private List<RevenueHistoryDTO> revenueHistory;
     private TrustScoreDTO trustScore;
+
+    @Data
+    @AllArgsConstructor
+    @NoArgsConstructor
+    public static class RevenueHistoryDTO {
+        private String date;
+        private BigDecimal revenue;
+    }
 
     @Data
     @AllArgsConstructor

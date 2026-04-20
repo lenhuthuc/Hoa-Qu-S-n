@@ -21,6 +21,11 @@ import {
 } from "lucide-react";
 import { sellerApi, trustScoreApi, isLoggedIn, parseToken, hasRole, userApi } from "@/lib/api";
 
+interface RevenueHistoryPoint {
+  date: string;
+  revenue: number;
+}
+
 interface DashboardData {
   totalProducts: number;
   totalOrders: number;
@@ -31,6 +36,7 @@ interface DashboardData {
   cancelRate: number;
   totalRevenue: number;
   topProducts: { productId: number; productName: string; totalRevenue: number; totalSold: number }[];
+  revenueHistory: RevenueHistoryPoint[];
   trustScore: { score: number; badge: string; avgRating: number; totalReviews: number } | null;
 }
 
@@ -54,6 +60,7 @@ export default function SellerDashboard() {
   const router = useRouter();
   const [dashboard, setDashboard] = useState<DashboardData | null>(null);
   const [trustScore, setTrustScore] = useState<TrustScoreData | null>(null);
+  const [chartRange, setChartRange] = useState<"1m" | "6m" | "1y">("1m");
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -106,6 +113,40 @@ export default function SellerDashboard() {
 
   const fmt = (v: number) => new Intl.NumberFormat("vi-VN").format(v);
   const fmtCurrency = (v: number) => new Intl.NumberFormat("vi-VN", { style: "currency", currency: "VND" }).format(v);
+
+  const chartData = (() => {
+    const raw = dashboard?.revenueHistory || [];
+    if (chartRange === "1m") {
+      return raw.slice(Math.max(0, raw.length - 30)).map((point) => ({
+        label: new Intl.DateTimeFormat("vi-VN", { day: "2-digit", month: "2-digit" }).format(new Date(point.date)),
+        revenue: point.revenue,
+      }));
+    }
+
+    const monthMap = new Map<string, number>();
+    raw.forEach((point) => {
+      const d = new Date(point.date);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+      monthMap.set(key, (monthMap.get(key) || 0) + point.revenue);
+    });
+
+    const months = chartRange === "6m" ? 6 : 12;
+    const today = new Date();
+    const points: Array<{ label: string; revenue: number }> = [];
+
+    for (let i = months - 1; i >= 0; i -= 1) {
+      const dt = new Date(today.getFullYear(), today.getMonth() - i, 1);
+      const key = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}`;
+      points.push({
+        label: new Intl.DateTimeFormat("vi-VN", { month: "short", year: "2-digit" }).format(dt),
+        revenue: monthMap.get(key) || 0,
+      });
+    }
+
+    return points;
+  })();
+
+  const chartMax = Math.max(...chartData.map((point) => point.revenue), 1);
 
   if (loading) {
     return (
@@ -205,7 +246,45 @@ export default function SellerDashboard() {
         </div>
       </div>
 
+<<<<<<< HEAD
       <Saleschart />
+=======
+      {/* Revenue Chart */}
+      <div className="bg-white rounded-xl border p-6 mb-8">
+        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between mb-4">
+          <div>
+            <p className="text-sm text-gray-500">Doanh thu theo thời gian</p>
+            <h2 className="text-xl font-semibold text-gray-800">{chartRange === "1m" ? "30 ngày gần nhất" : chartRange === "6m" ? "6 tháng" : "12 tháng"}</h2>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {(["1m", "6m", "1y"] as const).map((option) => (
+              <button
+                key={option}
+                type="button"
+                onClick={() => setChartRange(option)}
+                className={`px-4 py-2 rounded-full text-sm font-medium transition ${chartRange === option ? "bg-green-600 text-white" : "bg-gray-100 text-gray-700 hover:bg-gray-200"}`}
+              >
+                {option === "1m" ? "1 tháng" : option === "6m" ? "6 tháng" : "1 năm"}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="overflow-x-auto">
+          <div className="min-w-[320px] h-[240px] flex items-end gap-2 pb-4">
+            {chartData.map((point, index) => {
+              const height = Math.max(6, Math.round((point.revenue / chartMax) * 100));
+              return (
+                <div key={`${point.label}-${index}`} className="flex-1 min-w-[24px] flex flex-col justify-end items-center gap-2">
+                  <div className="w-full rounded-t-xl bg-emerald-500" style={{ height: `${height}%` }} />
+                  <p className="text-[10px] text-gray-500 text-center leading-tight">{point.label}</p>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+>>>>>>> c7dc673bec50adec27314e8a8d1b2559074a7e8a
 
       {/* Quick Actions - Product Creation Options */}
       <h2 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
