@@ -15,8 +15,9 @@ import {
   Leaf,
   X,
   BadgeCheck,
+  Undo2,
 } from "lucide-react";
-import { adminApi, productApi, categoryApi, isLoggedIn, hasRole } from "@/lib/api";
+import { adminApi, productApi, categoryApi, isLoggedIn, hasRole, adminAnalyticsApi, getReturnEvidenceMediaSrc, isVideoEvidenceUrl, parseEvidenceUrls } from "@/lib/api";
 import toast from "react-hot-toast";
 
 interface UserItem {
@@ -66,7 +67,21 @@ interface SellerApplication {
 
 type DocumentType = "front" | "back" | "license" | "food-safety";
 
-type Tab = "users" | "products" | "seller-applications";
+type Tab = "users" | "products" | "seller-applications" | "return-disputes";
+
+interface EscalatedReturnItem {
+  id: number;
+  orderId: number;
+  buyerName?: string;
+  sellerName?: string;
+  reasonCode?: string;
+  description?: string;
+  evidenceUrls?: string | null;
+  refundAmount?: number;
+  status?: string;
+  createdAt?: string;
+  sellerResponse?: string;
+}
 
 export default function AdminPage() {
   const router = useRouter();
@@ -74,6 +89,7 @@ export default function AdminPage() {
   const [users, setUsers] = useState<UserItem[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [sellerApplications, setSellerApplications] = useState<SellerApplication[]>([]);
+  const [escalatedReturns, setEscalatedReturns] = useState<EscalatedReturnItem[]>([]);
   const [reviewingId, setReviewingId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [showCreateProduct, setShowCreateProduct] = useState(false);
@@ -82,6 +98,9 @@ export default function AdminPage() {
   const [creating, setCreating] = useState(false);
   const [categories, setCategories] = useState<{id: number; name: string}[]>([]);
   const [selectedSellerApplication, setSelectedSellerApplication] = useState<SellerApplication | null>(null);
+  const [selectedEscalatedReturn, setSelectedEscalatedReturn] = useState<EscalatedReturnItem | null>(null);
+  const [returnResolutionNote, setReturnResolutionNote] = useState("");
+  const [resolvingReturn, setResolvingReturn] = useState(false);
   const [documentPreviewUrls, setDocumentPreviewUrls] = useState<Record<DocumentType, string>>({
     front: "",
     back: "",
@@ -113,6 +132,10 @@ export default function AdminPage() {
         const res = await adminApi.getUsers();
         const data = res.data?.data || res.data || [];
         setUsers(Array.isArray(data) ? data : []);
+      } else if (tab === "return-disputes") {
+        const res = await adminAnalyticsApi.getEscalatedReturns();
+        const data = res.data?.data || res.data || [];
+        setEscalatedReturns(Array.isArray(data) ? data : []);
       } else if (tab === "seller-applications") {
         const res = await adminApi.getSellerApplications();
         const data = res.data?.data || res.data || [];
@@ -337,12 +360,35 @@ export default function AdminPage() {
     </div>
   );
 
+  const handleResolveEscalatedReturn = async (action: "REFUND" | "KEEP_REJECT") => {
+    if (!selectedEscalatedReturn) return;
+    if (!returnResolutionNote.trim()) {
+      toast.error("Vui lòng nhập ghi chú xử lý");
+      return;
+    }
+
+    setResolvingReturn(true);
+    try {
+      await adminAnalyticsApi.resolveEscalatedReturn(selectedEscalatedReturn.id, action, returnResolutionNote.trim());
+      toast.success("Đã xử lý khiếu nại hoàn trả");
+      setSelectedEscalatedReturn(null);
+      setReturnResolutionNote("");
+      if (tab === "return-disputes") {
+        await loadData();
+      }
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || "Không thể xử lý khiếu nại");
+    } finally {
+      setResolvingReturn(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-white px-4 py-8">
       <div className="max-w-5xl xl:max-w-7xl mx-auto">
         <Shield className="w-7 h-7 text-primary-600" />
         <h1 className="text-2xl font-bold text-gray-800">Quản trị hệ thống</h1>
-        <Link href="/admin/analytics" className="ml-auto flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700">
+        <Link href="/admin/analytics" className="mt-2 inline-flex w-fit items-center gap-2 px-3 py-1.5 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700">
           📊 Thống kê & Phân tích
         </Link>
 
@@ -371,6 +417,14 @@ export default function AdminPage() {
           }`}
         >
           <BadgeCheck className="w-4 h-4" /> Duyệt người bán
+        </button>
+        <button
+          onClick={() => setTab("return-disputes")}
+          className={`px-4 py-2 rounded-lg text-sm font-medium transition flex items-center gap-2 ${
+            tab === "return-disputes" ? "bg-white text-primary-600 shadow-sm" : "text-gray-500 hover:text-gray-700"
+          }`}
+        >
+          <Undo2 className="w-4 h-4" /> Trả hàng khiếu nại
         </button>
       </div>
 
@@ -575,7 +629,7 @@ export default function AdminPage() {
             </div>
           </div>
         </div>
-      ) : (
+      ) : tab === "seller-applications" ? (
         <div className="bg-white rounded-2xl border overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -637,8 +691,146 @@ export default function AdminPage() {
             </table>
           </div>
         </div>
+      ) : (
+        <div className="bg-white rounded-2xl border overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-gray-50 text-gray-600">
+                  <th className="text-left py-3 px-4 font-semibold">Mã khiếu nại</th>
+                  <th className="text-left py-3 px-4 font-semibold">Đơn hàng</th>
+                  <th className="text-left py-3 px-4 font-semibold">Người mua / Người bán</th>
+                  <th className="text-left py-3 px-4 font-semibold">Số tiền</th>
+                  <th className="text-left py-3 px-4 font-semibold">Ngày tạo</th>
+                  <th className="text-center py-3 px-4 font-semibold">Hành động</th>
+                </tr>
+              </thead>
+              <tbody>
+                {escalatedReturns.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="text-center py-10 text-gray-400">Không có khiếu nại hoàn trả đang chờ xử lý</td>
+                  </tr>
+                ) : (
+                  escalatedReturns.map((item) => (
+                    <tr key={item.id} className="border-t hover:bg-gray-50">
+                      <td className="py-3 px-4 font-medium text-gray-700">#{item.id}</td>
+                      <td className="py-3 px-4 text-gray-700">#{item.orderId}</td>
+                      <td className="py-3 px-4 text-gray-600">
+                        <div className="font-medium text-gray-800">{item.buyerName || "-"}</div>
+                        <div className="text-xs text-gray-500">Shop: {item.sellerName || "-"}</div>
+                      </td>
+                      <td className="py-3 px-4 text-gray-700 font-semibold">{Number(item.refundAmount || 0).toLocaleString("vi-VN")}₫</td>
+                      <td className="py-3 px-4 text-gray-500">{item.createdAt ? new Date(item.createdAt).toLocaleDateString("vi-VN") : "-"}</td>
+                      <td className="py-3 px-4 text-center">
+                        <button
+                          onClick={() => {
+                            setSelectedEscalatedReturn(item);
+                            setReturnResolutionNote("");
+                          }}
+                          className="px-3 py-1 text-xs rounded bg-slate-600 text-white hover:bg-slate-700"
+                        >
+                          Xử lý
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
       )}
       </div>
+
+      {selectedEscalatedReturn && (
+        <div
+          className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4"
+          onClick={() => {
+            if (resolvingReturn) return;
+            setSelectedEscalatedReturn(null);
+            setReturnResolutionNote("");
+          }}
+        >
+          <div className="bg-white rounded-2xl w-full max-w-2xl p-6" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-bold text-gray-800">Xử lý khiếu nại trả hàng #{selectedEscalatedReturn.id}</h3>
+              <button
+                onClick={() => {
+                  if (resolvingReturn) return;
+                  setSelectedEscalatedReturn(null);
+                  setReturnResolutionNote("");
+                }}
+                className="p-1 text-gray-400 hover:text-gray-600"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-2 mb-4 text-sm text-gray-700">
+              <p><span className="font-semibold">Đơn hàng:</span> #{selectedEscalatedReturn.orderId}</p>
+              <p><span className="font-semibold">Người mua:</span> {selectedEscalatedReturn.buyerName || "-"}</p>
+              <p><span className="font-semibold">Shop:</span> {selectedEscalatedReturn.sellerName || "-"}</p>
+              <p><span className="font-semibold">Lý do:</span> {selectedEscalatedReturn.reasonCode || "-"}</p>
+              <p><span className="font-semibold">Mô tả:</span> {selectedEscalatedReturn.description || "-"}</p>
+              <p><span className="font-semibold">Số tiền hoàn:</span> {Number(selectedEscalatedReturn.refundAmount || 0).toLocaleString("vi-VN")}₫</p>
+              {selectedEscalatedReturn.sellerResponse && (
+                <p><span className="font-semibold">Phản hồi seller:</span> {selectedEscalatedReturn.sellerResponse}</p>
+              )}
+            </div>
+
+            {selectedEscalatedReturn.evidenceUrls && (
+              <div className="mb-4 rounded-2xl border border-gray-200 bg-gray-50 p-4">
+                <p className="mb-3 text-sm font-semibold text-gray-700">Bằng chứng</p>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {parseEvidenceUrls(selectedEscalatedReturn.evidenceUrls).map((url) => {
+                    const mediaSrc = getReturnEvidenceMediaSrc(url);
+                    const fileName = url.split("/").pop() || url;
+
+                    return (
+                      <div key={url} className="overflow-hidden rounded-xl border border-gray-200 bg-white">
+                        <div className="h-40 bg-gray-100">
+                          {isVideoEvidenceUrl(url) ? (
+                            <video src={mediaSrc} controls className="h-full w-full object-cover" />
+                          ) : (
+                            <img src={mediaSrc} alt={fileName} className="h-full w-full object-cover" />
+                          )}
+                        </div>
+                        <div className="px-3 py-2 text-xs text-gray-600">
+                          <p className="truncate font-medium text-gray-700">{fileName}</p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            <textarea
+              value={returnResolutionNote}
+              onChange={(e) => setReturnResolutionNote(e.target.value)}
+              placeholder="Nhập ghi chú xử lý (bắt buộc)"
+              className="w-full border rounded-xl p-3 text-sm h-24 resize-none"
+            />
+
+            <div className="mt-4 flex items-center justify-end gap-3">
+              <button
+                onClick={() => handleResolveEscalatedReturn("KEEP_REJECT")}
+                disabled={resolvingReturn}
+                className="px-4 py-2 rounded-lg border border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 disabled:opacity-50"
+              >
+                Giữ từ chối
+              </button>
+              <button
+                onClick={() => handleResolveEscalatedReturn("REFUND")}
+                disabled={resolvingReturn}
+                className="px-4 py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50"
+              >
+                {resolvingReturn ? "Đang xử lý..." : "Duyệt hoàn tiền"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {selectedSellerApplication && (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => {

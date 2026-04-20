@@ -12,6 +12,38 @@ const api = axios.create({
   headers: { "Content-Type": "application/json" },
 });
 
+const RETURN_WINDOW_HOURS = 24;
+const EVIDENCE_VIDEO_EXTENSIONS = ["mp4", "webm", "ogg", "mov", "m4v"];
+
+export function isWithinReturnWindowFromConfirmation(buyerConfirmedAt?: string): boolean {
+  if (!buyerConfirmedAt) return false;
+  const confirmedTime = new Date(buyerConfirmedAt).getTime();
+  if (Number.isNaN(confirmedTime)) return false;
+  return Date.now() - confirmedTime <= RETURN_WINDOW_HOURS * 60 * 60 * 1000;
+}
+
+export function getFileExtension(url: string): string {
+  const cleanUrl = url.split("?")[0].split("#")[0];
+  const match = cleanUrl.match(/\.([a-z0-9]+)$/i);
+  return match ? match[1].toLowerCase() : "";
+}
+
+export function isVideoEvidenceUrl(url: string): boolean {
+  return EVIDENCE_VIDEO_EXTENSIONS.includes(getFileExtension(url));
+}
+
+export function getReturnEvidenceMediaSrc(mediaUrl: string): string {
+  return `${API_URL}/api/returns/evidence/media?url=${encodeURIComponent(mediaUrl)}`;
+}
+
+export function parseEvidenceUrls(rawUrls?: string | null): string[] {
+  if (!rawUrls) return [];
+  return rawUrls
+    .split(/\n|,/)
+    .map((url) => url.trim())
+    .filter(Boolean);
+}
+
 // Attach JWT token to requests
 api.interceptors.request.use((config) => {
   if (typeof window !== "undefined") {
@@ -83,12 +115,15 @@ export const productApi = {
 
 // ─── AI Post ───
 export const aiApi = {
-  generatePost: (image: File) => {
+  generatePost: (images: File | File[]) => {
     const form = new FormData();
     form.append("image", image);
     return api.post("/ai/generate-post", form, {
+    const files = Array.isArray(images) ? images : [images];
+    files.forEach((f) => form.append("images", f));
+    return api.post("/api/ai/generate-post", form, {
       headers: { "Content-Type": "multipart/form-data" },
-      timeout: 60000,
+      timeout: 90000,
     });
   },
   createProduct: (
@@ -198,6 +233,16 @@ export const traceApi = {
   getQrCode: (batchId: string) => api.get(`/traceability/${batchId}/qr-base64`),
 };
 
+// ─── Seller Batches ───
+export const batchApi = {
+  getMyBatches: () => api.get("/api/seller/batches"),
+  create: (payload: {
+    batchName: string;
+    cropType?: string;
+    startDate?: string;
+  }) => api.post("/api/seller/batches", payload),
+};
+
 // ─── Shipping ───
 export const shippingApi = {
   provinces: () => api.get("/shipping/provinces"),
@@ -244,7 +289,16 @@ export const orderApi = {
     toDistrictId?: string;
     toWardCode?: string;
   }) =>
-    api.get("/orders/preview", { params }),
+    api.get("/api/orders/preview", { params }),
+  previewBuyNow: (params: {
+    productId: number;
+    quantity: number;
+    discountVoucherCode?: string;
+    shippingVoucherCode?: string;
+    deliveryType?: "STANDARD" | "EXPRESS";
+    toDistrictId?: string;
+    toWardCode?: string;
+  }) => api.get("/api/orders/buy-now/preview", { params }),
   create: (
     paymentMethod: number,
     voucherCode?: string,
@@ -263,8 +317,21 @@ export const orderApi = {
       `${toDistrictId ? `&toDistrictId=${encodeURIComponent(toDistrictId)}` : ""}` +
       `${toWardCode ? `&toWardCode=${encodeURIComponent(toWardCode)}` : ""}`
     ),
-  retryPayment: (id: number) => api.post(`/orders/${id}/retry-payment`),
-  delete: (id: number) => api.delete(`/orders/${id}`),
+createBuyNow: (params: {
+    productId: number;
+    quantity: number;
+    paymentMethod: number;
+    voucherCode?: string;
+    discountVoucherCode?: string;
+    shippingVoucherCode?: string;
+    deliveryType?: "STANDARD" | "EXPRESS";
+    toDistrictId?: string;
+    toWardCode?: string;
+  }) => api.post("/api/orders/buy-now/create", null, { params }),
+
+  retryPayment: (id: number) => api.post(`/api/orders/${id}/retry-payment`),
+  
+  delete: (id: number) => api.delete(`/api/orders/${id}`),
   updateStatus: (id: number, status: string) =>
     api.put(`/orders/${id}/status?status=${status}`),
 };
@@ -278,7 +345,15 @@ export const categoryApi = {
 
 // ─── User Profile ───
 export const userApi = {
-  getProfile: () => api.get("/user/profile"),
+getProfile: () => api.get("/api/user/profile"),
+  
+  uploadAvatar: (file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return api.post("/api/user/profile/avatar", form, {
+      headers: { "Content-Type": "multipart/form-data" },
+    });
+  },
   update: (id: number, data: {
     fullName?: string;
     phone?: string;
@@ -343,8 +418,19 @@ export const invoiceApi = {
 // ─── Payments ───
 export const paymentApi = {
   createVnPayUrl: (totalPrice: number, orderInfo: string, orderId: number) =>
-    api.post(`/payments/createUrl?totalPrice=${totalPrice}&orderInfo=${encodeURIComponent(orderInfo)}&orderId=${orderId}`),
-  addMethod: (name: string) => api.post(`/payments/methods?name=${encodeURIComponent(name)}`),
+    api.post("/api/payments/createUrl", null, {
+      params: { totalPrice, orderInfo, orderId },
+    }),
+
+  createMoMoUrl: (totalPrice: number, orderInfo: string, orderId: number) =>
+    api.post("/api/payments/createMoMoUrl", null, {
+      params: { totalPrice, orderInfo, orderId },
+    }),
+
+  addMethod: (name: string) =>
+    api.post("/api/payments/methods", null, {
+      params: { name },
+    }),
 };
 
 // ─── Admin ───
@@ -390,19 +476,57 @@ export const trustScoreApi = {
 // ─── Returns / Refunds ───
 export const returnApi = {
   create: (data: { orderId: number; reasonCode: string; description: string; evidenceUrls?: string; refundAmount?: number }) =>
-    api.post("/returns", data),
-  getMyRequests: () => api.get("/returns/my-requests"),
-  getSellerRequests: () => api.get("/returns/seller-requests"),
-  getById: (id: number) => api.get(`/returns/${id}`),
+    api.post("/api/returns", data),
+
+  uploadEvidence: (files: File[]) => {
+    const form = new FormData();
+    files.forEach((file) => form.append("files", file));
+    return api.post("/api/returns/evidence", form, {
+      headers: { "Content-Type": "multipart/form-data" },
+    });
+  },
+
+  getMyRequests: () => api.get("/api/returns/my-requests"),
+
+  getSellerRequests: () => api.get("/api/returns/seller-requests"),
+
+  getById: (id: number) => api.get(`/api/returns/${id}`),
+
   respond: (returnId: number, action: string, response?: string) =>
-    api.post(`/returns/${returnId}/respond?action=${action}`, { response }),
+    api.post(`/api/returns/${returnId}/respond`, { response }, {
+      params: { action }
+    }),
+
+  buyerDecision: (returnId: number, action: "ACCEPT_REJECTION" | "ESCALATE") =>
+    api.post(`/api/returns/${returnId}/buyer-decision`, null, {
+      params: { action }
+    }),
 };
 
 // ─── Seller ───
 export const sellerApi = {
-  getDashboard: () => api.get("/seller/dashboard"),
-  getProducts: () => api.get("/seller/products"),
-  deleteProduct: (id: number) => api.delete(`/seller/products/${id}`),
+  getDashboard: () => api.get("/api/seller/dashboard"),
+  getShopSettings: () => api.get("/api/seller/shop-settings"),
+  uploadShopAvatar: (file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return api.post("/api/seller/shop-settings/avatar", form, {
+      headers: { "Content-Type": "multipart/form-data" },
+    });
+  },
+  updateShopSettings: (data: {
+    shopName: string;
+    avatar?: string;
+    province?: string;
+    district?: string;
+    ward?: string;
+    streetDetail?: string;
+    ghnProvinceId?: number | null;
+    ghnDistrictId?: number | null;
+    ghnWardCode?: string | null;
+  }) => api.put("/api/seller/shop-settings", data),
+  getProducts: () => api.get("/api/seller/products"),
+  deleteProduct: (id: number) => api.delete(`/api/seller/products/${id}`),
   updateStock: (id: number, quantity: number) =>
     api.put(`/seller/products/${id}/stock?quantity=${quantity}`),
   toggleVisibility: (id: number) =>
@@ -489,19 +613,24 @@ export const coinApi = {
 
 // ─── Stories ───
 export const storyApi = {
-  getAll: (page = 0, size = 20) => api.get(`/stories?page=${page}&size=${size}`),
-  getBySeller: (sellerId: number) => api.get(`/stories/seller/${sellerId}`),
-  getMyStories: () => api.get("/stories/my-stories"),
-  create: (data: { title: string; content: string; imageUrl?: string; videoUrl?: string; batchId?: string; farmingLogId?: string; activityType?: string }) =>
-    api.post("/stories", data),
-  delete: (id: number) => api.delete(`/stories/${id}`),
+  getAll: (page = 0, size = 20) => api.get(`/api/stories?page=${page}&size=${size}`),
+  getBySeller: (sellerId: number) => api.get(`/api/stories/seller/${sellerId}`),
+  getMyStories: () => api.get("/api/seller/stories/my"),
+  create: (data: FormData) =>
+    api.post("/api/seller/stories", data, {
+      headers: { "Content-Type": "multipart/form-data" },
+    }),
+  delete: (id: number) => api.delete(`/api/seller/stories/${id}`),
 };
 
 // ─── Admin Analytics ───
 export const adminAnalyticsApi = {
-  getOverview: () => api.get("/admin/analytics/overview"),
-  getTopProducts: () => api.get("/admin/analytics/top-products"),
-  getTopSellers: () => api.get("/admin/analytics/top-sellers"),
+  getOverview: () => api.get("/api/admin/analytics/overview"),
+  getTopProducts: () => api.get("/api/admin/analytics/top-products"),
+  getTopSellers: () => api.get("/api/admin/analytics/top-sellers"),
+  getEscalatedReturns: () => api.get("/api/admin/analytics/escalated-returns"),
+  resolveEscalatedReturn: (returnId: number, action: "REFUND" | "KEEP_REJECT", note: string) =>
+    api.post(`/api/admin/analytics/returns/${returnId}/resolve?action=${action}`, { note }),
 };
 
 export default api;

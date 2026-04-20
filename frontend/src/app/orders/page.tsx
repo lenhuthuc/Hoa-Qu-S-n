@@ -37,6 +37,7 @@ interface Order {
     quantity: number;
     price: number;
     imageUrl?: string;
+    sellerId?: number;
     sellerName?: string;
   }>;
 }
@@ -47,6 +48,7 @@ interface OrderDetailItem {
   quantity: number;
   price: number;
   imageUrl?: string;
+  sellerId?: number;
   sellerName?: string;
 }
 
@@ -58,6 +60,7 @@ interface OrderDetail {
   paymentMethod?: string;
   paymentUrl?: string;
   createdAt: string;
+  buyerConfirmedAt?: string;
   items?: OrderDetailItem[];
 }
 
@@ -85,6 +88,16 @@ const STATUS_META: Record<string, { label: string; className: string; icon: Reac
   FINISHED: { label: "Hoàn thành", className: "bg-emerald-100 text-emerald-700", icon: <BadgeCheck className="w-4 h-4" /> },
   CANCELLED: { label: "Đã hủy", className: "bg-rose-100 text-rose-700", icon: <XCircle className="w-4 h-4" /> },
 };
+
+function isVnPayMethod(method?: string): boolean {
+  if (!method) return false;
+  const normalized = method.trim().toUpperCase();
+  return normalized === "2" || normalized.includes("VNPAY");
+}
+
+function getPaymentMethodLabel(method?: string): string {
+  return isVnPayMethod(method) ? "Thanh toán bằng VNPay" : "Tiền mặt khi nhận hàng (COD)";
+}
 
 export default function OrdersPage() {
   const router = useRouter();
@@ -316,6 +329,8 @@ export default function OrdersPage() {
               const statusMeta = getStatusMeta(order.status);
               const sellerNames = Array.from(new Set(items.map((item) => item.sellerName).filter(Boolean) as string[]));
               const shopLabel = sellerNames.length === 1 ? sellerNames[0] : sellerNames.length > 1 ? "Nhiều shop" : "Shop nông sản";
+              const sellerIds = Array.from(new Set(items.map((item) => item.sellerId).filter((value): value is number => typeof value === "number")));
+              const contactSellerHref = sellerIds.length === 1 ? `/messages?sellerId=${sellerIds[0]}` : "/messages";
               const canCancel = ["PENDING", "PENDING_PAYMENT", "PLACED", "PREPARING"].includes(order.status);
               const canConfirm = order.status === "SHIPPED";
               const canRebuy = ["FINISHED", "CANCELLED"].includes(order.status);
@@ -419,7 +434,7 @@ export default function OrdersPage() {
                       <div className="space-y-3 text-sm text-gray-600">
                         <div className="flex items-center justify-between gap-3">
                           <span>Phương thức</span>
-                          <span className="font-semibold text-gray-900">{order.paymentMethod || detail?.paymentMethod || "COD"}</span>
+                          <span className="font-semibold text-gray-900">{getPaymentMethodLabel(order.paymentMethod || detail?.paymentMethod)}</span>
                         </div>
                         <div className="flex items-center justify-between gap-3">
                           <span>Trạng thái</span>
@@ -433,7 +448,7 @@ export default function OrdersPage() {
 
                       <div className="mt-5 space-y-2">
                         <Link
-                          href="/messages"
+                          href={contactSellerHref}
                           className="inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-100"
                         >
                           <MessageCircle className="w-4 h-4" />

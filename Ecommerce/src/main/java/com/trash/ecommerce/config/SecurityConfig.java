@@ -35,6 +35,7 @@ public class SecurityConfig {
                 .cors(cors -> cors.configurationSource(configurationSource()))
                 .csrf(customize -> customize.disable())
                 .authorizeHttpRequests(auth -> auth
+                    .requestMatchers("/health").permitAll()
                         .requestMatchers("/error").permitAll()
                         .requestMatchers("/api/user/auth/login", "/api/user/auth/register", "/api/user/auth/logout").permitAll()
                         .requestMatchers("/api/user/auth/reset-password", "/api/user/auth/verify-otp", "/api/user/auth/change-password").permitAll()
@@ -53,6 +54,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/shipping/**").permitAll()
                         .requestMatchers("GET", "/api/trust-score/**").permitAll()
                         .requestMatchers("/api/trust-score/**").authenticated()
+                        .requestMatchers("GET", "/api/returns/evidence/media", "/api/returns/evidence/media/**").permitAll()
                         .requestMatchers("/api/returns/**").authenticated()
                         .requestMatchers("/api/seller/**").hasAnyAuthority("SELLER", "ADMIN")
                         .requestMatchers("/api/notifications/**").authenticated()
@@ -108,7 +110,10 @@ public class SecurityConfig {
             "http://localhost:3001",
             "http://127.0.0.1:3000",
             "http://127.0.0.1:3001",
-            "https://refertilizable-margareta-heliacally.ngrok-free.dev"
+            "https://refertilizable-margareta-heliacally.ngrok-free.dev",
+            "https://haquason.uk",
+            "https://www.haquason.uk",
+            "https://api.haquason.uk"
         ));
         config.setAllowedMethods(List.of("*"));
         config.setAllowedHeaders(List.of("*"));

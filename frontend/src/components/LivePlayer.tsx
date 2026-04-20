@@ -76,11 +76,6 @@ export default function LivePlayer({ whepUrl, hlsUrl, streamKey, streamStatus }:
       const pc = new RTCPeerConnection({
         iceServers: [
           { urls: "stun:stun.l.google.com:19302" },
-          {
-            urls: "turn:your-turn-server.com:3478",   // ← thêm TURN
-            username: "user",
-            credential: "pass"
-          }
         ],
       });
 
@@ -138,7 +133,7 @@ export default function LivePlayer({ whepUrl, hlsUrl, streamKey, streamStatus }:
       // jitterBufferTarget — Chrome only, graceful fallback cho browser khác
       pc.getReceivers().forEach((receiver) => {
         if (receiver.track.kind === "audio" && "jitterBufferTarget" in receiver) {
-          (receiver as RTCRtpReceiver & { jitterBufferTarget: number }).jitterBufferTarget = 100;
+          (receiver as RTCRtpReceiver & { jitterBufferTarget: number }).jitterBufferTarget = 300;
         }
       });
 
@@ -308,18 +303,25 @@ export default function LivePlayer({ whepUrl, hlsUrl, streamKey, streamStatus }:
     };
   }, [connectWebRTC, connectHLS, retryCount]);
 
+  // ── Track previous status để chỉ retry khi có thay đổi thực sự ──
+  const prevStatusRef = useRef<string>("");
+
   // ══════════════════════════════════════════════════════════════
   // XỬ LÝ STREAM STATUS — Offline/Ended từ server
   // ══════════════════════════════════════════════════════════════
   useEffect(() => {
+    const prev = prevStatusRef.current;
+    prevStatusRef.current = streamStatus ?? "";
+
     if (streamStatus === "OFFLINE") {
       setError("Stream đang gián đoạn — Farmer mất kết nối");
       setIsPlaying(false);
     } else if (streamStatus === "ENDED") {
       setError("Phiên live đã kết thúc");
       setIsPlaying(false);
-    } else if (streamStatus === "LIVE" && error?.includes("gián đoạn")) {
-      // Stream trở lại online → retry
+    } else if (streamStatus === "LIVE" && prev !== "" && prev !== "LIVE") {
+      // Chỉ retry khi status CHUYỂN sang LIVE (từ OFFLINE/PENDING), không retry lúc mount
+      setError(null);
       setRetryCount((prev) => prev + 1);
     }
   }, [streamStatus]);

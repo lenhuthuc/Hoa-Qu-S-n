@@ -5,9 +5,12 @@ import com.trash.ecommerce.dto.TrustScoreDTO;
 import com.trash.ecommerce.entity.Order;
 import com.trash.ecommerce.entity.OrderItem;
 import com.trash.ecommerce.entity.OrderStatus;
+import com.trash.ecommerce.entity.ReturnRequest;
+import com.trash.ecommerce.entity.ReturnStatus;
 import com.trash.ecommerce.entity.Product;
 import com.trash.ecommerce.repository.OrderRepository;
 import com.trash.ecommerce.repository.ProductRepository;
+import com.trash.ecommerce.repository.ReturnRequestRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -24,12 +27,15 @@ public class SellerDashboardServiceImpl implements SellerDashboardService {
     @Autowired
     private OrderRepository orderRepository;
     @Autowired
+    private ReturnRequestRepository returnRequestRepository;
+    @Autowired
     private TrustScoreService trustScoreService;
 
     @Override
     public SellerDashboardDTO getDashboard(Long sellerId) {
         List<Product> products = productRepository.findBySellerId(sellerId);
         Set<Long> productIds = products.stream().map(Product::getId).collect(Collectors.toSet());
+        List<ReturnRequest> sellerReturns = returnRequestRepository.findBySellerIdOrderByCreatedAtDesc(sellerId);
 
         // Get all orders containing seller's products
         List<Order> allOrders = orderRepository.findAll();
@@ -39,7 +45,9 @@ public class SellerDashboardServiceImpl implements SellerDashboardService {
                 .collect(Collectors.toList());
 
         BigDecimal totalRevenue = BigDecimal.ZERO;
+    BigDecimal refundedRevenue = BigDecimal.ZERO;
         int pendingOrders = 0, shippedOrders = 0, completedOrders = 0, cancelledOrders = 0;
+    int refundedOrders = 0;
 
         // Top products tracking
         Map<Long, SellerDashboardDTO.TopProductDTO> topMap = new HashMap<>();
@@ -53,7 +61,7 @@ public class SellerDashboardServiceImpl implements SellerDashboardService {
                 default: break;
             }
 
-            if (order.getStatus() == OrderStatus.FINISHED || order.getStatus() == OrderStatus.PAID || order.getStatus() == OrderStatus.SHIPPED) {
+            if (order.getStatus() == OrderStatus.FINISHED) {
                 for (OrderItem oi : order.getOrderItems()) {
                     if (productIds.contains(oi.getProduct().getId())) {
                         BigDecimal lineTotal = oi.getPrice().multiply(BigDecimal.valueOf(oi.getQuantity()));
@@ -79,6 +87,20 @@ public class SellerDashboardServiceImpl implements SellerDashboardService {
             }
         }
 
+        for (ReturnRequest returnRequest : sellerReturns) {
+            if (returnRequest.getStatus() == ReturnStatus.REFUNDED) {
+                refundedOrders++;
+                if (returnRequest.getRefundAmount() != null) {
+                    refundedRevenue = refundedRevenue.add(returnRequest.getRefundAmount());
+                }
+            }
+        }
+
+        BigDecimal netRevenue = totalRevenue.subtract(refundedRevenue);
+        if (netRevenue.compareTo(BigDecimal.ZERO) < 0) {
+            netRevenue = BigDecimal.ZERO;
+        }
+
         List<SellerDashboardDTO.TopProductDTO> topProducts = topMap.values().stream()
                 .sorted((a, b) -> b.getTotalRevenue().compareTo(a.getTotalRevenue()))
                 .limit(5)
@@ -93,11 +115,13 @@ public class SellerDashboardServiceImpl implements SellerDashboardService {
 
         SellerDashboardDTO dto = new SellerDashboardDTO();
         dto.setTotalRevenue(totalRevenue);
-        dto.setNetRevenue(totalRevenue); // No platform fee calculation yet
+        dto.setNetRevenue(netRevenue);
+        dto.setRefundedRevenue(refundedRevenue);
         dto.setTotalOrders(totalOrders);
         dto.setPendingOrders(pendingOrders);
         dto.setShippedOrders(shippedOrders);
         dto.setCompletedOrders(completedOrders);
+        dto.setRefundedOrders(refundedOrders);
         dto.setCancelledOrders(cancelledOrders);
         dto.setTotalProducts(products.size());
         dto.setCancelRate(cancelRate);

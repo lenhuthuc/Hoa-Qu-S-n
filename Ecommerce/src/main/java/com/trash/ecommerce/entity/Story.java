@@ -38,6 +38,12 @@ public class Story {
     @Column(name = "video_url", length = 1000)
     private String videoUrl;
 
+    @Column(name = "media_url", length = 1000)
+    private String mediaUrl;
+
+    @Column(name = "media_type", length = 16)
+    private String mediaType;
+
     @Column(name = "activity_type", length = 50)
     private String activityType;
 
@@ -47,11 +53,32 @@ public class Story {
     @Column(name = "is_published", nullable = false)
     private Boolean isPublished = true;
 
+    @Column(name = "latitude")
+    private Double latitude;
+
+    @Column(name = "longitude")
+    private Double longitude;
+
+    @Column(name = "captured_at")
+    private LocalDateTime capturedAt;
+
+    @Column(name = "expires_at")
+    private LocalDateTime expiresAt;
+
+    @Column(name = "has_audio")
+    private Boolean hasAudio;
+
+    @Column(name = "metadata_missing", nullable = false)
+    private Boolean metadataMissing = false;
+
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;
 
     @PrePersist
     protected void onCreate() {
         this.createdAt = LocalDateTime.now();
+        if (this.expiresAt == null) {
+            this.expiresAt = this.createdAt.plusHours(24);
+        }
     }
 }

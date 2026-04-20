@@ -41,10 +41,21 @@ router.get("/", (req, res) => {
     return res.status(401).end();
   }
 
+  const origin = req.headers.origin;
+  const allowed = (process.env.CORS_ORIGINS || "")
+    .split(",").map(s => s.trim()).filter(Boolean);
+  if (allowed.length === 0) {
+    allowed.push("http://localhost:3000", "http://localhost:3001",
+      "https://haquason.uk", "https://www.haquason.uk");
+  }
+  if (origin && allowed.includes(origin)) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Access-Control-Allow-Credentials", "true");
+  }
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
   res.setHeader("Connection", "keep-alive");
-  res.setHeader("X-Accel-Buffering", "no"); // tắt nginx buffering
+  res.setHeader("X-Accel-Buffering", "no");
   res.flushHeaders();
 
   if (!clients.has(userId)) clients.set(userId, new Set());

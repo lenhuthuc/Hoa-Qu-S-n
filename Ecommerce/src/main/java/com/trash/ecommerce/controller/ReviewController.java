@@ -4,47 +4,39 @@ import com.trash.ecommerce.dto.ReviewRequest;
 import com.trash.ecommerce.dto.ReviewResponse;
 import com.trash.ecommerce.service.JwtService;
 import com.trash.ecommerce.service.ReviewService;
+import com.trash.ecommerce.service.StorageService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.http.MediaType;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.http.MediaTypeFactory;
+import org.springframework.core.io.ByteArrayResource;
 import org.springframework.core.io.Resource;
-import org.springframework.core.io.UrlResource;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.nio.file.StandardCopyOption;
+import java.util.Arrays;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 @RestController
 @RequestMapping("/api/reviews")
 public class ReviewController {
     private static final int MAX_IMAGE_COUNT = 2;
     private static final int MAX_COMMENT_LENGTH = 1000;
-    private static final long MAX_IMAGE_SIZE_BYTES = 5L * 1024 * 1024;  // 5MB
-    private static final long MAX_VIDEO_SIZE_BYTES = 25L * 1024 * 1024; // 25MB
-    private static final long MAX_TOTAL_SIZE_BYTES = 30L * 1024 * 1024; // 30MB
-    private static final Set<String> ALLOWED_IMAGE_CONTENT_TYPES = Set.of("image/jpeg", "image/png", "image/webp", "image/gif");
-    private static final Set<String> ALLOWED_IMAGE_EXTENSIONS = Set.of("jpg", "jpeg", "png", "webp", "gif");
-    private static final Set<String> ALLOWED_VIDEO_CONTENT_TYPES = Set.of("video/mp4", "video/webm", "video/quicktime", "video/x-m4v");
-    private static final Set<String> ALLOWED_VIDEO_EXTENSIONS = Set.of("mp4", "webm", "mov", "m4v");
-
+    private static final long MAX_TOTAL_SIZE_BYTES = 30L * 1024 * 1024; // 30MB total
 
     private Logger logger = LoggerFactory.getLogger(ReviewController.class);
     @Autowired
     private ReviewService reviewService;
     @Autowired
     private JwtService jwtService;
+    @Autowired
+    private StorageService storageService;
 
     @PostMapping("/products/{productId}")
     public ResponseEntity<?> createReview(
@@ -92,12 +84,10 @@ public class ReviewController {
             long totalUploadBytes = 0L;
             if (images != null) {
                 for (MultipartFile image : images) {
-                    validateMediaFile(image, true);
                     totalUploadBytes += image.getSize();
                 }
             }
             if (video != null && !video.isEmpty()) {
-                validateMediaFile(video, false);
                 totalUploadBytes += video.getSize();
             }
             if (totalUploadBytes > MAX_TOTAL_SIZE_BYTES) {
@@ -108,12 +98,22 @@ public class ReviewController {
             if (images != null) {
                 for (MultipartFile image : images) {
                     if (image != null && !image.isEmpty()) {
-                        mediaUrls.add(saveReviewMedia(image, "image"));
+                        try {
+                            String url = storageService.uploadReviewMedia(userId, image, "image");
+                            mediaUrls.add(url);
+                        } catch (IOException e) {
+                            throw new RuntimeException("Lỗi tải ảnh: " + e.getMessage());
+                        }
                     }
                 }
             }
             if (video != null && !video.isEmpty()) {
-                mediaUrls.add(saveReviewMedia(video, "video"));
+                try {
+                    String url = storageService.uploadReviewMedia(userId, video, "video");
+                    mediaUrls.add(url);
+                } catch (IOException e) {
+                    throw new RuntimeException("Lỗi tải video: " + e.getMessage());
+                }
             }
 
             ReviewRequest reviewRequest = new ReviewRequest();
@@ -131,102 +131,150 @@ public class ReviewController {
     }
 
     @GetMapping("/media/{filename}")
-    public ResponseEntity<Resource> getReviewMedia(@PathVariable String filename) {
+    public ResponseEntity<Resource> getReviewMedia(
+            @PathVariable String filename,
+            @RequestHeader(value = HttpHeaders.RANGE, required = false) String rangeHeader) {
         try {
-            Path mediaDir = Paths.get("uploads/reviews");
-            Path filePath = mediaDir.resolve(filename).normalize();
-            if (!filePath.startsWith(mediaDir) || !Files.exists(filePath)) {
-                return ResponseEntity.notFound().build();
-            }
+            String mediaUrl = normalizeMediaUrlForRead(filename);
+            StorageService.DocumentFile docFile = storageService.downloadReviewMedia(mediaUrl);
 
-            Resource resource = new UrlResource(filePath.toUri());
-            MediaType mediaType = MediaTypeFactory.getMediaType(resource).orElse(MediaType.APPLICATION_OCTET_STREAM);
-            return ResponseEntity.ok()
-                    .contentType(mediaType)
-                    .body(resource);
-        } catch (IOException e) {
+            return buildMediaResponse(docFile, rangeHeader);
+        } catch (Exception e) {
             return ResponseEntity.notFound().build();
         }
     }
 
-    private String saveReviewMedia(MultipartFile file, String prefix) throws IOException {
-        String originalName = file.getOriginalFilename() != null ? file.getOriginalFilename().replaceAll("[\\\\/:*?\"<>|]", "_") : "file";
-        String filename = System.currentTimeMillis() + "_" + prefix + "_" + originalName;
-        Path uploadDir = Paths.get("uploads/reviews");
-        Files.createDirectories(uploadDir);
-        Path target = uploadDir.resolve(filename);
-        Files.copy(file.getInputStream(), target, StandardCopyOption.REPLACE_EXISTING);
-        return "/api/reviews/media/" + filename;
-    }
-
-    private void validateMediaFile(MultipartFile file, boolean isImage) {
-        if (file == null || file.isEmpty()) {
-            throw new IllegalArgumentException("Tệp tải lên không hợp lệ");
-        }
-
-        String originalName = file.getOriginalFilename();
-        if (originalName == null || originalName.isBlank()) {
-            throw new IllegalArgumentException("Tên tệp không hợp lệ");
-        }
-
-        String normalizedName = originalName.trim().toLowerCase();
-        if (normalizedName.contains("..") || normalizedName.contains("/") || normalizedName.contains("\\")) {
-            throw new IllegalArgumentException("Tên tệp chứa ký tự không hợp lệ");
-        }
-
-        String extension = getFileExtension(normalizedName);
-        String contentType = file.getContentType() != null ? file.getContentType().toLowerCase() : "";
-
-        if (isImage) {
-            if (!ALLOWED_IMAGE_EXTENSIONS.contains(extension) || !ALLOWED_IMAGE_CONTENT_TYPES.contains(contentType)) {
-                throw new IllegalArgumentException("Ảnh tải lên không hợp lệ. Chỉ hỗ trợ JPG, PNG, WEBP, GIF");
-            }
-            if (file.getSize() > MAX_IMAGE_SIZE_BYTES) {
-                throw new IllegalArgumentException("Mỗi ảnh không được vượt quá 5MB");
-            }
-        } else {
-            if (!ALLOWED_VIDEO_EXTENSIONS.contains(extension) || !ALLOWED_VIDEO_CONTENT_TYPES.contains(contentType)) {
-                throw new IllegalArgumentException("Video tải lên không hợp lệ. Chỉ hỗ trợ MP4, WEBM, MOV, M4V");
-            }
-            if (file.getSize() > MAX_VIDEO_SIZE_BYTES) {
-                throw new IllegalArgumentException("Video không được vượt quá 25MB");
-            }
-        }
-    }
-
-    private String getFileExtension(String filename) {
-        int dot = filename.lastIndexOf('.');
-        if (dot < 0 || dot == filename.length() - 1) {
-            return "";
-        }
-        return filename.substring(dot + 1);
-    }
-
-    @DeleteMapping("/products/{productId}/{reviewId}")
-    public ResponseEntity<?> deleteReview(
-            @RequestHeader("Authorization") String token,
-            @PathVariable Long productId,
-            @PathVariable Long reviewId) {
+    @GetMapping("/media")
+    public ResponseEntity<Resource> getReviewMediaByUrl(
+            @RequestParam("url") String mediaUrl,
+            @RequestHeader(value = HttpHeaders.RANGE, required = false) String rangeHeader) {
         try {
-            Long userId = jwtService.extractId(token);
-            reviewService.deleteComment(userId, productId, reviewId);
-            return ResponseEntity.noContent().build();
+            String normalizedMediaUrl = normalizeMediaUrlForRead(mediaUrl);
+            StorageService.DocumentFile docFile = storageService.downloadReviewMedia(normalizedMediaUrl);
+
+            return buildMediaResponse(docFile, rangeHeader);
         } catch (Exception e) {
-            logger.error("deleteReview has errors", e);
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                    .body(java.util.Map.of("message", e.getMessage() != null ? e.getMessage() : "Lỗi xóa đánh giá"));
+            return ResponseEntity.notFound().build();
         }
+    }
+
+    private ResponseEntity<Resource> buildMediaResponse(StorageService.DocumentFile docFile, String rangeHeader) {
+        byte[] content = docFile.content();
+        long totalLength = content.length;
+
+        MediaType mediaType;
+        try {
+            mediaType = MediaType.parseMediaType(docFile.contentType());
+        } catch (Exception ignored) {
+            mediaType = MediaType.APPLICATION_OCTET_STREAM;
+        }
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.set(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"" + docFile.fileName() + "\"");
+        headers.set(HttpHeaders.ACCEPT_RANGES, "bytes");
+
+        if (rangeHeader == null || !rangeHeader.startsWith("bytes=")) {
+            headers.setContentLength(totalLength);
+            return ResponseEntity.ok()
+                    .headers(headers)
+                    .contentType(mediaType)
+                    .body(new ByteArrayResource(content));
+        }
+
+        long[] range = parseRange(rangeHeader, totalLength);
+        if (range == null) {
+            headers.set(HttpHeaders.CONTENT_RANGE, "bytes */" + totalLength);
+            return ResponseEntity.status(HttpStatus.REQUESTED_RANGE_NOT_SATISFIABLE)
+                    .headers(headers)
+                    .contentType(mediaType)
+                    .build();
+        }
+
+        int start = (int) range[0];
+        int end = (int) range[1];
+        byte[] partial = Arrays.copyOfRange(content, start, end + 1);
+
+        headers.set(HttpHeaders.CONTENT_RANGE, "bytes " + start + "-" + end + "/" + totalLength);
+        headers.setContentLength(partial.length);
+
+        return ResponseEntity.status(HttpStatus.PARTIAL_CONTENT)
+                .headers(headers)
+                .contentType(mediaType)
+                .body(new ByteArrayResource(partial));
+    }
+
+    private long[] parseRange(String rangeHeader, long totalLength) {
+        try {
+            String spec = rangeHeader.substring("bytes=".length()).trim();
+            if (spec.contains(",")) {
+                spec = spec.split(",")[0].trim();
+            }
+
+            String[] parts = spec.split("-", 2);
+            String startPart = parts.length > 0 ? parts[0].trim() : "";
+            String endPart = parts.length > 1 ? parts[1].trim() : "";
+
+            long start;
+            long end;
+
+            if (startPart.isEmpty()) {
+                long suffixLength = Long.parseLong(endPart);
+                if (suffixLength <= 0) {
+                    return null;
+                }
+                start = Math.max(0, totalLength - suffixLength);
+                end = totalLength - 1;
+            } else {
+                start = Long.parseLong(startPart);
+                end = endPart.isEmpty() ? totalLength - 1 : Long.parseLong(endPart);
+            }
+
+            if (start < 0 || end < start || start >= totalLength) {
+                return null;
+            }
+
+            end = Math.min(end, totalLength - 1);
+            return new long[]{start, end};
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private String normalizeMediaUrlForRead(String rawMediaUrl) {
+        if (rawMediaUrl == null || rawMediaUrl.isBlank()) {
+            throw new IllegalArgumentException("Thiếu URL media");
+        }
+
+        String mediaUrl = rawMediaUrl.trim();
+
+        // Legacy URLs saved as /api/reviews/media/{filename}
+        String marker = "/api/reviews/media/";
+        int markerIndex = mediaUrl.indexOf(marker);
+        if (markerIndex >= 0) {
+            mediaUrl = mediaUrl.substring(markerIndex + marker.length());
+        }
+
+        if (mediaUrl.startsWith("local:") || mediaUrl.startsWith("http://") || mediaUrl.startsWith("https://")) {
+            return mediaUrl;
+        }
+
+        // Local object key style (new or legacy explicit)
+        if (mediaUrl.startsWith("review-media/") || mediaUrl.startsWith("reviews/")) {
+            return "local:" + mediaUrl;
+        }
+
+        // Legacy plain filename -> uploads/reviews/{filename}
+        return "local:reviews/" + mediaUrl;
     }
 
     @GetMapping("/products/{productId}")
-    public ResponseEntity<?> getProductReviews(@PathVariable Long productId) {
+    public ResponseEntity<?> findReviewByProduct(@PathVariable Long productId) {
         try {
-            List<ReviewResponse> reviews = reviewService.findReviewByProductId(productId);
-            return ResponseEntity.ok(reviews);
+            return ResponseEntity.ok(reviewService.findReviewByProductId(productId));
         } catch (Exception e) {
-            logger.error("getProductReviews has errors", e);
+            logger.error("findReviewByProduct has errors", e);
             return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                    .body(java.util.Map.of("message", e.getMessage() != null ? e.getMessage() : "Lỗi lấy đánh giá"));
+                    .body(Map.of("message", e.getMessage() != null ? e.getMessage() : "Lỗi lấy đánh giá sản phẩm"));
         }
     }
 
@@ -241,6 +289,22 @@ public class ReviewController {
             logger.error("getReviewEligibility has errors", e);
             return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                     .body(Map.of("message", e.getMessage() != null ? e.getMessage() : "Lỗi kiểm tra quyền đánh giá"));
+        }
+    }
+
+    @DeleteMapping("/products/{productId}/{reviewId}")
+    public ResponseEntity<?> deleteReview(
+            @RequestHeader("Authorization") String token,
+            @PathVariable Long productId,
+            @PathVariable Long reviewId) {
+        try {
+            Long userId = jwtService.extractId(token);
+            reviewService.deleteComment(userId, productId, reviewId);
+            return ResponseEntity.ok(Map.of("message", "Xóa đánh giá thành công"));
+        } catch (Exception e) {
+            logger.error("deleteReview has errors", e);
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(Map.of("message", e.getMessage() != null ? e.getMessage() : "Lỗi xóa đánh giá"));
         }
     }
 }

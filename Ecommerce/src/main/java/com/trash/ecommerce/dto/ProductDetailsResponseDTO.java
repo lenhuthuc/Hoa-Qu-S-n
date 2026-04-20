@@ -30,6 +30,7 @@ public class ProductDetailsResponseDTO {
     private Long sellerId;
     private String sellerName;
     private String shopName;
+    private String shopAvatar;
     private String batchId;
     private String origin;
 }

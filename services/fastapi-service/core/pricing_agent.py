@@ -6,15 +6,23 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain.agents import create_tool_calling_agent, AgentExecutor
 from langchain_community.tools import DuckDuckGoSearchResults
 from config import get_settings
+from models import SmartPricingResult
 
 settings = get_settings()
 
-# 1. Định nghĩa Công cụ cào tin tức trên mạng
-search_tool = DuckDuckGoSearchResults(max_results=3)
-search_tool.name = "web_search_price"
-search_tool.description = "Dùng để tìm kiếm giá thị trường hiện tại của nông sản trên mạng Internet. Trả về các bài báo và tin tức mới nhất."
+_ddg_search = DuckDuckGoSearchResults(max_results=3)
 
-# 2. Định nghĩa Công cụ lấy giá từ Database (Spring Boot)
+
+@tool
+def web_search_price(product_name: str) -> str:
+    """Dùng để tìm kiếm giá thị trường hiện tại của nông sản trên mạng Internet. BẠN CHỈ CẦN TRUYỀN VÀO TÊN NÔNG SẢN."""
+    formatted_query = f"giá bán {product_name} tại Việt Nam"
+    try:
+        return _ddg_search.invoke(formatted_query)
+    except Exception as e:
+        return f"Lỗi tìm kiếm: {str(e)}"
+
+
 @tool
 def get_db_price(product_name: str) -> str:
     """Dùng để truy vấn giá trung bình trong lịch sử của sản phẩm từ cơ sở dữ liệu nội bộ."""
@@ -31,58 +39,53 @@ def get_db_price(product_name: str) -> str:
     except Exception as e:
         return f"Lỗi khi kết nối Database: {str(e)}"
 
-# Gom công cụ lại cho Agent
-tools = [search_tool, get_db_price]
 
-# 3. Khởi tạo Mô hình LLM (Bộ não suy luận)
+tools = [web_search_price, get_db_price]
+
 llm = ChatGroq(
-    api_key=settings.groq_api_key, 
+    api_key=settings.groq_api_key,
     model="llama-3.3-70b-versatile",
-    temperature=0.1 # Để temperature thấp để AI tập trung vào logic, tránh nói lan man
+    temperature=0.1
 )
 
-# 4. Viết Prompt chỉ đạo Agent
 prompt = ChatPromptTemplate.from_messages([
-    ("system", """Bạn là Chuyên gia Định giá Nông sản Việt Nam. 
+    ("system", """Bạn là Chuyên gia Định giá Nông sản Việt Nam.
     Nhiệm vụ của bạn là đưa ra một mức giá bán đề xuất hợp lý (VNĐ/kg) cho sản phẩm mà người dùng cung cấp.
     Bạn BẮT BUỘC phải dùng công cụ 'get_db_price' để xem giá lịch sử, và 'web_search_price' để xem tin tức giá hôm nay.
-    
+    Bạn BẮT BUỘC phải trả về tên tiếng việt của loại hoa quả đó nếu có thể.
     QUAN TRỌNG: Bạn BẮT BUỘC phải trả về kết quả cuối cùng dưới định dạng JSON hợp lệ, tuân thủ chính xác cấu trúc sau:
+
     {{
         "suggested_price": 85000,
         "reason": "Dựa trên giá DB là 85k và thị trường dao động 80k-90k, mức giá 85k là hợp lý..."
     }}
-    Lưu ý: 
+    Lưu ý:
     - Trường "suggested_price" CHỈ CHỨA SỐ (ví dụ: 85000, không chứa chữ 'VNĐ' hay dấu phẩy).
     - Không giải thích gì thêm ở bên ngoài khối JSON này."""),
     ("human", "Hãy định giá cho sản phẩm: {product_name}. Tình trạng hiện tại: {freshness}"),
     ("placeholder", "{agent_scratchpad}"),
 ])
 
-# 5. Lắp ráp Agent
 agent = create_tool_calling_agent(llm, tools, prompt)
-# Bật verbose=True để xem dòng suy nghĩ của AI trên Terminal
-agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True) 
+agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
 
-async def get_smart_pricing(product_name: str, freshness: str) -> dict:
-    """Hàm này sẽ được Router gọi để lấy lời khuyên về giá"""
+
+async def get_smart_pricing(product_name: str, freshness: str) -> SmartPricingResult:
     result = await agent_executor.ainvoke({
         "product_name": product_name,
         "freshness": freshness
     })
-    
+
     raw_output = result["output"]
-    
+
     try:
-        # Cố gắng dịch câu trả lời của AI thành object JSON
-        parsed_result = json.loads(raw_output)
-        
-        return {
-            "suggested_price_per_kg": parsed_result.get("suggested_price", 0), 
-            "price_reasoning": parsed_result.get("reason", "Không có lý do") 
-        }
-    except json.JSONDecodeError:
-        return {
-            "suggested_price_per_kg": 0,
-            "price_reasoning": raw_output
-        }
+        parsed = json.loads(raw_output)
+        return SmartPricingResult(
+            suggested_price_per_kg=int(parsed.get("suggested_price", 0)),
+            price_reasoning=parsed.get("reason", "Không có lý do"),
+        )
+    except (json.JSONDecodeError, ValueError):
+        return SmartPricingResult(
+            suggested_price_per_kg=0,
+            price_reasoning=raw_output,
+        )

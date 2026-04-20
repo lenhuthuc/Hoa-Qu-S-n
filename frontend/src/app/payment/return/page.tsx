@@ -16,13 +16,26 @@ function PaymentReturnContent() {
     const vnp_TxnRef = searchParams.get("vnp_TxnRef");
     const vnp_OrderInfo = searchParams.get("vnp_OrderInfo");
 
-    setOrderId(vnp_TxnRef || "");
-
-    if (vnp_ResponseCode === "00") {
-      setStatus("success");
-    } else {
-      setStatus("failed");
+    // Check if it's VNPay return
+    if (vnp_ResponseCode) {
+      setOrderId(vnp_TxnRef || "");
+      setStatus(vnp_ResponseCode === "00" ? "success" : "failed");
+      return;
     }
+
+    // Handle MoMo return
+    const momo_OrderId = searchParams.get("orderId");
+    const momo_ResultCode = searchParams.get("resultCode");
+    const momo_Message = searchParams.get("message");
+
+    if (momo_OrderId && momo_ResultCode) {
+      setOrderId(momo_OrderId);
+      setStatus(momo_ResultCode === "0" ? "success" : "failed");
+      return;
+    }
+
+    // Unknown payment type
+    setStatus("failed");
   }, [searchParams]);
 
   if (status === "loading") {
@@ -41,7 +54,7 @@ function PaymentReturnContent() {
             <CheckCircle className="w-16 h-16 text-green-500 mx-auto mb-4" />
             <h1 className="text-2xl font-bold text-gray-800 mb-2">Thanh toán thành công!</h1>
             <p className="text-gray-500 mb-6">
-              Đơn hàng {orderId && `#${orderId}`} của bạn đã được thanh toán qua VNPay.
+              Đơn hàng {orderId && `#${orderId}`} của bạn đã được thanh toán thành công.
             </p>
             <div className="flex gap-3 justify-center">
               {orderId && (

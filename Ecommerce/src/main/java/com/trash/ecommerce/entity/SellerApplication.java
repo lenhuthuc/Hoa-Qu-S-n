@@ -27,6 +27,9 @@ public class SellerApplication {
     @Column(name = "shop_name", nullable = false, length = 60)
     private String shopName;
 
+    @Column(name = "shop_avatar", length = 1000)
+    private String shopAvatar;
+
     @Column(name = "contact_email", nullable = false, length = 120)
     private String contactEmail;
 

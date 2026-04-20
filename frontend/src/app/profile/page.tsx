@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ChangeEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
+  Camera,
   ChevronRight,
   Loader2,
   LogOut,
@@ -73,6 +74,8 @@ export default function ProfilePage() {
   const [selectedProvinceId, setSelectedProvinceId] = useState<number | null>(null);
   const [selectedDistrictId, setSelectedDistrictId] = useState<number | null>(null);
   const [selectedWardCode, setSelectedWardCode] = useState<string>("");
+  const [editingAvatar, setEditingAvatar] = useState(false);
+  const [savingAvatar, setSavingAvatar] = useState(false);
 
   const profileName = profile?.fullName?.trim() || profile?.email || "Tài khoản của tôi";
   const avatarText = profileName
@@ -226,6 +229,39 @@ export default function ProfilePage() {
     router.push("/login");
   };
 
+  const handleAvatarFileChange = async (e: ChangeEvent<HTMLInputElement>) => {
+    if (!profile) return;
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+
+    if (!file.type.startsWith("image/")) {
+      toast.error("Vui lòng chọn file ảnh hợp lệ");
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error("Ảnh không được vượt quá 5MB");
+      return;
+    }
+
+    setSavingAvatar(true);
+    try {
+      const res = await userApi.uploadAvatar(file);
+      const nextAvatar = res.data?.avatarUrl || res.data?.data?.avatarUrl;
+      if (!nextAvatar) {
+        throw new Error("Không nhận được URL avatar");
+      }
+      setProfile((prev) => (prev ? { ...prev, avatar: nextAvatar } : prev));
+      setEditingAvatar(false);
+      toast.success("Cập nhật avatar thành công!");
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || "Không thể cập nhật avatar");
+    } finally {
+      setSavingAvatar(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex min-h-[60vh] items-center justify-center bg-gradient-to-br from-emerald-50 to-white">
@@ -271,7 +307,7 @@ export default function ProfilePage() {
             <div className="sticky top-24 space-y-5">
               <div className="rounded-3xl border border-emerald-100 bg-white p-5 shadow-sm">
                 <div className="flex items-center gap-4 border-b border-emerald-50 pb-5">
-                  <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-2xl bg-emerald-100 text-emerald-700">
+                  <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-emerald-100 text-emerald-700">
                     {profile?.avatar ? (
                       <img src={profile.avatar} alt={profileName} className="h-full w-full object-cover" />
                     ) : (
@@ -287,6 +323,33 @@ export default function ProfilePage() {
                       </span>
                     )}
                   </div>
+                </div>
+
+                <div className="mt-4 border-b border-emerald-50 pb-5">
+                  <button
+                    type="button"
+                    onClick={() => setEditingAvatar((prev) => !prev)}
+                    className="inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-100"
+                  >
+                    <Camera className="h-4 w-4" />
+                    {editingAvatar ? "Đóng" : "Chỉnh avatar"}
+                  </button>
+
+                  {editingAvatar && (
+                    <div className="mt-3 space-y-2">
+                      <label className="inline-flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl bg-emerald-600 px-3 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700">
+                        {savingAvatar ? "Đang tải ảnh..." : "Chọn ảnh từ máy"}
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={handleAvatarFileChange}
+                          disabled={savingAvatar}
+                          className="hidden"
+                        />
+                      </label>
+                      <p className="text-xs text-gray-500">Hỗ trợ JPG/PNG/WEBP/GIF, tối đa 5MB.</p>
+                    </div>
+                  )}
                 </div>
 
                 <div className="mt-5 space-y-2">
@@ -355,6 +418,15 @@ export default function ProfilePage() {
                         className="w-full rounded-2xl border border-gray-200 bg-gray-50 py-3 pl-10 pr-4 text-gray-500 outline-none cursor-not-allowed"
                       />
                     </div>
+                  </div>
+
+                  <div className="md:col-span-2">
+                    <Link
+                      href="/forgot-password"
+                      className="inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-100"
+                    >
+                      <Mail className="w-4 h-4" /> Quên mật khẩu? Đặt lại mật khẩu
+                    </Link>
                   </div>
 
                   <div>

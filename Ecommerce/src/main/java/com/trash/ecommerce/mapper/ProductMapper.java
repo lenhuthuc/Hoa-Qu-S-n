@@ -55,8 +55,14 @@ public class ProductMapper {
                 } else {
                     productDTO.setShopName(product.getSeller().getFullName());
                 }
+
+                String rawShopAvatar = sellerApp != null && sellerApp.getShopAvatar() != null && !sellerApp.getShopAvatar().isBlank()
+                        ? sellerApp.getShopAvatar().trim()
+                        : product.getSeller().getAvatar();
+                productDTO.setShopAvatar(rawShopAvatar);
             } catch (Exception e) {
                 productDTO.setShopName(product.getSeller().getFullName());
+                productDTO.setShopAvatar(product.getSeller().getAvatar());
             }
         }
         // Traceability

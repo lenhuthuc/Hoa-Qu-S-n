@@ -29,9 +29,25 @@ public class Order {
     private BigDecimal shippingFee = BigDecimal.ZERO;
     @Column(name = "created_at")
     private Date createAt;
+    @Column(name = "buyer_confirmed_at")
+    private Date buyerConfirmedAt;
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "user_id")
     private Users user;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "seller_id")
+    private Users seller;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "parent_order_id")
+    private Order parentOrder;
+
+    @OneToMany(mappedBy = "parentOrder", fetch = FetchType.LAZY)
+    private Set<Order> childOrders = new HashSet<>();
+
+    @Column(name = "is_master_order", nullable = false)
+    private Boolean masterOrder = false;
 
     @OneToMany(
         fetch = FetchType.LAZY,

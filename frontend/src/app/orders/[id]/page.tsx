@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { Package, Loader2, ChevronLeft, Leaf, CreditCard, Truck, CheckCircle, MapPin, Star, X, ImageIcon, Film, Trash2 } from "lucide-react";
-import { orderApi, reviewApi, sellerApi, userApi } from "@/lib/api";
+import { isWithinReturnWindowFromConfirmation, orderApi, reviewApi, returnApi, sellerApi, userApi } from "@/lib/api";
 import toast from "react-hot-toast";
 
 interface OrderDetail {
@@ -16,7 +16,16 @@ interface OrderDetail {
   address?: string;
   phone?: string;
   createdAt: string;
+  buyerConfirmedAt?: string;
   viewerRole?: string;
+  subOrders?: Array<{
+    id: number;
+    sellerId?: number;
+    sellerName?: string;
+    status?: string;
+    totalAmount?: number;
+    shippingFee?: number;
+  }>;
   items?: Array<{
     productId: number;
     productName: string;
@@ -36,9 +45,20 @@ type SelectedReviewFile = {
   previewUrl: string;
 };
 
+type SelectedReturnFile = {
+  file: File;
+  previewUrl: string;
+  mediaType: "image" | "video";
+};
+
 type ReviewEligibility = {
   canReview?: boolean;
   remainingReviews?: number;
+};
+
+type ReturnRequestSummary = {
+  id: number;
+  orderId: number;
 };
 
 const statusMap: Record<string, { label: string; color: string; step: number }> = {
@@ -51,6 +71,16 @@ const statusMap: Record<string, { label: string; color: string; step: number }> 
   FINISHED: { label: "Hoàn thành", color: "text-green-600", step: 5 },
   CANCELLED: { label: "Đã hủy", color: "text-red-600", step: 0 },
 };
+
+function isVnPayMethod(method?: string): boolean {
+  if (!method) return false;
+  const normalized = method.trim().toUpperCase();
+  return normalized === "2" || normalized.includes("VNPAY");
+}
+
+function getPaymentMethodLabel(method?: string): string {
+  return isVnPayMethod(method) ? "Thanh toán bằng VNPay" : "Tiền mặt khi nhận hàng (COD)";
+}
 
 export default function OrderDetailPage() {
   const params = useParams();
@@ -69,8 +99,15 @@ export default function OrderDetailPage() {
   const [profilePhone, setProfilePhone] = useState<string>("");
   const [reviewImages, setReviewImages] = useState<SelectedReviewFile[]>([]);
   const [reviewVideo, setReviewVideo] = useState<SelectedReviewFile | null>(null);
+  const [returnModalOpen, setReturnModalOpen] = useState(false);
+  const [returnReasonCode, setReturnReasonCode] = useState("");
+  const [returnDescription, setReturnDescription] = useState("");
+  const [returnFiles, setReturnFiles] = useState<SelectedReturnFile[]>([]);
+  const [existingReturnRequestId, setExistingReturnRequestId] = useState<number | null>(null);
+  const [submittingReturn, setSubmittingReturn] = useState(false);
   const reviewImageInputRef = useRef<HTMLInputElement | null>(null);
   const reviewVideoInputRef = useRef<HTMLInputElement | null>(null);
+  const returnFileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -82,6 +119,22 @@ export default function OrderDetailPage() {
 
         const orderData = orderRes.data?.data || orderRes.data;
         setOrder(orderData);
+
+        if (orderData?.viewerRole !== "SELLER") {
+          const returnsRes = await returnApi.getMyRequests().catch(() => null);
+          const returnsPayload = returnsRes?.data?.data || returnsRes?.data || [];
+          const returnsList: ReturnRequestSummary[] = Array.isArray(returnsPayload) ? returnsPayload : [];
+          const relatedOrderIds = new Set<number>([Number(orderData?.id)]);
+          if (Array.isArray(orderData?.subOrders)) {
+            orderData.subOrders.forEach((sub: any) => {
+              if (sub?.id) relatedOrderIds.add(Number(sub.id));
+            });
+          }
+          const matched = returnsList.find((item) => relatedOrderIds.has(Number(item.orderId)));
+          setExistingReturnRequestId(matched?.id ? Number(matched.id) : null);
+        } else {
+          setExistingReturnRequestId(null);
+        }
 
         const profile = profileRes?.data?.data || profileRes?.data;
         if (profile?.phone) {
@@ -124,14 +177,9 @@ export default function OrderDetailPage() {
     if (!order) return;
     setPayingVnPay(true);
     try {
-      const res = await orderApi.retryPayment(order.id);
-      const payload = res.data?.data || res.data;
-      const url = payload?.paymentUrl || payload;
-      if (url && typeof url === "string") {
-        window.location.href = url;
-      } else {
-        toast.error("Không thể tạo link thanh toán");
-      }
+      await orderApi.retryPayment(order.id);
+      setOrder((prev) => (prev ? { ...prev, status: "PLACED" } : prev));
+      toast.success("Thanh toán VNPay đã được ghi nhận");
     } catch {
       toast.error("Lỗi tạo thanh toán VNPay");
     } finally {
@@ -146,12 +194,148 @@ export default function OrderDetailPage() {
     setConfirmingReceived(true);
     try {
       await orderApi.updateStatus(order.id, "FINISHED");
-      setOrder((prev) => (prev ? { ...prev, status: "FINISHED" } : prev));
+      setOrder((prev) => (prev ? { ...prev, status: "FINISHED", buyerConfirmedAt: new Date().toISOString() } : prev));
       toast.success("Đã xác nhận nhận hàng");
     } catch (err: any) {
       toast.error(err?.response?.data?.message || "Không thể xác nhận nhận hàng");
     } finally {
       setConfirmingReceived(false);
+    }
+  };
+
+  const openReturnModal = () => {
+    if (existingReturnRequestId) {
+      toast("Đơn này đã có phiếu hoàn tiền. Vui lòng xem chi tiết.");
+      return;
+    }
+    if (!order || !canRequestReturn) {
+      toast.error("Đơn hàng chưa đủ điều kiện trả hàng / hoàn tiền");
+      return;
+    }
+    setReturnReasonCode("");
+    setReturnDescription("");
+    returnFiles.forEach((item) => URL.revokeObjectURL(item.previewUrl));
+    setReturnFiles([]);
+    if (returnFileInputRef.current) returnFileInputRef.current.value = "";
+    setReturnModalOpen(true);
+  };
+
+  const closeReturnModal = () => {
+    if (submittingReturn) return;
+    returnFiles.forEach((item) => URL.revokeObjectURL(item.previewUrl));
+    setReturnFiles([]);
+    setReturnModalOpen(false);
+    setReturnReasonCode("");
+    setReturnDescription("");
+    if (returnFileInputRef.current) returnFileInputRef.current.value = "";
+  };
+
+  const handleReturnFilesChange = (files: FileList | null) => {
+    if (!files) return;
+
+    const incoming = Array.from(files);
+    const nextFiles: SelectedReturnFile[] = [];
+    let imageCount = returnFiles.filter((item) => item.mediaType === "image").length;
+    let videoCount = returnFiles.filter((item) => item.mediaType === "video").length;
+
+    for (const file of incoming) {
+      const mediaType = file.type.startsWith("image/") ? "image" : file.type.startsWith("video/") ? "video" : null;
+      if (!mediaType) {
+        toast.error(`Tệp ${file.name} không hợp lệ. Chỉ chấp nhận ảnh hoặc video.`);
+        continue;
+      }
+
+      if (returnFiles.length + nextFiles.length >= 5) {
+        toast.error("Tối đa 5 tệp bằng chứng cho mỗi yêu cầu");
+        break;
+      }
+
+      if (mediaType === "image" && imageCount >= 3) {
+        toast.error("Tối đa 3 ảnh bằng chứng");
+        continue;
+      }
+
+      if (mediaType === "video" && videoCount >= 2) {
+        toast.error("Tối đa 2 video bằng chứng");
+        continue;
+      }
+
+      if (mediaType === "image") {
+        imageCount += 1;
+      } else {
+        videoCount += 1;
+      }
+
+      nextFiles.push({
+        file,
+        previewUrl: URL.createObjectURL(file),
+        mediaType,
+      });
+    }
+
+    setReturnFiles((prev) => [...prev, ...nextFiles]);
+  };
+
+  const removeReturnFile = (index: number) => {
+    setReturnFiles((prev) => {
+      const next = [...prev];
+      const removed = next.splice(index, 1)[0];
+      if (removed?.previewUrl) {
+        URL.revokeObjectURL(removed.previewUrl);
+      }
+      return next;
+    });
+    if (returnFileInputRef.current) returnFileInputRef.current.value = "";
+  };
+
+  const submitReturnRequest = async () => {
+    if (!order || !canRequestReturn) {
+      toast.error("Đơn hàng chưa đủ điều kiện trả hàng / hoàn tiền");
+      return;
+    }
+    if (!returnReasonCode) {
+      toast.error("Vui lòng chọn lý do hoàn hàng");
+      return;
+    }
+    if (!returnDescription.trim()) {
+      toast.error("Vui lòng nhập mô tả chi tiết");
+      return;
+    }
+
+    setSubmittingReturn(true);
+    try {
+      let evidenceUrls: string | undefined;
+      if (returnFiles.length > 0) {
+        const uploadRes = await returnApi.uploadEvidence(returnFiles.map((item) => item.file));
+        const uploadedUrls = uploadRes.data?.data?.urls || uploadRes.data?.urls || [];
+        if (Array.isArray(uploadedUrls) && uploadedUrls.length > 0) {
+          evidenceUrls = uploadedUrls.join("\n");
+        }
+      }
+
+      const returnOrderId = Array.isArray(order.subOrders) && order.subOrders.length === 1
+        ? order.subOrders[0].id
+        : order.id;
+
+      const createRes = await returnApi.create({
+        orderId: returnOrderId,
+        reasonCode: returnReasonCode,
+        description: returnDescription.trim(),
+        evidenceUrls,
+      });
+
+      const createdId = createRes.data?.data?.id || createRes.data?.id;
+      if (createdId) {
+        setExistingReturnRequestId(Number(createdId));
+      }
+
+      toast.success("Đã tạo phiếu hoàn trả / khiếu nại");
+      closeReturnModal();
+      router.push("/returns");
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || "Không thể tạo yêu cầu hoàn trả");
+    } finally {
+      setSubmittingReturn(false);
     }
   };
 
@@ -289,6 +473,9 @@ export default function OrderDetailPage() {
 
   const stat = statusMap[order.status] || { label: "Không xác định", color: "text-gray-600", step: 0 };
   const createdDate = new Date(order.createdAt).toLocaleDateString("vi-VN");
+  const hasReturnRequest = existingReturnRequestId !== null;
+  const hasMultiSellerSubOrders = Array.isArray(order.subOrders) && order.subOrders.length > 1;
+  const canRequestReturn = !hasReturnRequest && !hasMultiSellerSubOrders && order.viewerRole !== "SELLER" && order.status === "FINISHED" && isWithinReturnWindowFromConfirmation(order.buyerConfirmedAt);
   const addressLines = (order.address || "")
     .split(",")
     .map((line) => line.trim())
@@ -489,14 +676,14 @@ export default function OrderDetailPage() {
                 </div>
                 <div className="bg-gray-50 p-4 rounded-xl flex items-center justify-between border border-gray-200">
                   <span className="text-sm font-medium text-gray-700">
-                    {String(order.paymentMethod) === "2" ? "VNPay" : "Tiền mặt khi nhận hàng (COD)"}
+                    {getPaymentMethodLabel(order.paymentMethod)}
                   </span>
                   <CheckCircle className="w-5 h-5 text-green-700" />
                 </div>
               </div>
 
               {/* Action Buttons */}
-              {order.status === "PENDING_PAYMENT" && String(order.paymentMethod) === "2" && (
+              {order.status === "PENDING_PAYMENT" && isVnPayMethod(order.paymentMethod) && (
                 <button
                   onClick={handleVnPay}
                   disabled={payingVnPay}
@@ -576,6 +763,30 @@ export default function OrderDetailPage() {
                 </div>
               )}
 
+              {hasReturnRequest && (
+                <Link
+                  href={`/returns#order-${order.id}`}
+                  className="block w-full text-center py-3 text-emerald-700 font-semibold hover:bg-emerald-50 rounded-xl transition mt-2 border border-emerald-200 bg-emerald-50"
+                >
+                  Xem thông tin hoàn tiền
+                </Link>
+              )}
+
+              {canRequestReturn && (
+                <button
+                  onClick={openReturnModal}
+                  className="block w-full text-center py-3 text-emerald-700 font-semibold hover:bg-emerald-50 rounded-xl transition mt-2 border border-emerald-200 bg-emerald-50"
+                >
+                  Trả hàng / Hoàn tiền
+                </button>
+              )}
+
+              {!hasReturnRequest && hasMultiSellerSubOrders && order.viewerRole !== "SELLER" && (
+                <div className="mt-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                  Đơn này có nhiều nhà bán. Hiện chỉ hỗ trợ tạo yêu cầu hoàn trả theo từng đơn con.
+                </div>
+              )}
+
               <Link
                 href="/search"
                 className="block w-full text-center py-3 text-green-700 font-medium hover:bg-green-50 rounded-xl transition mt-2"
@@ -586,6 +797,122 @@ export default function OrderDetailPage() {
           </div>
         </div>
       </main>
+
+      {returnModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
+          <div className="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-3xl bg-white p-6 shadow-2xl">
+            <div className="mb-5 flex items-start justify-between gap-4">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-600">Tạo phiếu khiếu nại</p>
+                <h2 className="mt-2 text-2xl font-bold text-gray-900">Trả hàng / Hoàn tiền</h2>
+                <p className="mt-2 text-sm text-gray-500">
+                  Chỉ hiển thị trong vòng 24 giờ kể từ lúc bạn xác nhận đã nhận hàng.
+                </p>
+              </div>
+              <button
+                onClick={closeReturnModal}
+                disabled={submittingReturn}
+                className="rounded-full p-2 text-gray-500 transition hover:bg-gray-100 disabled:cursor-not-allowed"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="overflow-y-auto pr-1">
+              <div className="mb-5 grid gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="mb-2 block text-sm font-medium text-gray-700">Lý do hoàn hàng</label>
+                  <select
+                    value={returnReasonCode}
+                    onChange={(e) => setReturnReasonCode(e.target.value)}
+                    className="w-full rounded-2xl border border-gray-200 px-4 py-3 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
+                  >
+                    <option value="">-- Chọn lý do --</option>
+                    <option value="DAMAGED">Hàng bị dập nát do vận chuyển</option>
+                    <option value="WRONG_ITEM">Hàng không đúng mô tả</option>
+                    <option value="MISSING_QUANTITY">Giao thiếu số lượng</option>
+                    <option value="SPOILED">Hàng bị biến chất / hư hỏng</option>
+                  </select>
+                </div>
+                <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+                  <p className="font-semibold">Thời hạn</p>
+                  <p className="mt-1">Bạn chỉ có thể tạo ticket trong vòng 24 giờ kể từ lúc xác nhận đã nhận hàng. Hết hạn sẽ bị ẩn.</p>
+                </div>
+              </div>
+
+              <div className="mb-5">
+                <label className="mb-2 block text-sm font-medium text-gray-700">Mô tả chi tiết</label>
+                <textarea
+                  value={returnDescription}
+                  onChange={(e) => setReturnDescription(e.target.value)}
+                  rows={5}
+                  placeholder="Mô tả tình trạng hàng hóa, lý do hoàn tiền và các thông tin liên quan..."
+                  className="w-full rounded-2xl border border-gray-200 px-4 py-3 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
+                />
+              </div>
+
+              <div className="mb-6">
+                <div className="mb-2 flex items-center justify-between gap-3">
+                  <label className="block text-sm font-medium text-gray-700">Bằng chứng ảnh / video</label>
+                </div>
+                <label className="flex cursor-pointer items-center justify-center gap-2 rounded-2xl border border-dashed border-gray-300 bg-gray-50 px-4 py-3 text-sm font-medium text-gray-600 transition hover:border-emerald-400 hover:bg-emerald-50 hover:text-emerald-700">
+                  <ImageIcon className="w-4 h-4" />
+                  Chọn file bằng chứng
+                  <input
+                    ref={returnFileInputRef}
+                    type="file"
+                    accept="image/*,video/*"
+                    multiple
+                    onChange={(e) => {
+                      handleReturnFilesChange(e.target.files);
+                      e.currentTarget.value = "";
+                    }}
+                    className="hidden"
+                  />
+                </label>
+
+                {returnFiles.length > 0 && (
+                  <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    {returnFiles.map((item, index) => (
+                      <div key={`${item.previewUrl}-${index}`} className="relative overflow-hidden rounded-2xl border border-gray-200 bg-gray-50">
+                        {item.mediaType === "image" ? (
+                          <img src={item.previewUrl} alt={`Bằng chứng ${index + 1}`} className="h-40 w-full object-cover" />
+                        ) : (
+                          <video src={item.previewUrl} controls className="h-40 w-full object-cover" />
+                        )}
+                        <div className="flex items-center justify-between gap-3 px-3 py-2 text-xs text-gray-600">
+                          <span className="truncate">{item.file.name}</span>
+                          <button type="button" onClick={() => removeReturnFile(index)} className="font-semibold text-emerald-700">
+                            Xóa
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="mt-auto flex flex-col gap-3 border-t border-gray-100 bg-white pt-4 sm:flex-row sm:justify-end">
+              <button
+                onClick={closeReturnModal}
+                disabled={submittingReturn}
+                className="rounded-2xl border border-gray-200 px-4 py-3 text-sm font-semibold text-gray-700 transition hover:bg-gray-50 disabled:cursor-not-allowed"
+              >
+                Hủy
+              </button>
+              <button
+                onClick={submitReturnRequest}
+                disabled={submittingReturn}
+                className="inline-flex items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-emerald-600 to-green-600 px-5 py-3 text-sm font-semibold text-white transition hover:from-emerald-700 hover:to-green-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {submittingReturn ? <Loader2 className="w-4 h-4 animate-spin" /> : <Package className="w-4 h-4" />}
+                Gửi phiếu hoàn tiền
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {reviewTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">

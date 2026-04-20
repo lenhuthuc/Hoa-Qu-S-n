@@ -14,7 +14,7 @@ async def lifespan(app: FastAPI):
     # Initialize Qdrant collection on startup
     from services.embedding_service import EmbeddingService
     embedding_svc = EmbeddingService(settings)
-    await embedding_svc.ensure_collection()
+    embedding_svc.ensure_collection()
     app.state.embedding_service = embedding_svc
 
     # Initialize MongoDB connection
@@ -36,7 +36,13 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:3001"],
+    allow_origins=[
+        "http://localhost:3000",
+        "http://localhost:3001",
+        "https://haquason.uk",
+        "https://www.haquason.uk",
+        "https://api.haquason.uk",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

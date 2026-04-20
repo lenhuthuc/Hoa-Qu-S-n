@@ -11,7 +11,8 @@ import java.util.List;
 public interface ReturnRequestRepository extends JpaRepository<ReturnRequest, Long> {
     List<ReturnRequest> findByBuyerIdOrderByCreatedAtDesc(Long buyerId);
     List<ReturnRequest> findBySellerIdOrderByCreatedAtDesc(Long sellerId);
+    List<ReturnRequest> findByStatusOrderByCreatedAtDesc(ReturnStatus status);
     List<ReturnRequest> findByOrderId(Long orderId);
-    boolean existsByOrderIdAndBuyerId(Long orderId, Long buyerId);
+    boolean existsByOrderId(Long orderId);
     Integer countBySellerIdAndStatus(Long sellerId, ReturnStatus status);
 }

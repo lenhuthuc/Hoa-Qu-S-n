@@ -11,5 +11,7 @@ public class VnPayConfig {
     private String tmnCode;     
     private String hashSecret;  
     private String url;        
-    private String returnUrl; 
+    private String returnUrl;
+    private String frontendReturnUrl;
+    private String ipnUrl;
 }

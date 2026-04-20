@@ -66,6 +66,8 @@ export default function GoLivePage() {
   const [starting, setStarting] = useState(false);
   const [liveDuration, setLiveDuration] = useState(0);
   const [viewerCount, setViewerCount] = useState(0);
+  const [audioDevices, setAudioDevices] = useState<MediaDeviceInfo[]>([]);
+  const [selectedMicId, setSelectedMicId] = useState<string>("");
 
   // ── Quản lý sản phẩm trong phiên live ──
   const [products, setProducts] = useState<LiveProduct[]>([]);          // đang bán trong live
@@ -80,6 +82,22 @@ export default function GoLivePage() {
       router.push("/login");
     }
   }, [router]);
+
+  // ── Enumerate audio input devices ──
+  const refreshAudioDevices = useCallback(async () => {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const mics = devices.filter((d) => d.kind === "audioinput");
+    setAudioDevices(mics);
+    setSelectedMicId((prev) => {
+      if (prev && mics.find((d) => d.deviceId === prev)) return prev;
+      const array = mics.find((d) => d.label.toLowerCase().includes("array"));
+      return array?.deviceId || mics[0]?.deviceId || "";
+    });
+  }, []);
+
+  useEffect(() => {
+    refreshAudioDevices();
+  }, [refreshAudioDevices]);
 
   // ── Load danh sách sản phẩm của seller ──
   useEffect(() => {
@@ -185,14 +203,13 @@ export default function GoLivePage() {
           width: { ideal: 1280 },
           height: { ideal: 720 },
           frameRate: { ideal: 30 },
-          facingMode: "environment"
         },
         audio: {
-          echoCancellation: { exact: false },
-          noiseSuppression: { exact: false },
-          autoGainControl: { exact: false },
-          channelCount: 2,
-          sampleRate: 48000,
+          ...(selectedMicId ? { deviceId: { exact: selectedMicId } } : {}),
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+          channelCount: 1,
         },
       });
 
@@ -201,6 +218,8 @@ export default function GoLivePage() {
         videoRef.current.srcObject = stream;
       }
       setIsPreviewing(true);
+      // Re-enumerate sau khi có permission để lấy label đầy đủ
+      refreshAudioDevices();
     } catch (err) {
       console.error("Preview error:", err);
       toast.error("Không thể truy cập camera/mic");
@@ -315,14 +334,10 @@ export default function GoLivePage() {
       let sdp = rawSdp;
       sdp = preferH264(sdp);
 
-      // Tìm Opus payload type qua rtpmap, rồi override toàn bộ fmtp:
-      // maxaveragebitrate=510000 → Opus dùng CELT mode (music, không phải voice)
-      // usedtx=0 → không cắt audio khi im lặng
-      // stereo=1 → stereo
       const opusMatch = sdp.match(/a=rtpmap:(\d+) opus\/48000\/2/i);
       if (opusMatch) {
         const pt = opusMatch[1];
-        const opusParams = `minptime=10;useinbandfec=1;usedtx=0;stereo=1;sprop-stereo=1;maxaveragebitrate=192000`;
+        const opusParams = `minptime=10;useinbandfec=1;usedtx=0;maxaveragebitrate=128000`;
         const fmtpRe = new RegExp(`a=fmtp:${pt} [^\r\n]*`);
         if (fmtpRe.test(sdp)) {
           sdp = sdp.replace(fmtpRe, `a=fmtp:${pt} ${opusParams}`);
@@ -436,32 +451,32 @@ export default function GoLivePage() {
   }, []);
 
   return (
-    <div className="min-h-screen bg-surface-darker text-white py-8 px-4 sm:px-6">
+    <div className="min-h-screen bg-[#f8fafc] text-slate-900 py-8 px-4 sm:px-6">
       <div className="max-w-[1400px] mx-auto">
         {/* ── Header ── */}
-        <div className="flex items-center justify-between mb-8 pb-4 border-b border-white/10">
+        <div className="flex items-center justify-between mb-8 pb-4 border-b border-slate-200">
           <div className="flex items-center gap-3">
             <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-red-500 to-primary-600 flex items-center justify-center shadow-lg shadow-red-500/20">
               <Radio className="w-6 h-6 text-white" />
             </div>
             <div>
-              <h1 className="text-2xl font-bold tracking-tight">Studio Phát Sóng</h1>
-              <p className="text-slate-400 text-sm">Hoa Quả Sơn Live Center</p>
+              <h1 className="text-2xl font-bold tracking-tight text-slate-800">Studio Phát Sóng</h1>
+              <p className="text-slate-500 text-sm">Hoa Quả Sơn Live Center</p>
             </div>
           </div>
           {isLive && (
-            <div className="flex items-center gap-4 bg-surface-dark px-5 py-2.5 rounded-full border border-white/10">
+            <div className="flex items-center gap-4 bg-white px-5 py-2.5 rounded-full border border-slate-200 shadow-sm">
               <div className="flex items-center gap-2">
                 <span className="relative flex h-3 w-3">
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
                   <span className="relative inline-flex rounded-full h-3 w-3 bg-red-500" />
                 </span>
-                <span className="text-red-400 font-bold tracking-widest text-sm">LIVE</span>
+                <span className="text-red-600 font-bold tracking-widest text-sm">LIVE</span>
               </div>
-              <div className="w-px h-4 bg-white/20" />
-              <span className="text-slate-300 font-mono">{formatDuration(liveDuration)}</span>
-              <div className="w-px h-4 bg-white/20" />
-              <span className="text-slate-400 text-sm flex items-center gap-1">
+              <div className="w-px h-4 bg-slate-200" />
+              <span className="text-slate-700 font-mono">{formatDuration(liveDuration)}</span>
+              <div className="w-px h-4 bg-slate-200" />
+              <span className="text-slate-500 text-sm flex items-center gap-1">
                 <Users className="w-3.5 h-3.5" /> {viewerCount}
               </span>
             </div>
@@ -475,9 +490,9 @@ export default function GoLivePage() {
           <div className="lg:col-span-8 flex flex-col gap-6">
             {/* ── Camera Preview / Live Feed ── */}
             <div
-              className={`relative flex-1 rounded-3xl overflow-hidden bg-black/50 border transition-all duration-500 ${isLive
+              className={`relative flex-1 rounded-3xl overflow-hidden bg-slate-900 border transition-all duration-500 ${isLive
                 ? "border-red-500/50 shadow-[0_0_40px_rgba(239,68,68,0.15)]"
-                : "border-white/10"
+                : "border-slate-200"
                 }`}
             >
               <video
@@ -495,10 +510,31 @@ export default function GoLivePage() {
                   <div className="w-24 h-24 rounded-full bg-white/5 flex items-center justify-center mb-6 animate-pulse-slow">
                     <Video className="w-10 h-10 text-white/30" />
                   </div>
-                  <p className="text-slate-400 text-lg mb-8">Hệ thống Camera đang tắt</p>
+                  <p className="text-slate-400 text-lg mb-6">Hệ thống Camera đang tắt</p>
+
+                  {/* ── Chọn Microphone ── */}
+                  {audioDevices.length > 0 && (
+                    <div className="mb-6 w-full max-w-xs">
+                      <label className="block text-xs text-slate-500 mb-1.5 flex items-center gap-1.5">
+                        <Mic className="w-3.5 h-3.5" /> Chọn Microphone
+                      </label>
+                      <select
+                        value={selectedMicId}
+                        onChange={(e) => setSelectedMicId(e.target.value)}
+                        className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-primary-500 transition-colors"
+                      >
+                        {audioDevices.map((d) => (
+                          <option key={d.deviceId} value={d.deviceId} className="bg-gray-900">
+                            {d.label || `Microphone (${d.deviceId.slice(0, 8)})`}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+
                   <button
                     onClick={startPreview}
-                    className="px-8 py-4 bg-white/10 hover:bg-white/20 text-white rounded-xl font-medium transition-all duration-300 flex items-center gap-2 backdrop-blur-md border border-white/10 hover:scale-105"
+                    className="px-8 py-4 bg-white/10 hover:bg-white/20 text-white rounded-xl font-medium transition-all duration-300 flex items-center gap-2 backdrop-blur-md border border-white/20 hover:scale-105"
                   >
                     <Settings2 className="w-5 h-5" /> Khởi động thiết bị
                   </button>
@@ -525,7 +561,7 @@ export default function GoLivePage() {
             </div>
 
             {/* ── Controls Bar: Input tiêu đề + Camera/Mic + Go Live ── */}
-            <div className="h-24 dark-glass-panel rounded-2xl flex items-center justify-between px-6">
+            <div className="h-24 glass-panel rounded-2xl flex items-center justify-between px-6 border border-slate-200">
               {!isLive ? (
                 <>
                   <div className="flex-1 max-w-sm mr-6">
@@ -534,7 +570,7 @@ export default function GoLivePage() {
                       onChange={(e) => setTitle(e.target.value)}
                       placeholder="Nhập chủ đề livestream của bạn..."
                       disabled={!isPreviewing}
-                      className="w-full bg-black/30 border border-white/10 rounded-xl px-5 py-3 text-white placeholder-white/40 focus:outline-none focus:border-primary-500 focus:bg-black/50 transition-all"
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-5 py-3 text-slate-800 placeholder-slate-400 focus:outline-none focus:border-primary-500 focus:bg-white transition-all shadow-sm"
                     />
                   </div>
 
@@ -543,10 +579,10 @@ export default function GoLivePage() {
                       onClick={toggleCamera}
                       disabled={!isPreviewing}
                       className={`w-14 h-14 rounded-full flex items-center justify-center transition-all ${!isPreviewing
-                        ? "opacity-50 cursor-not-allowed"
+                        ? "bg-slate-100 hover:bg-slate-200 text-slate-400"
                         : cameraOn
-                          ? "bg-white/10 hover:bg-white/20 text-white"
-                          : "bg-red-500/20 text-red-500 border border-red-500/50"
+                          ? "bg-slate-100 hover:bg-slate-200 text-slate-700"
+                          : "bg-red-50 text-red-500 border border-red-100"
                         }`}
                     >
                       {cameraOn ? <Video className="w-6 h-6" /> : <VideoOff className="w-6 h-6" />}
@@ -555,10 +591,10 @@ export default function GoLivePage() {
                       onClick={toggleMic}
                       disabled={!isPreviewing}
                       className={`w-14 h-14 rounded-full flex items-center justify-center transition-all ${!isPreviewing
-                        ? "opacity-50 cursor-not-allowed"
+                        ? "bg-slate-100 text-slate-400 cursor-not-allowed"
                         : micOn
-                          ? "bg-white/10 hover:bg-white/20 text-white"
-                          : "bg-red-500/20 text-red-500 border border-red-500/50"
+                          ? "bg-slate-100 hover:bg-slate-200 text-slate-700"
+                          : "bg-red-50 text-red-500 border border-red-100"
                         }`}
                     >
                       {micOn ? <Mic className="w-6 h-6" /> : <MicOff className="w-6 h-6" />}
@@ -584,13 +620,13 @@ export default function GoLivePage() {
               ) : (
                 <div className="w-full flex items-center justify-between">
                   <div className="flex items-center gap-4">
-                    <div className="bg-red-500/20 text-red-400 border border-red-500/20 px-4 py-2 rounded-lg flex items-center gap-2">
+                    <div className="bg-red-50 text-red-600 border border-red-100 px-4 py-2 rounded-lg flex items-center gap-2 font-medium">
                       <Radio className="w-5 h-5 animate-pulse" /> Đang phát đến toàn hệ thống
                     </div>
                     {/* Nút copy link phòng live */}
                     <button
                       onClick={copyStreamLink}
-                      className="text-slate-400 hover:text-white flex items-center gap-1.5 text-sm bg-white/5 hover:bg-white/10 px-3 py-2 rounded-lg transition"
+                      className="text-slate-600 hover:text-slate-900 flex items-center gap-1.5 text-sm bg-slate-100 hover:bg-slate-200 px-3 py-2 rounded-lg transition"
                     >
                       <Copy className="w-3.5 h-3.5" /> Copy link
                     </button>
@@ -598,7 +634,7 @@ export default function GoLivePage() {
                       href={`/live/${streamKey}`}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-slate-400 hover:text-white flex items-center gap-1.5 text-sm bg-white/5 hover:bg-white/10 px-3 py-2 rounded-lg transition"
+                      className="text-slate-600 hover:text-slate-900 flex items-center gap-1.5 text-sm bg-slate-100 hover:bg-slate-200 px-3 py-2 rounded-lg transition"
                     >
                       <ExternalLink className="w-3.5 h-3.5" /> Xem phòng
                     </a>
@@ -608,8 +644,8 @@ export default function GoLivePage() {
                     <button
                       onClick={toggleCamera}
                       className={`w-14 h-14 rounded-full flex items-center justify-center transition-all ${cameraOn
-                        ? "bg-white/10 hover:bg-white/20 text-white"
-                        : "bg-red-500/20 text-red-500 border border-red-500/50"
+                        ? "bg-slate-100 hover:bg-slate-200 text-slate-700"
+                        : "bg-red-50 text-red-500 border border-red-100"
                         }`}
                     >
                       {cameraOn ? <Video className="w-6 h-6" /> : <VideoOff className="w-6 h-6" />}
@@ -617,8 +653,8 @@ export default function GoLivePage() {
                     <button
                       onClick={toggleMic}
                       className={`w-14 h-14 rounded-full flex items-center justify-center transition-all ${micOn
-                        ? "bg-white/10 hover:bg-white/20 text-white"
-                        : "bg-red-500/20 text-red-500 border border-red-500/50"
+                        ? "bg-slate-100 hover:bg-slate-200 text-slate-700"
+                        : "bg-red-50 text-red-500 border border-red-100"
                         }`}
                     >
                       {micOn ? <Mic className="w-6 h-6" /> : <MicOff className="w-6 h-6" />}
@@ -628,8 +664,8 @@ export default function GoLivePage() {
                     <button
                       onClick={() => setShowProductPanel(!showProductPanel)}
                       className={`w-14 h-14 rounded-full flex items-center justify-center transition-all ${showProductPanel
-                        ? "bg-accent-500/20 text-accent-400 border border-accent-500/50"
-                        : "bg-white/10 hover:bg-white/20 text-white"
+                        ? "bg-accent-100 text-accent-600 border border-accent-200"
+                        : "bg-slate-100 hover:bg-slate-200 text-slate-700"
                         }`}
                       title="Quản lý sản phẩm"
                     >
@@ -638,7 +674,7 @@ export default function GoLivePage() {
 
                     <button
                       onClick={stopLive}
-                      className="ml-4 px-8 h-14 rounded-xl font-bold bg-white/10 hover:bg-red-500/20 text-white hover:text-red-500 border border-white/10 hover:border-red-500/50 transition-all flex items-center gap-2 group"
+                      className="ml-4 px-8 h-14 rounded-xl font-bold bg-slate-100 hover:bg-red-50 text-slate-700 hover:text-red-600 border border-slate-200 hover:border-red-200 transition-all flex items-center gap-2 group"
                     >
                       <Square className="w-5 h-5 group-hover:scale-110 transition-transform" /> Kết
                       Thúc Live
@@ -652,30 +688,30 @@ export default function GoLivePage() {
                 PANEL QUẢN LÝ SẢN PHẨM — Chọn SP từ kho để bán live
                 ═══════════════════════════════════════════════════ */}
             {isLive && showProductPanel && (
-              <div className="dark-glass-panel rounded-2xl border border-white/10 p-5 flex flex-col gap-4">
+              <div className="glass-panel rounded-2xl border border-slate-200 p-5 flex flex-col gap-4 shadow-lg">
                 <div className="flex items-center justify-between">
-                  <h3 className="font-bold text-lg flex items-center gap-2">
-                    <Tag className="w-5 h-5 text-accent-400" />
+                  <h3 className="font-bold text-lg flex items-center gap-2 text-slate-800">
+                    <Tag className="w-5 h-5 text-accent-500" />
                     Chọn sản phẩm bán live
                     {products.length > 0 && (
-                      <span className="bg-accent-500/20 text-accent-400 text-xs px-2 py-0.5 rounded-full border border-accent-500/30">
+                      <span className="bg-accent-100 text-accent-600 text-xs px-2 py-0.5 rounded-full border border-accent-200">
                         {products.length} đang bán
                       </span>
                     )}
                   </h3>
-                  <button onClick={() => setShowProductPanel(false)} className="text-slate-500 hover:text-white transition">
+                  <button onClick={() => setShowProductPanel(false)} className="text-slate-400 hover:text-slate-600 transition">
                     <X className="w-4 h-4" />
                   </button>
                 </div>
 
                 {/* ── Thanh tìm kiếm ── */}
                 <div className="relative">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                   <input
                     value={productSearch}
                     onChange={(e) => setProductSearch(e.target.value)}
                     placeholder="Tìm sản phẩm..."
-                    className="w-full bg-black/30 border border-white/10 rounded-lg pl-9 pr-3 py-2 text-sm text-white placeholder-white/30 focus:outline-none focus:border-accent-400"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-lg pl-9 pr-3 py-2 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:border-accent-400"
                   />
                 </div>
 
@@ -698,25 +734,25 @@ export default function GoLivePage() {
                             onClick={() => toggleProduct(p)}
                             className={`flex items-center gap-3 px-3 py-2.5 rounded-xl border transition-all text-left w-full ${
                               selected
-                                ? "bg-accent-500/15 border-accent-500/40"
-                                : "bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/20"
+                                ? "bg-accent-50 border-accent-200"
+                                : "bg-white border-slate-100 hover:bg-slate-50 hover:border-slate-200"
                             }`}
                           >
                             {/* Ảnh sản phẩm */}
-                            <div className="w-10 h-10 rounded-lg overflow-hidden bg-white/10 shrink-0 flex items-center justify-center">
+                            <div className="w-10 h-10 rounded-lg overflow-hidden bg-slate-100 shrink-0 flex items-center justify-center border border-slate-100">
                               {p.imageUrl
                                 ? <img src={p.imageUrl} alt={p.name ?? ""} className="w-full h-full object-cover" />
                                 : <Package className="w-5 h-5 text-slate-400" />
                               }
                             </div>
                             <div className="flex-1 min-w-0">
-                              <p className="text-sm font-semibold truncate" style={{ color: "#fff" }}>
+                              <p className="text-sm font-semibold truncate text-slate-800">
                                 {p.name}
                               </p>
-                              <p className="text-xs" style={{ color: "#94a3b8" }}>
+                              <p className="text-xs text-slate-500">
                                 {Number(p.price).toLocaleString("vi-VN")}đ
                                 {p.stock !== undefined && (
-                                  <span style={{ color: "#64748b" }}> • Tồn: {p.stock}</span>
+                                  <span className="text-slate-400"> • Tồn: {p.stock}</span>
                                 )}
                               </p>
                             </div>
@@ -732,16 +768,16 @@ export default function GoLivePage() {
 
                 {/* ── Tóm tắt đang bán ── */}
                 {products.length > 0 && (
-                  <div className="border-t border-white/10 pt-3">
+                  <div className="border-t border-slate-100 pt-3">
                     <p className="text-xs text-slate-500 mb-2">Đang hiển thị với viewer ({products.length} sản phẩm):</p>
                     <div className="flex flex-wrap gap-1.5">
                       {products.map((p) => (
                         <span
                           key={p.id}
-                          className="flex items-center gap-1.5 bg-accent-500/10 text-accent-300 text-xs px-2 py-1 rounded-full border border-accent-500/20"
+                          className="flex items-center gap-1.5 bg-accent-50 text-accent-700 text-xs px-2 py-1 rounded-full border border-accent-100"
                         >
                           {p.imageUrl && (
-                            <img src={p.imageUrl} alt={p.name ?? ""} className="w-4 h-4 rounded-full object-cover shrink-0" />
+                            <img src={p.imageUrl} alt={p.name ?? ""} className="w-4 h-4 rounded-full object-cover shrink-0 border border-accent-100" />
                           )}
                           {p.name}
                           <button onClick={() => toggleProduct(p)} className="hover:text-red-400 transition ml-0.5">
@@ -760,8 +796,8 @@ export default function GoLivePage() {
               CỘT PHẢI (4 col): Chat realtime + Tương tác
               ════════════════════════════════════════════════════ */}
           <div className="lg:col-span-4 flex flex-col gap-6 h-full">
-            <div className="dark-glass-panel rounded-3xl p-6 flex-1 flex flex-col overflow-hidden relative">
-              <div className="absolute top-0 right-0 w-32 h-32 bg-primary-500/10 rounded-full blur-2xl" />
+            <div className="glass-panel rounded-3xl p-6 flex-1 flex flex-col overflow-hidden relative border border-slate-200">
+              <div className="absolute top-0 right-0 w-32 h-32 bg-primary-500/5 rounded-full blur-2xl" />
 
               <div className="flex items-center justify-between mb-6 relative z-10">
                 <h3 className="font-semibold text-lg flex items-center gap-2">
@@ -774,15 +810,9 @@ export default function GoLivePage() {
                 )}
               </div>
 
-              <div className="flex-1 bg-black/20 rounded-2xl border border-white/5 overflow-hidden">
+              <div className="flex-1 bg-white rounded-2xl border border-slate-100 overflow-hidden">
                 {isLive && streamKey ? (
-                  <div
-                    className="h-full"
-                    style={{
-                      filter: "invert(0.9) hue-rotate(180deg)",
-                      background: "#fff",
-                    }}
-                  >
+                  <div className="h-full">
                     <LiveChat
                       streamKey={streamKey}
                       userName={getSellerName()}

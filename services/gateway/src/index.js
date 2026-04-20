@@ -23,14 +23,40 @@ if (allowedOrigins.length === 0) {
   allowedOrigins.push(
     "http://localhost:3000",
     "http://localhost:3001",
+    "http://localhost:3002",
     "http://127.0.0.1:3000",
-    "http://127.0.0.1:3001"
+    "http://127.0.0.1:3001",
+    "https://haquason.uk",
+    "https://www.haquason.uk",
+    "https://api.haquason.uk"
   );
 }
 
 // ─── Middleware (non-body-consuming) ───
 app.use(helmet({ crossOriginResourcePolicy: false }));
-app.use(cors({ origin: allowedOrigins, credentials: true }));
+
+// Enhanced CORS Configuration
+const corsOptions = {
+  origin: (origin, callback) => {
+    // Cho phép các yêu cầu không có origin (như mobile apps hoặc curl)
+    if (!origin) return callback(null, true);
+    
+    if (allowedOrigins.indexOf(origin) !== -1 || allowedOrigins.includes("*")) {
+      callback(null, true);
+    } else {
+      console.warn(`[CORS] Blocked origin: ${origin}`);
+      callback(new Error("Not allowed by CORS"));
+    }
+  },
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "Accept"],
+  exposedHeaders: ["Authorization"],
+  preflightContinue: false,
+  optionsSuccessStatus: 204
+};
+
+app.use(cors(corsOptions));
 app.use(morgan("short"));
 
 // ─── Health Check ───
@@ -92,15 +118,23 @@ const springProxy = createProxyMiddleware({
         proxyReq.setHeader("Authorization", req.headers.authorization);
       }
     },
-    proxyRes: (proxyRes, req, res) => {
-      // Ensure CORS headers are set correctly - use request origin if allowed
-      const requestOrigin = req.headers.origin;
-      const corsOrigin = allowedOrigins.includes(requestOrigin) ? requestOrigin : allowedOrigins[0] || "http://localhost:3000";
-      proxyRes.headers["Access-Control-Allow-Origin"] = corsOrigin;
-      proxyRes.headers["Access-Control-Allow-Credentials"] = "true";
-      proxyRes.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS";
-      proxyRes.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization";
-    },
+    proxyRes: (proxyRes, req) => {
+
+    delete proxyRes.headers["access-control-allow-origin"];
+    delete proxyRes.headers["access-control-allow-credentials"];
+    delete proxyRes.headers["access-control-allow-methods"];
+    delete proxyRes.headers["access-control-allow-headers"];
+    delete proxyRes.headers["access-control-expose-headers"];
+
+    const origin = req.headers.origin;
+
+    if (origin && allowedOrigins.includes(origin)) {
+        proxyRes.headers["access-control-allow-origin"] = origin;
+        proxyRes.headers["access-control-allow-credentials"] = "true";
+        proxyRes.headers["access-control-allow-methods"] = "GET, POST, PUT, DELETE, OPTIONS";
+        proxyRes.headers["access-control-allow-headers"] = "Content-Type, Authorization";
+    }
+},
     error: (err, _req, res) => {
       console.error("Spring proxy error:", err.message);
       res.status(502).json({ success: false, error: "Spring service unavailable" });
@@ -115,6 +149,18 @@ const fastapiProxy = createProxyMiddleware({
   changeOrigin: true,
   pathFilter: ["/api/ai/**", "/api/search/**", "/api/chatbot/**"],
   on: {
+    proxyRes: (proxyRes, req) => {
+      delete proxyRes.headers["access-control-allow-origin"];
+      delete proxyRes.headers["access-control-allow-credentials"];
+      delete proxyRes.headers["access-control-allow-methods"];
+      delete proxyRes.headers["access-control-allow-headers"];
+      delete proxyRes.headers["access-control-expose-headers"];
+      const origin = req.headers.origin;
+      if (origin && allowedOrigins.includes(origin)) {
+        proxyRes.headers["access-control-allow-origin"] = origin;
+        proxyRes.headers["access-control-allow-credentials"] = "true";
+      }
+    },
     error: (err, _req, res) => {
       console.error("FastAPI proxy error:", err.message);
       res.status(502).json({ success: false, error: "AI service unavailable" });
