@@ -1,5 +1,6 @@
 "use client";
 
+import Saleschart from './saleschart';
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -203,6 +204,8 @@ export default function SellerDashboard() {
           <p className="text-xs text-gray-400 mt-1">{d?.cancelledOrders || 0} đơn huỷ</p>
         </div>
       </div>
+
+      <Saleschart />
 
       {/* Quick Actions - Product Creation Options */}
       <h2 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
