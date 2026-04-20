@@ -13,6 +13,9 @@ import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.LocalDate;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -39,7 +42,14 @@ public class SellerDashboardServiceImpl implements SellerDashboardService {
                 .collect(Collectors.toList());
 
         BigDecimal totalRevenue = BigDecimal.ZERO;
+        BigDecimal refundedRevenue = BigDecimal.ZERO;
         int pendingOrders = 0, shippedOrders = 0, completedOrders = 0, cancelledOrders = 0;
+        int refundedOrders = 0;
+
+        Map<LocalDate, BigDecimal> revenueByDate = new TreeMap<>();
+        LocalDate today = LocalDate.now(ZoneId.systemDefault());
+        LocalDate startDate = today.minusDays(364);
+        DateTimeFormatter dateFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd");
 
         // Top products tracking
         Map<Long, SellerDashboardDTO.TopProductDTO> topMap = new HashMap<>();
@@ -53,11 +63,19 @@ public class SellerDashboardServiceImpl implements SellerDashboardService {
                 default: break;
             }
 
-            if (order.getStatus() == OrderStatus.FINISHED || order.getStatus() == OrderStatus.PAID || order.getStatus() == OrderStatus.SHIPPED) {
+            if (order.getStatus() == OrderStatus.FINISHED) {
+                LocalDate orderDate = order.getCreateAt() != null
+                        ? order.getCreateAt().toInstant().atZone(ZoneId.systemDefault()).toLocalDate()
+                        : null;
+
                 for (OrderItem oi : order.getOrderItems()) {
                     if (productIds.contains(oi.getProduct().getId())) {
                         BigDecimal lineTotal = oi.getPrice().multiply(BigDecimal.valueOf(oi.getQuantity()));
                         totalRevenue = totalRevenue.add(lineTotal);
+
+                        if (orderDate != null && !orderDate.isBefore(startDate)) {
+                            revenueByDate.merge(orderDate, lineTotal, BigDecimal::add);
+                        }
 
                         topMap.merge(oi.getProduct().getId(),
                                 new SellerDashboardDTO.TopProductDTO(
@@ -77,6 +95,24 @@ public class SellerDashboardServiceImpl implements SellerDashboardService {
                     }
                 }
             }
+        }
+
+        for (LocalDate date = startDate; !date.isAfter(today); date = date.plusDays(1)) {
+            revenueByDate.computeIfAbsent(date, key -> BigDecimal.ZERO);
+        }
+
+        for (ReturnRequest returnRequest : sellerReturns) {
+            if (returnRequest.getStatus() == ReturnStatus.REFUNDED) {
+                refundedOrders++;
+                if (returnRequest.getRefundAmount() != null) {
+                    refundedRevenue = refundedRevenue.add(returnRequest.getRefundAmount());
+                }
+            }
+        }
+
+        BigDecimal netRevenue = totalRevenue.subtract(refundedRevenue);
+        if (netRevenue.compareTo(BigDecimal.ZERO) < 0) {
+            netRevenue = BigDecimal.ZERO;
         }
 
         List<SellerDashboardDTO.TopProductDTO> topProducts = topMap.values().stream()
@@ -103,6 +139,12 @@ public class SellerDashboardServiceImpl implements SellerDashboardService {
         dto.setCancelRate(cancelRate);
         dto.setTopProducts(topProducts);
         dto.setTrustScore(trustScore);
+        dto.setRevenueHistory(revenueByDate.entrySet().stream()
+                .map(entry -> new SellerDashboardDTO.RevenueHistoryDTO(
+                        entry.getKey().format(DateTimeFormatter.ISO_DATE),
+                        entry.getValue()
+                ))
+                .collect(Collectors.toList()));
 
         return dto;
     }

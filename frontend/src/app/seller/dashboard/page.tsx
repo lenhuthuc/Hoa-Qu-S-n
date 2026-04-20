@@ -20,6 +20,11 @@ import {
 } from "lucide-react";
 import { sellerApi, trustScoreApi, isLoggedIn, parseToken } from "@/lib/api";
 
+interface RevenueHistoryPoint {
+  date: string;
+  revenue: number;
+}
+
 interface DashboardData {
   totalProducts: number;
   totalOrders: number;
@@ -30,6 +35,7 @@ interface DashboardData {
   cancelRate: number;
   totalRevenue: number;
   topProducts: { productId: number; productName: string; totalRevenue: number; totalSold: number }[];
+  revenueHistory: RevenueHistoryPoint[];
   trustScore: { score: number; badge: string; avgRating: number; totalReviews: number } | null;
 }
 
@@ -53,6 +59,7 @@ export default function SellerDashboard() {
   const router = useRouter();
   const [dashboard, setDashboard] = useState<DashboardData | null>(null);
   const [trustScore, setTrustScore] = useState<TrustScoreData | null>(null);
+  const [chartRange, setChartRange] = useState<"1m" | "6m" | "1y">("1m");
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -83,6 +90,40 @@ export default function SellerDashboard() {
 
   const fmt = (v: number) => new Intl.NumberFormat("vi-VN").format(v);
   const fmtCurrency = (v: number) => new Intl.NumberFormat("vi-VN", { style: "currency", currency: "VND" }).format(v);
+
+  const chartData = (() => {
+    const raw = dashboard?.revenueHistory || [];
+    if (chartRange === "1m") {
+      return raw.slice(Math.max(0, raw.length - 30)).map((point) => ({
+        label: new Intl.DateTimeFormat("vi-VN", { day: "2-digit", month: "2-digit" }).format(new Date(point.date)),
+        revenue: point.revenue,
+      }));
+    }
+
+    const monthMap = new Map<string, number>();
+    raw.forEach((point) => {
+      const d = new Date(point.date);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+      monthMap.set(key, (monthMap.get(key) || 0) + point.revenue);
+    });
+
+    const months = chartRange === "6m" ? 6 : 12;
+    const today = new Date();
+    const points: Array<{ label: string; revenue: number }> = [];
+
+    for (let i = months - 1; i >= 0; i -= 1) {
+      const dt = new Date(today.getFullYear(), today.getMonth() - i, 1);
+      const key = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}`;
+      points.push({
+        label: new Intl.DateTimeFormat("vi-VN", { month: "short", year: "2-digit" }).format(dt),
+        revenue: monthMap.get(key) || 0,
+      });
+    }
+
+    return points;
+  })();
+
+  const chartMax = Math.max(...chartData.map((point) => point.revenue), 1);
 
   if (loading) {
     return (
@@ -180,6 +221,85 @@ export default function SellerDashboard() {
           <p className="text-2xl font-bold text-gray-800">{(d?.cancelRate || 0).toFixed(1)}%</p>
           <p className="text-xs text-gray-400 mt-1">{d?.cancelledOrders || 0} đơn huỷ</p>
         </div>
+      </div>
+
+      {/* Revenue Chart */}
+      <div className="bg-white rounded-xl border p-6 mb-8">
+        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between mb-4">
+          <div>
+            <p className="text-sm text-gray-500">Doanh thu theo thời gian</p>
+            <h2 className="text-xl font-semibold text-gray-800">{chartRange === "1m" ? "30 ngày gần nhất" : chartRange === "6m" ? "6 tháng" : "12 tháng"}</h2>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {(["1m", "6m", "1y"] as const).map((option) => (
+              <button
+                key={option}
+                type="button"
+                onClick={() => setChartRange(option)}
+                className={`px-4 py-2 rounded-full text-sm font-medium transition ${chartRange === option ? "bg-green-600 text-white" : "bg-gray-100 text-gray-700 hover:bg-gray-200"}`}
+              >
+                {option === "1m" ? "1 tháng" : option === "6m" ? "6 tháng" : "1 năm"}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="overflow-x-auto">
+          <div className="min-w-[320px] h-[240px] flex items-end gap-2 pb-4">
+            {chartData.map((point, index) => {
+              const height = Math.max(6, Math.round((point.revenue / chartMax) * 100));
+              return (
+                <div key={`${point.label}-${index}`} className="flex-1 min-w-[24px] flex flex-col justify-end items-center gap-2">
+                  <div className="w-full rounded-t-xl bg-emerald-500" style={{ height: `${height}%` }} />
+                  <p className="text-[10px] text-gray-500 text-center leading-tight">{point.label}</p>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      {/* Quick Actions - Product Creation Options */}
+      <h2 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
+        <Package className="w-5 h-5 text-green-600" />
+        Đăng bán nông sản mới
+      </h2>
+      <div className="grid md:grid-cols-2 gap-6 mb-8">
+        <Link
+          href="/seller/products/create"
+          className="group relative bg-white rounded-2xl border-2 border-dashed border-gray-200 p-6 hover:border-green-500 transition-all hover:shadow-lg overflow-hidden"
+        >
+          <div className="absolute top-0 right-0 p-3 opacity-10 group-hover:opacity-20 transition-opacity">
+            <Package className="w-24 h-24 rotate-12" />
+          </div>
+          <div className="flex items-center gap-4">
+            <div className="w-14 h-14 rounded-xl bg-green-50 text-green-600 flex items-center justify-center group-hover:bg-green-600 group-hover:text-white transition-colors">
+              <Package className="w-7 h-7" />
+            </div>
+            <div>
+              <h3 className="text-xl font-bold text-gray-800">Tạo thủ công</h3>
+              <p className="text-sm text-gray-500">Tự nhập thông tin chi tiết sản phẩm</p>
+            </div>
+          </div>
+        </Link>
+
+        <Link
+          href="/seller/create-post"
+          className="group relative bg-gradient-to-br from-purple-600 to-indigo-700 rounded-2xl p-6 hover:shadow-xl transition-all hover:-translate-y-1 overflow-hidden text-white"
+        >
+          <div className="absolute top-0 right-0 p-3 opacity-20">
+            <Sparkles className="w-24 h-24 rotate-12" />
+          </div>
+          <div className="flex items-center gap-4">
+            <div className="w-14 h-14 rounded-xl bg-white/20 backdrop-blur-md flex items-center justify-center">
+              <Sparkles className="w-7 h-7" />
+            </div>
+            <div>
+              <h3 className="text-xl font-bold">Tạo bằng AI (Gemini)</h3>
+              <p className="text-purple-100 text-sm">Chỉ cần ảnh, AI lo phần còn lại</p>
+            </div>
+          </div>
+        </Link>
       </div>
 
       {/* Quick Links */}
