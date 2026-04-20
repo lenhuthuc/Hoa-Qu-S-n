@@ -119,17 +119,22 @@ const springProxy = createProxyMiddleware({
       }
     },
     proxyRes: (proxyRes, req) => {
-      delete proxyRes.headers["access-control-allow-origin"];
-      delete proxyRes.headers["access-control-allow-credentials"];
-      delete proxyRes.headers["access-control-allow-methods"];
-      delete proxyRes.headers["access-control-allow-headers"];
-      delete proxyRes.headers["access-control-expose-headers"];
-      const origin = req.headers.origin;
-      if (origin && allowedOrigins.includes(origin)) {
+
+    delete proxyRes.headers["access-control-allow-origin"];
+    delete proxyRes.headers["access-control-allow-credentials"];
+    delete proxyRes.headers["access-control-allow-methods"];
+    delete proxyRes.headers["access-control-allow-headers"];
+    delete proxyRes.headers["access-control-expose-headers"];
+
+    const origin = req.headers.origin;
+
+    if (origin && allowedOrigins.includes(origin)) {
         proxyRes.headers["access-control-allow-origin"] = origin;
         proxyRes.headers["access-control-allow-credentials"] = "true";
-      }
-    },
+        proxyRes.headers["access-control-allow-methods"] = "GET, POST, PUT, DELETE, OPTIONS";
+        proxyRes.headers["access-control-allow-headers"] = "Content-Type, Authorization";
+    }
+},
     error: (err, _req, res) => {
       console.error("Spring proxy error:", err.message);
       res.status(502).json({ success: false, error: "Spring service unavailable" });
@@ -199,7 +204,7 @@ app.use((_req, res) => res.status(404).json({ success: false, error: "Route not 
 initSocket(server);
 
 // ─── Start ───
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3003;
 server.listen(PORT, () => console.log(`[Gateway] Running on port ${PORT}`));
 
 module.exports = { app, server };

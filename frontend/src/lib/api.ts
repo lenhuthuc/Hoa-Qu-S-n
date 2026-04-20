@@ -1,10 +1,10 @@
 import axios from "axios";
 
-// SSR: use Docker internal hostname; Browser: call gateway directly (avoids Next.js rewrite issues in Docker)
+// SSR: use Docker internal hostname; Browser: use relative path for Next.js proxy
 const API_URL =
   typeof window === "undefined"
-    ? process.env.INTERNAL_API_URL || "http://localhost:3000"
-    : process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000";
+    ? process.env.INTERNAL_API_URL || "http://localhost:3003"
+    : "/api";
 
 const api = axios.create({
   baseURL: API_URL,
@@ -48,11 +48,11 @@ export function parseEvidenceUrls(rawUrls?: string | null): string[] {
 api.interceptors.request.use((config) => {
   if (typeof window !== "undefined") {
     const reqUrl = config.url || "";
-    const isAuthEndpoint = reqUrl.includes("/api/user/auth/login")
-      || reqUrl.includes("/api/user/auth/register")
-      || reqUrl.includes("/api/user/auth/reset-password")
-      || reqUrl.includes("/api/user/auth/verify-otp")
-      || reqUrl.includes("/api/user/auth/change-password");
+    const isAuthEndpoint = reqUrl.includes("/user/auth/login")
+      || reqUrl.includes("/user/auth/register")
+      || reqUrl.includes("/user/auth/reset-password")
+      || reqUrl.includes("/user/auth/verify-otp")
+      || reqUrl.includes("/user/auth/change-password");
 
     const token = localStorage.getItem("hqs_token");
     if (token && !isAuthEndpoint) {
@@ -99,24 +99,26 @@ export function hasRole(role: string): boolean {
 // ─── Auth ───
 export const authApi = {
   login: (email: string, password: string) =>
-    api.post("/api/user/auth/login", { email, password }),
+    api.post("/user/auth/login", { email, password }),
   register: (email: string, password: string) =>
-    api.post("/api/user/auth/register", { email, password }),
-  logout: () => api.post("/api/user/auth/logout"),
+    api.post("/user/auth/register", { email, password }),
+  logout: () => api.post("/user/auth/logout"),
 };
 
 // ─── Products ───
 export const productApi = {
   getAll: (page = 0, size = 30) =>
-    api.get(`/api/products/?noPage=${page}&sizePage=${size}`),
-  getById: (id: number) => api.get(`/api/products/${id}`),
-  search: (name: string) => api.get(`/api/products/products?name=${name}`),
+    api.get(`/products/?noPage=${page}&sizePage=${size}`),
+  getById: (id: number) => api.get(`/products/${id}`),
+  search: (name: string) => api.get(`/products/products?name=${name}`),
 };
 
 // ─── AI Post ───
 export const aiApi = {
   generatePost: (images: File | File[]) => {
     const form = new FormData();
+    form.append("image", image);
+    return api.post("/ai/generate-post", form, {
     const files = Array.isArray(images) ? images : [images];
     files.forEach((f) => form.append("images", f));
     return api.post("/api/ai/generate-post", form, {
@@ -137,12 +139,20 @@ export const aiApi = {
       batchId?: string;
       origin?: string;
     },
-    imageFile: File
+    imageFile: File,
+    publishToFacebook?: boolean,
+    facebookPageId?: string
   ) => {
     const form = new FormData();
     form.append("products", new Blob([JSON.stringify(product)], { type: "application/json" }));
     form.append("file", imageFile);
-    return api.post("/api/user/products", form, {
+    
+    let url = "/api/user/products";
+    if (publishToFacebook && facebookPageId) {
+      url += `?publishToFacebook=true&facebookPageId=${encodeURIComponent(facebookPageId)}`;
+    }
+    
+    return api.post(url, form, {
       headers: { "Content-Type": "multipart/form-data" },
     });
   },
@@ -168,7 +178,7 @@ export const aiApi = {
     form.append("file", imageFile);
     form.append("pageId", pageId);
     if (message) form.append("message", message);
-    return api.post("/api/user/products/publish-with-facebook", form, {
+    return api.post("/user/products/publish-with-facebook", form, {
       headers: { "Content-Type": "multipart/form-data" },
     });
   },
@@ -177,49 +187,50 @@ export const aiApi = {
 // ─── Seller Facebook Integration ───
 export const facebookApi = {
   getOAuthUrl: (redirectUri: string) =>
-    api.get(`/api/seller/facebook/oauth-url?redirectUri=${encodeURIComponent(redirectUri)}`),
+    api.get(`/seller/facebook/oauth-url?redirectUri=${encodeURIComponent(redirectUri)}`),
   handleOAuthCallback: (code: string, redirectUri: string) =>
-    api.post(`/api/seller/facebook/oauth/callback?code=${encodeURIComponent(code)}&redirectUri=${encodeURIComponent(redirectUri)}`),
-  getPages: () => api.get("/api/seller/facebook/pages"),
+    api.post(`/seller/facebook/oauth/callback?code=${encodeURIComponent(code)}&redirectUri=${encodeURIComponent(redirectUri)}`),
+  getPages: () => api.get("/seller/facebook/pages"),
+  checkConnected: () => api.get("/seller/facebook/check-connected"),
   publishProduct: (productId: number, pageId: string, message?: string) =>
-    api.post(`/api/seller/facebook/publish/product/${productId}?pageId=${encodeURIComponent(pageId)}${message ? `&message=${encodeURIComponent(message)}` : ""}`),
+    api.post(`/seller/facebook/publish/product/${productId}?pageId=${encodeURIComponent(pageId)}${message ? `&message=${encodeURIComponent(message)}` : ""}`),
 };
 
 // ─── Semantic Search ───
 export const searchApi = {
   semantic: (query: string, limit = 10) =>
-    api.get(`/api/search/semantic?q=${encodeURIComponent(query)}&limit=${limit}`),
+    api.get(`/search/semantic?q=${encodeURIComponent(query)}&limit=${limit}`),
   embedProduct: (product: {
     product_id: number;
     product_name: string;
     description?: string;
     category?: string;
     price: number;
-  }) => api.post("/api/search/embed-product", product),
+  }) => api.post("/search/embed-product", product),
 };
 
 // ─── Chatbot ───
 export const chatbotApi = {
   sendMessage: (message: string, history?: Array<{ role: string; content: string }>) =>
-    api.post("/api/chatbot/message", { message, history }),
+    api.post("/chatbot/message", { message, history }),
 };
 
 // ─── Farming Journal ───
 export const farmingApi = {
   createEntry: (data: FormData) =>
-    api.post("/api/farming-journal", data, {
+    api.post("/farming-journal", data, {
       headers: { "Content-Type": "multipart/form-data" },
     }),
-  getByBatch: (batchId: string) => api.get(`/api/farming-journal/batch/${batchId}`),
-  getMyEntries: () => api.get("/api/farming-journal/my-entries"),
-  deleteEntry: (id: string) => api.delete(`/api/farming-journal/${id}`),
+  getByBatch: (batchId: string) => api.get(`/farming-journal/batch/${batchId}`),
+  getMyEntries: () => api.get("/farming-journal/my-entries"),
+  deleteEntry: (id: string) => api.delete(`/farming-journal/${id}`),
 };
 
 // ─── Traceability ───
 export const traceApi = {
-  getTimeline: (batchId: string) => api.get(`/api/traceability/${batchId}`),
-  getByBatchId: (batchId: string) => api.get(`/api/traceability/${batchId}`),
-  getQrCode: (batchId: string) => api.get(`/api/traceability/${batchId}/qr-base64`),
+  getTimeline: (batchId: string) => api.get(`/traceability/${batchId}`),
+  getByBatchId: (batchId: string) => api.get(`/traceability/${batchId}`),
+  getQrCode: (batchId: string) => api.get(`/traceability/${batchId}/qr-base64`),
 };
 
 // ─── Seller Batches ───
@@ -234,43 +245,43 @@ export const batchApi = {
 
 // ─── Shipping ───
 export const shippingApi = {
-  provinces: () => api.get("/api/shipping/provinces"),
-  districts: (provinceId: number) => api.get(`/api/shipping/districts?provinceId=${provinceId}`),
-  wards: (districtId: number) => api.get(`/api/shipping/wards?districtId=${districtId}`),
+  provinces: () => api.get("/shipping/provinces"),
+  districts: (provinceId: number) => api.get(`/shipping/districts?provinceId=${provinceId}`),
+  wards: (districtId: number) => api.get(`/shipping/wards?districtId=${districtId}`),
   validate: (productId: number, districtId?: string, wardCode?: string) =>
-    api.get("/api/shipping/validate", {
+    api.get("/shipping/validate", {
       params: { productId, toDistrictId: districtId, toWardCode: wardCode },
     }),
 };
 
 // ─── Livestream ───
 export const livestreamApi = {
-  start: (title: string) => api.post("/api/livestream/start", { title }),
-  stop: (streamKey: string) => api.post("/api/livestream/stop", { streamKey }),
-  getActive: () => api.get("/api/livestream/active"),
+  start: (title: string) => api.post("/livestream/start", { title }),
+  stop: (streamKey: string) => api.post("/livestream/stop", { streamKey }),
+  getActive: () => api.get("/livestream/active"),
   /** Lấy thông tin phiên live (title, seller, products, status) */
-  getStream: (streamKey: string) => api.get(`/api/livestream/${streamKey}`),
+  getStream: (streamKey: string) => api.get(`/livestream/${streamKey}`),
   /** Cập nhật danh sách sản phẩm đang bán trong phiên */
   updateProducts: (streamKey: string, products: Array<{ id: number; name: string; price: number }>) =>
-    api.put(`/api/livestream/${streamKey}/products`, { products }),
+    api.put(`/livestream/${streamKey}/products`, { products }),
   /** Lấy lịch sử chat (50 tin gần nhất) */
-  getChatHistory: (streamKey: string) => api.get(`/api/livestream/${streamKey}/chat-history`),
+  getChatHistory: (streamKey: string) => api.get(`/livestream/${streamKey}/chat-history`),
 };
 
 // ─── Cart & Orders ───
 export const cartApi = {
-  getItems: () => api.get("/api/cart/items"),
+  getItems: () => api.get("/cart/items"),
   addItem: (data: { productId: number; quantity: number }) =>
-    api.put(`/api/cart/items/${data.productId}?quantity=${data.quantity}`),
+    api.put(`/cart/items/${data.productId}?quantity=${data.quantity}`),
   updateItem: (productId: number, quantity: number) =>
-    api.put(`/api/cart/items/${productId}?quantity=${quantity}`),
-  removeItem: (productId: number) => api.delete(`/api/cart/items/${productId}`),
+    api.put(`/cart/items/${productId}?quantity=${quantity}`),
+  removeItem: (productId: number) => api.delete(`/cart/items/${productId}`),
 };
 
 export const orderApi = {
-  getMyOrders: () => api.get("/api/orders/my-orders"),
-  getAll: () => api.get("/api/orders/my-orders"),
-  getById: (id: number) => api.get(`/api/orders/${id}`),
+  getMyOrders: () => api.get("/orders/my-orders"),
+  getAll: () => api.get("/orders/my-orders"),
+  getById: (id: number) => api.get(`/orders/${id}`),
   preview: (params?: {
     discountVoucherCode?: string;
     shippingVoucherCode?: string;
@@ -306,42 +317,36 @@ export const orderApi = {
       `${toDistrictId ? `&toDistrictId=${encodeURIComponent(toDistrictId)}` : ""}` +
       `${toWardCode ? `&toWardCode=${encodeURIComponent(toWardCode)}` : ""}`
     ),
-  createBuyNow: (
-    productId: number,
-    quantity: number,
-    paymentMethod: number,
-    voucherCode?: string,
-    discountVoucherCode?: string,
-    shippingVoucherCode?: string,
-    deliveryType: "STANDARD" | "EXPRESS" = "STANDARD",
-    toDistrictId?: string,
-    toWardCode?: string
-  ) =>
-    api.post(
-      `/api/orders/buy-now/create?productId=${productId}&quantity=${quantity}&paymentMethod=${paymentMethod}` +
-      `${voucherCode ? `&voucherCode=${encodeURIComponent(voucherCode)}` : ""}` +
-      `${discountVoucherCode ? `&discountVoucherCode=${encodeURIComponent(discountVoucherCode)}` : ""}` +
-      `${shippingVoucherCode ? `&shippingVoucherCode=${encodeURIComponent(shippingVoucherCode)}` : ""}` +
-      `${deliveryType ? `&deliveryType=${encodeURIComponent(deliveryType)}` : ""}` +
-      `${toDistrictId ? `&toDistrictId=${encodeURIComponent(toDistrictId)}` : ""}` +
-      `${toWardCode ? `&toWardCode=${encodeURIComponent(toWardCode)}` : ""}`
-    ),
+createBuyNow: (params: {
+    productId: number;
+    quantity: number;
+    paymentMethod: number;
+    voucherCode?: string;
+    discountVoucherCode?: string;
+    shippingVoucherCode?: string;
+    deliveryType?: "STANDARD" | "EXPRESS";
+    toDistrictId?: string;
+    toWardCode?: string;
+  }) => api.post("/api/orders/buy-now/create", null, { params }),
+
   retryPayment: (id: number) => api.post(`/api/orders/${id}/retry-payment`),
+  
   delete: (id: number) => api.delete(`/api/orders/${id}`),
   updateStatus: (id: number, status: string) =>
-    api.put(`/api/orders/${id}/status?status=${status}`),
+    api.put(`/orders/${id}/status?status=${status}`),
 };
 
 // ─── Categories ───
 export const categoryApi = {
-  getRoots: () => api.get("/api/categories/"),
-  getChildren: (id: number) => api.get(`/api/categories/${id}/children`),
-  getAll: () => api.get("/api/categories/all"),
+  getRoots: () => api.get("/categories/"),
+  getChildren: (id: number) => api.get(`/categories/${id}/children`),
+  getAll: () => api.get("/categories/all"),
 };
 
 // ─── User Profile ───
 export const userApi = {
-  getProfile: () => api.get("/api/user/profile"),
+getProfile: () => api.get("/api/user/profile"),
+  
   uploadAvatar: (file: File) => {
     const form = new FormData();
     form.append("file", file);
@@ -361,108 +366,118 @@ export const userApi = {
     ghnDistrictId?: number;
     ghnWardCode?: string;
   }) =>
-    api.put(`/api/user/updation/${id}`, data),
+    api.put(`/user/updation/${id}`, data),
   refresh: (refreshToken: string) =>
-    api.get("/api/user/refresh", { headers: { Authorization: `Bearer ${refreshToken}` } }),
+    api.get("/user/refresh", { headers: { Authorization: `Bearer ${refreshToken}` } }),
   resetPassword: (email: string) =>
-    api.post(`/api/user/auth/reset-password?email=${encodeURIComponent(email)}`),
+    api.post(`/user/auth/reset-password?email=${encodeURIComponent(email)}`),
   verifyOtp: (email: string, otp: string) =>
-    api.post(`/api/user/auth/verify-otp?email=${encodeURIComponent(email)}&otp=${otp}`),
+    api.post(`/user/auth/verify-otp?email=${encodeURIComponent(email)}&otp=${otp}`),
   changePassword: (email: string, newPassword: string, otp: string) =>
-    api.post(`/api/user/auth/change-password?email=${encodeURIComponent(email)}&newPassword=${encodeURIComponent(newPassword)}&otp=${otp}`),
+    api.post(`/user/auth/change-password?email=${encodeURIComponent(email)}&newPassword=${encodeURIComponent(newPassword)}&otp=${otp}`),
 };
 
 // ─── Seller Onboarding ───
 export const sellerOnboardingApi = {
-  submit: (data: Record<string, unknown>) => api.post("/api/user/seller-applications", data),
+  submit: (data: Record<string, unknown>) => api.post("/user/seller-applications", data),
   uploadDocuments: (formData: FormData) =>
-    api.post("/api/user/seller-applications/documents", formData, { headers: { "Content-Type": "multipart/form-data" } }),
-  getMine: () => api.get("/api/user/seller-applications/me"),
-  getAll: (status?: string) => api.get(`/api/admin/seller-applications${status ? `?status=${encodeURIComponent(status)}` : ""}`),
+    api.post("/user/seller-applications/documents", formData, { headers: { "Content-Type": "multipart/form-data" } }),
+  getMine: () => api.get("/user/seller-applications/me"),
+  getAll: (status?: string) => api.get(`/admin/seller-applications${status ? `?status=${encodeURIComponent(status)}` : ""}`),
   review: (id: number, action: "APPROVE" | "NEEDS_REVISION" | "REJECT", note?: string) =>
-    api.put(`/api/admin/seller-applications/${id}/review`, { action, note }),
+    api.put(`/admin/seller-applications/${id}/review`, { action, note }),
 };
 
 // ─── Reviews ───
 export const reviewApi = {
-  getByProduct: (productId: number) => api.get(`/api/reviews/products/${productId}`),
-  getEligibility: (productId: number) => api.get(`/api/reviews/products/${productId}/eligibility`),
+  getByProduct: (productId: number) => api.get(`/reviews/products/${productId}`),
+  getEligibility: (productId: number) => api.get(`/reviews/products/${productId}/eligibility`),
   create: (productId: number, data: { rating: number; comment: string }) =>
-    api.post(`/api/reviews/products/${productId}`, data),
+    api.post(`/reviews/products/${productId}`, data),
   createWithMedia: (productId: number, formData: FormData) =>
-    api.post(`/api/reviews/products/${productId}/attachments`, formData, {
+    api.post(`/reviews/products/${productId}/attachments`, formData, {
       headers: { "Content-Type": "multipart/form-data" },
     }),
   delete: (productId: number, reviewId: number) =>
-    api.delete(`/api/reviews/products/${productId}/${reviewId}`),
+    api.delete(`/reviews/products/${productId}/${reviewId}`),
 };
 
 // ─── Market Prices ───
 export const marketPriceApi = {
-  getAll: () => api.get("/api/market-prices"),
-  search: (name: string) => api.get(`/api/market-prices/search?name=${encodeURIComponent(name)}`),
+  getAll: () => api.get("/market-prices"),
+  search: (name: string) => api.get(`/market-prices/search?name=${encodeURIComponent(name)}`),
 };
 
 // ─── Invoices ───
 export const invoiceApi = {
   create: (orderId: number, paymentMethodId?: number) =>
-    api.post(`/api/invoices?orderId=${orderId}${paymentMethodId ? `&paymentMethodId=${paymentMethodId}` : ""}`),
-  delete: (invoiceId: number) => api.delete(`/api/invoices/${invoiceId}`),
+    api.post(`/invoices?orderId=${orderId}${paymentMethodId ? `&paymentMethodId=${paymentMethodId}` : ""}`),
+  delete: (invoiceId: number) => api.delete(`/invoices/${invoiceId}`),
 };
 
 // ─── Payments ───
 export const paymentApi = {
   createVnPayUrl: (totalPrice: number, orderInfo: string, orderId: number) =>
-    api.post(`/api/payments/createUrl?totalPrice=${totalPrice}&orderInfo=${encodeURIComponent(orderInfo)}&orderId=${orderId}`),
+    api.post("/api/payments/createUrl", null, {
+      params: { totalPrice, orderInfo, orderId },
+    }),
+
   createMoMoUrl: (totalPrice: number, orderInfo: string, orderId: number) =>
-    api.post(`/api/payments/createMoMoUrl?totalPrice=${totalPrice}&orderInfo=${encodeURIComponent(orderInfo)}&orderId=${orderId}`),
-  addMethod: (name: string) => api.post(`/api/payments/methods?name=${encodeURIComponent(name)}`),
+    api.post("/api/payments/createMoMoUrl", null, {
+      params: { totalPrice, orderInfo, orderId },
+    }),
+
+  addMethod: (name: string) =>
+    api.post("/api/payments/methods", null, {
+      params: { name },
+    }),
 };
 
 // ─── Admin ───
 export const adminApi = {
-  getUsers: (page = 0, size = 20) => api.get(`/api/admin/users?noPage=${page}&sizePage=${size}`),
-  getUser: (id: number) => api.get(`/api/admin/users/${id}`),
-  deleteUser: (id: number) => api.delete(`/api/admin/users/${id}`),
+  getUsers: (page = 0, size = 20) => api.get(`/admin/users?noPage=${page}&sizePage=${size}`),
+  getUser: (id: number) => api.get(`/admin/users/${id}`),
+  deleteUser: (id: number) => api.delete(`/admin/users/${id}`),
   createProduct: (product: Record<string, unknown>, imageFile: File) => {
     const form = new FormData();
     form.append("products", new Blob([JSON.stringify(product)], { type: "application/json" }));
     form.append("file", imageFile);
-    return api.post("/api/admin/products", form, { headers: { "Content-Type": "multipart/form-data" } });
+    return api.post("/admin/products", form, { headers: { "Content-Type": "multipart/form-data" } });
   },
   updateProduct: (id: number, product: Record<string, unknown>, imageFile?: File) => {
     const form = new FormData();
     form.append("products", new Blob([JSON.stringify(product)], { type: "application/json" }));
     if (imageFile) form.append("file", imageFile);
-    return api.put(`/api/admin/products/${id}`, form, { headers: { "Content-Type": "multipart/form-data" } });
+    return api.put(`/admin/products/${id}`, form, { headers: { "Content-Type": "multipart/form-data" } });
   },
-  deleteProduct: (id: number) => api.delete(`/api/admin/products/${id}`),
+  deleteProduct: (id: number) => api.delete(`/admin/products/${id}`),
   getSellerApplications: (status?: string) =>
-    api.get(`/api/admin/seller-applications${status ? `?status=${encodeURIComponent(status)}` : ""}`),
+    api.get(`/admin/seller-applications${status ? `?status=${encodeURIComponent(status)}` : ""}`),
   getSellerApplicationDocument: (id: number, type: "front" | "back" | "license" | "food-safety") =>
-    api.get(`/api/admin/seller-applications/${id}/documents/${type}`, { responseType: "blob" }),
+    api.get(`/admin/seller-applications/${id}/documents/${type}`, { responseType: "blob" }),
   startReviewSellerApplication: (id: number) =>
-    api.put(`/api/admin/seller-applications/${id}/start-review`),
+    api.put(`/admin/seller-applications/${id}/start-review`),
   reviewSellerApplication: (id: number, action: "APPROVE" | "NEEDS_REVISION" | "REJECT", note?: string) =>
-    api.put(`/api/admin/seller-applications/${id}/review`, { action, note }),
+    api.put(`/admin/seller-applications/${id}/review`, { action, note }),
 };
 
 // ─── User Interactions ───
 export const interactionApi = {
-  record: (productId: number) => api.post(`/api/interactions/record?productId=${productId}`),
-  getRecommendations: () => api.get("/api/interactions/my-recommendations"),
+  record: (productId: number) => api.post(`/interactions/record?productId=${productId}`),
+  getRecommendations: () => api.get("/interactions/my-recommendations"),
 };
 
 // ─── Trust Score ───
 export const trustScoreApi = {
-  get: (sellerId: number) => api.get(`/api/trust-score/${sellerId}`),
-  recalculate: () => api.post("/api/trust-score/recalculate"),
+  get: (sellerId: number) => api.get(`/trust-score/${sellerId}`),
+  recalculate: () => api.post("/trust-score/recalculate"),
 };
 
 // ─── Returns / Refunds ───
 export const returnApi = {
   create: (data: { orderId: number; reasonCode: string; description: string; evidenceUrls?: string; refundAmount?: number }) =>
     api.post("/api/returns", data),
+
   uploadEvidence: (files: File[]) => {
     const form = new FormData();
     files.forEach((file) => form.append("files", file));
@@ -470,13 +485,22 @@ export const returnApi = {
       headers: { "Content-Type": "multipart/form-data" },
     });
   },
+
   getMyRequests: () => api.get("/api/returns/my-requests"),
+
   getSellerRequests: () => api.get("/api/returns/seller-requests"),
+
   getById: (id: number) => api.get(`/api/returns/${id}`),
+
   respond: (returnId: number, action: string, response?: string) =>
-    api.post(`/api/returns/${returnId}/respond?action=${action}`, { response }),
+    api.post(`/api/returns/${returnId}/respond`, { response }, {
+      params: { action }
+    }),
+
   buyerDecision: (returnId: number, action: "ACCEPT_REJECTION" | "ESCALATE") =>
-    api.post(`/api/returns/${returnId}/buyer-decision?action=${action}`),
+    api.post(`/api/returns/${returnId}/buyer-decision`, null, {
+      params: { action }
+    }),
 };
 
 // ─── Seller ───
@@ -504,70 +528,87 @@ export const sellerApi = {
   getProducts: () => api.get("/api/seller/products"),
   deleteProduct: (id: number) => api.delete(`/api/seller/products/${id}`),
   updateStock: (id: number, quantity: number) =>
-    api.put(`/api/seller/products/${id}/stock?quantity=${quantity}`),
+    api.put(`/seller/products/${id}/stock?quantity=${quantity}`),
   toggleVisibility: (id: number) =>
-    api.put(`/api/seller/products/${id}/visibility`),
-  getOrders: () => api.get("/api/seller/orders"),
+    api.put(`/seller/products/${id}/visibility`),
+  getOrders: () => api.get("/seller/orders"),
   updateOrderStatus: (orderId: number, status: string) =>
-    api.put(`/api/seller/orders/${orderId}/status?status=${status}`),
+    api.put(`/seller/orders/${orderId}/status?status=${status}`),
   createProduct: (product: Record<string, unknown>, imageFile?: File) => {
     const form = new FormData();
     form.append("products", new Blob([JSON.stringify(product)], { type: "application/json" }));
     if (imageFile) form.append("file", imageFile);
-    return api.post("/api/user/products", form, { headers: { "Content-Type": "multipart/form-data" } });
+    return api.post("/user/products", form, { headers: { "Content-Type": "multipart/form-data" } });
+  },
+  createProductWithFacebook: (
+    product: Record<string, unknown>,
+    imageFile: File | undefined,
+    facebookPageId: string,
+    facebookMessage?: string
+  ) => {
+    const form = new FormData();
+    form.append("products", new Blob([JSON.stringify(product)], { type: "application/json" }));
+    if (imageFile) form.append("file", imageFile);
+    
+    let url = `/api/user/products?publishToFacebook=true&facebookPageId=${encodeURIComponent(facebookPageId)}`;
+    if (facebookMessage) {
+      url += `&message=${encodeURIComponent(facebookMessage)}`;
+    }
+    
+    return api.post(url, form, { headers: { "Content-Type": "multipart/form-data" } });
   },
 };
 
 // ─── Notifications ───
 export const notificationApi = {
-  getAll: (page = 0, size = 20) => api.get(`/api/notifications?page=${page}&size=${size}`),
-  getUnreadCount: () => api.get("/api/notifications/unread-count"),
-  markAsRead: (id: number) => api.post(`/api/notifications/${id}/read`),
-  markAllAsRead: () => api.post("/api/notifications/read-all"),
+  getAll: (page = 0, size = 20) => api.get(`/notifications?page=${page}&size=${size}`),
+  getUnreadCount: () => api.get("/notifications/unread-count"),
+  markAsRead: (id: number) => api.post(`/notifications/${id}/read`),
+  markAllAsRead: () => api.post("/notifications/read-all"),
 };
 
 // ─── Vouchers ───
 export const voucherApi = {
-  getAvailable: () => api.get("/api/vouchers/available"),
+  getAvailable: () => api.get("/vouchers/available"),
   validate: (code: string, orderAmount: number) =>
-    api.post(`/api/vouchers/validate?code=${encodeURIComponent(code)}&orderAmount=${orderAmount}`),
+    api.post(`/vouchers/validate?code=${encodeURIComponent(code)}&orderAmount=${orderAmount}`),
   create: (data: { code: string; description: string; discountType: string; discountValue: number; minOrderAmount?: number; maxDiscount?: number; usageLimit?: number; startDate?: string; endDate?: string }) =>
-    api.post("/api/vouchers", data),
-  getMyVouchers: () => api.get("/api/vouchers/my-vouchers"),
-  delete: (id: number) => api.delete(`/api/vouchers/${id}`),
+    api.post("/vouchers", data),
+  getMyVouchers: () => api.get("/vouchers/my-vouchers"),
+  delete: (id: number) => api.delete(`/vouchers/${id}`),
 };
 
 // ─── Wishlist ───
 export const wishlistApi = {
-  getAll: () => api.get("/api/wishlist"),
-  add: (productId: number) => api.post(`/api/wishlist/${productId}`),
-  remove: (productId: number) => api.delete(`/api/wishlist/${productId}`),
-  check: (productId: number) => api.get(`/api/wishlist/check/${productId}`),
+  getAll: () => api.get("/wishlist"),
+  add: (productId: number) => api.post(`/wishlist/${productId}`),
+  remove: (productId: number) => api.delete(`/wishlist/${productId}`),
+  check: (productId: number) => api.get(`/wishlist/check/${productId}`),
 };
 
 // ─── Shop (Seller Public Profile) ───
 export const shopApi = {
-  getProfile: (sellerId: number) => api.get(`/api/shop/${sellerId}`),
+  getProfile: (sellerId: number) => api.get(`/shop/${sellerId}`),
 };
 
 // ─── Messages ───
 export const messageApi = {
-  getConversations: () => api.get("/api/messages/conversations"),
+  getConversations: () => api.get("/messages/conversations"),
   getOrCreateConversation: (otherUserId: number) =>
-    api.post(`/api/messages/conversations/${otherUserId}`),
+    api.post(`/messages/conversations/${otherUserId}`),
   getMessages: (conversationId: number, page = 0, size = 50) =>
-    api.get(`/api/messages/conversations/${conversationId}/messages?page=${page}&size=${size}`),
+    api.get(`/messages/conversations/${conversationId}/messages?page=${page}&size=${size}`),
   sendMessage: (conversationId: number, content: string) =>
-    api.post(`/api/messages/conversations/${conversationId}/messages`, { content }),
+    api.post(`/messages/conversations/${conversationId}/messages`, { content }),
   deleteConversation: (conversationId: number) =>
-    api.delete(`/api/messages/conversations/${conversationId}`),
+    api.delete(`/messages/conversations/${conversationId}`),
 };
 
 // ─── AgriCoin ───
 export const coinApi = {
-  getBalance: () => api.get("/api/coins/balance"),
+  getBalance: () => api.get("/coins/balance"),
   getHistory: (page = 0, size = 20) =>
-    api.get(`/api/coins/history?page=${page}&size=${size}`),
+    api.get(`/coins/history?page=${page}&size=${size}`),
 };
 
 // ─── Stories ───
@@ -593,3 +634,4 @@ export const adminAnalyticsApi = {
 };
 
 export default api;
+

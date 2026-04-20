@@ -269,11 +269,20 @@ public class UserController {
     public ResponseEntity<ProductResponseDTO> createProduct(
             @RequestHeader("Authorization") String token,
             @RequestPart("products") ProductRequestDTO productRequestDTO,
-            @RequestPart("file") MultipartFile file
+            @RequestPart("file") MultipartFile file,
+            @RequestParam(required = false) Boolean publishToFacebook,
+            @RequestParam(required = false) String facebookPageId
     ) {
         try {
             ensureSellerAccess(token);
             Long sellerId = jwtService.extractId(token);
+            
+            // Set Facebook publish parameters if provided
+            if (publishToFacebook != null) {
+                productRequestDTO.setPublishToFacebook(publishToFacebook);
+                productRequestDTO.setFacebookPageId(facebookPageId);
+            }
+            
             ProductResponseDTO productResponseDTO = productService.createProduct(productRequestDTO, file, sellerId);
             return ResponseEntity.ok(productResponseDTO);
         } catch (Exception e) {

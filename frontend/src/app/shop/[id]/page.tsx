@@ -454,6 +454,9 @@ export default function ShopPage() {
                 ) : (
                   <div className="relative h-full w-full">
                     <img
+                      src={`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:3003"}/api/products/${p.id}/img`}
+                      alt={p.productName}
+                      className="w-full h-full object-cover group-hover:scale-105 transition"
                       src={activeStory.imageUrl || "https://images.unsplash.com/photo-1492496913980-501348b61469?w=900&h=1600&fit=crop"}
                       alt={activeStory.title || "Story"}
                       className="h-full w-full object-cover"

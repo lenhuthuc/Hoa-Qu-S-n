@@ -3,6 +3,8 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { Upload, Sparkles, Loader2, Check, ArrowRight, ImageIcon, Leaf, Tag, TrendingUp, BarChart3, QrCode } from "lucide-react";
+import { aiApi, searchApi, categoryApi, isLoggedIn } from "@/lib/api";
+import { shareToFacebookDialog } from "@/lib/facebookShare";
 import { aiApi, searchApi, categoryApi, facebookApi, isLoggedIn, batchApi } from "@/lib/api";
 import toast from "react-hot-toast";
 
@@ -64,7 +66,6 @@ export default function CreatePostPage() {
   const [result, setResult] = useState<AIResult | null>(null);
   const [editable, setEditable] = useState<EditableFields | null>(null);
   const [categories, setCategories] = useState<CategoryOption[]>([]);
-  const [facebookPages, setFacebookPages] = useState<FacebookPage[]>([]);
   const [postToFacebook, setPostToFacebook] = useState(false);
   const [facebookPageId, setFacebookPageId] = useState("");
   const [facebookMessage, setFacebookMessage] = useState("");
@@ -99,6 +100,8 @@ export default function CreatePostPage() {
   useEffect(() => {
     if (!isLoggedIn()) { router.push("/login"); }
     void loadCategories();
+  }, [router, loadCategories]);
+
     batchApi.getMyBatches()
       .then((res) => {
         const list = res.data?.data || res.data || [];
@@ -288,51 +291,20 @@ export default function CreatePostPage() {
         batchId: editable.batchId,
       };
 
-      let productId = Date.now();
-      let dbSuccess = true;
-
-      if (postToFacebook) {
-        if (!facebookPageId) {
-          toast.error("Vui lòng chọn Facebook Page trước khi đăng đồng bộ");
-          return;
-        }
-
-        const createRes = await aiApi.createProductWithFacebook(
-          payload,
-          image,
-          facebookPageId,
-          facebookMessage || editable.title
-        );
-
-        dbSuccess = Boolean(createRes.data?.databaseSuccess);
-        const facebookSuccess = Boolean(createRes.data?.facebookSuccess);
-        const createdProduct = createRes.data?.database?.data;
-        productId = createdProduct?.productId || productId;
-
-        if (dbSuccess && facebookSuccess) {
-          toast.success("Đã đăng sản phẩm và đồng bộ Facebook thành công");
-        } else if (dbSuccess && !facebookSuccess) {
-          toast.success("Đã tạo sản phẩm, nhưng Facebook đăng bài thất bại");
-        } else if (!dbSuccess && facebookSuccess) {
-          toast.error("Facebook đăng bài thành công, nhưng lưu DB thất bại");
-        } else {
-          toast.error("Cả lưu DB và đăng Facebook đều thất bại");
-          return;
-        }
-      } else {
-        const createRes = await aiApi.createProduct(payload, image);
-        if (createRes.status !== 200) {
-          toast.error("Không thể tạo sản phẩm");
-          return;
-        }
-        const createdProduct = createRes.data?.data || createRes.data;
-        productId = createdProduct?.productId || productId;
-        toast.success("Đã tạo sản phẩm thành công!");
+      // Bước 1: Tạo sản phẩm (không publish lên Facebook từ backend)
+      const createRes = await aiApi.createProduct(payload, image);
+      if (createRes.status !== 200) {
+        toast.error("Không thể tạo sản phẩm");
+        return;
       }
 
-      // 2. Embed product into Qdrant for semantic search
-      if (dbSuccess) {
-        try {
+      const createdProduct = createRes.data?.data || createRes.data;
+      const productId = createdProduct?.productId || Date.now();
+      
+      toast.success("✅ Đã tạo sản phẩm thành công!");
+
+      // Bước 2: Embed product vào Qdrant
+      try {
         await searchApi.embedProduct({
           product_id: productId,
           product_name: editable.product_name,
@@ -340,9 +312,22 @@ export default function CreatePostPage() {
           category: categories.find((c) => c.id === editable.categoryId)?.name || "",
           price: editable.priceVnd,
         });
-        } catch {
-          // Embedding is non-critical; product was already created
-          console.warn("Embed product failed — semantic search may not include this item");
+      } catch {
+        console.warn("Embed product failed");
+      }
+
+      // Bước 3: Nếu user tick "Đăng cùng Facebook", mở Share Dialog
+      if (postToFacebook) {
+        const shared = await shareToFacebookDialog({
+          productId,
+          productName: editable.product_name,
+          price: editable.suggested_price_per_kg,
+        });
+
+        if (shared) {
+          toast.success("✅ Đã share lên Facebook thành công!");
+        } else {
+          toast.success("✅ Bỏ qua share Facebook - sản phẩm đã được tạo");
         }
       }
 
@@ -677,49 +662,19 @@ export default function CreatePostPage() {
 
                   {/* Facebook Sync Fields */}
                   <div className="rounded-xl border border-blue-100 bg-blue-50/60 p-4 space-y-3">
-                    <div className="flex items-center justify-between">
-                      <label className="flex items-center gap-2 text-sm font-semibold text-blue-700 uppercase tracking-wider">
-                        Đồng bộ Facebook Page
-                      </label>
-                      <button
-                        type="button"
-                        onClick={handleConnectFacebook}
-                        disabled={connectingFacebook}
-                        className="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700 disabled:opacity-60"
-                      >
-                        {connectingFacebook ? "Đang kết nối..." : "Kết nối Facebook"}
-                      </button>
-                    </div>
-
-                    <label className="flex items-center gap-2 text-sm text-slate-700">
+                    <label className="flex items-center gap-2 text-sm font-semibold text-blue-700 uppercase tracking-wider">
                       <input
                         type="checkbox"
                         checked={postToFacebook}
                         onChange={(e) => setPostToFacebook(e.target.checked)}
-                        className="rounded border-slate-300"
+                        className="rounded border-slate-300 cursor-pointer"
                       />
-                      Đăng bài cùng Facebook khi tạo sản phẩm
+                      Đăng bài lên Facebook sau khi tạo sản phẩm
                     </label>
-
                     {postToFacebook && (
-                      <div className="grid md:grid-cols-2 gap-3">
-                        <select
-                          value={facebookPageId}
-                          onChange={(e) => setFacebookPageId(e.target.value)}
-                          className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-slate-700 focus:ring-2 focus:ring-blue-400 outline-none"
-                        >
-                          <option value="">Chọn Facebook Page</option>
-                          {facebookPages.map((p) => (
-                            <option key={p.pageId} value={p.pageId}>{p.pageName} ({p.pageId})</option>
-                          ))}
-                        </select>
-                        <input
-                          value={facebookMessage}
-                          onChange={(e) => setFacebookMessage(e.target.value)}
-                          placeholder="Nội dung đăng FB (để trống sẽ tự tạo)"
-                          className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-slate-700 focus:ring-2 focus:ring-blue-400 outline-none"
-                        />
-                      </div>
+                      <p className="text-xs text-blue-600 ml-6">
+                        ℹ️ Sau khi AI phân tích xong, bạn sẽ được mở popup để share lên Facebook
+                      </p>
                     )}
                   </div>
                 </div>

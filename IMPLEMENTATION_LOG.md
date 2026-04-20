@@ -1,8 +1,54 @@
 ﻿# IMPLEMENTATION LOG (Concise)
 
-Last Updated: 2026-04-17  
+Last Updated: 2026-04-20  
 Status: Complete and deployed
 
+## Update 2026-04-20 - Facebook Share Dialog Integration
+
+What was implemented:
+- Added Facebook Share Dialog for product sharing on social media.
+- Integrated Facebook SDK initialization in app layout.
+- Implemented server-side Open Graph (OG) tag generation via Next.js `generateMetadata()`.
+- Created layout.tsx for `/product/[id]` route to generate rich metadata (image, description with hashtags).
+- Built `shareToFacebookDialog()` helper function for client-side Share Dialog invocation.
+- Configured automatic OG tags with product info: name, price, image, description with #hoaquason hashtags.
+
+Key Features:
+- Users can share products directly to their Facebook feed from product detail page.
+- Facebook auto-crawls OG tags from `/product/[id]` for rich preview (image, product name, price, description).
+- Each user logs in with their own Facebook account before sharing (uses one centralized Facebook App ID).
+- Hashtags (#hoaquason #nongsan #traicay #fresh #vietnam) automatically included in OG description.
+- Picture parameter in Share Dialog as fallback for image rendering.
+
+Files Modified:
+- frontend/src/lib/facebookShare.ts — Share Dialog helper with `shareToFacebookDialog()` function.
+- frontend/src/app/product/[id]/layout.tsx — New file with `generateMetadata()` for OG tag generation.
+- frontend/src/app/layout.tsx — Facebook SDK initialization (if not already present).
+- README.md — Added configuration guide and troubleshooting for Facebook Share.
+
+Configuration Required:
+1. Create Facebook App: https://developers.facebook.com → Create App
+2. Add App ID to `.env.local`: `NEXT_PUBLIC_FB_APP_ID=<your-app-id>`
+3. Add domain to Facebook App Settings → Settings → Basic → App Domains (e.g., ngrok URL or production domain)
+4. Update `NEXT_PUBLIC_SHARE_URL` in `.env.local` to match the public URL
+
+Testing:
+- Share product from `/product/[id]` page
+- Use [Facebook Sharing Debugger](https://developers.facebook.com/tools/debug/sharing) to verify OG tags
+- Verify image, description, and hashtags appear in Facebook preview
+
+Domain Changes:
+- If domain changes (ngrok URL → production), only update:
+  - `.env.local` with new `NEXT_PUBLIC_SHARE_URL`
+  - Facebook App Settings with new domain
+  - No code changes required
+
+Verification Status:
+- Frontend build: pass
+- facebookShare.ts: no compilation errors
+- layout.tsx: generates correct OG tags on server
+
+---
 ## Update 2026-04-17 - Review Media Upload to Cloudflare R2
 
 What was implemented:
