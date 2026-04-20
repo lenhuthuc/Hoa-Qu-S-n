@@ -4,6 +4,7 @@ No yaml knowledge base required.
 """
 
 import re
+import json
 import asyncio
 from models import PricingResult, PriceBreakdown, PriceMultiplier, MarketInfo, SimilarProduct
 
@@ -111,6 +112,83 @@ def _knn_weighted_avg(items: list[SimilarProduct]) -> int | None:
         avg = sum(p.price * p.score for p in candidates) / total_w
     return round(avg / 1_000) * 1_000
 
+async def _gemini_fallback_price(
+    product_name: str,
+    grade: str,
+    freshness: str,
+    defects: list[str],
+    certifications: list[str],
+    category: str,
+    unit: str,
+    found: list[SimilarProduct],
+    min_price: int,
+    max_price: int,
+) -> tuple[int, str]:
+    """Gọi Gemini ước tính giá khi dữ liệu web không đủ."""
+    from config import get_settings
+    import google.generativeai as genai
+
+    settings = get_settings()
+
+    # Đính kèm mẫu giá tìm được (nếu có) để Gemini tham khảo
+    partial_data = ""
+    if found:
+        samples = [f"  - {p.product_name}: {p.price:,}đ" for p in found[:5]]
+        partial_data = "\nMột số mẫu giá tìm được từ web (chưa đủ để thống kê):\n" + "\n".join(samples)
+
+    prompt = f"""Bạn là chuyên gia định giá nông sản Việt Nam.
+Hãy ước tính giá bán lẻ hợp lý cho sản phẩm sau (đơn vị: {unit}):
+
+- Tên sản phẩm : {product_name}
+- Phân loại     : {grade or 'Không rõ'}
+- Độ tươi       : {freshness or 'Không rõ'}
+- Khuyết điểm   : {', '.join(defects) if defects else 'Không có'}
+- Chứng nhận    : {', '.join(certifications) if certifications else 'Không có'}
+- Danh mục      : {category or 'Không rõ'}
+- Khoảng giá    : {min_price:,}đ – {max_price:,}đ{partial_data}
+
+Trả về JSON hợp lệ DUY NHẤT (KHÔNG markdown, KHÔNG giải thích):
+{{
+  "price": <số nguyên, bội số của 1000, nằm trong khoảng giá cho phép>,
+  "note": "<lý do ngắn gọn 1-2 câu tiếng Việt, thân thiện với người dùng>"
+}}"""
+
+    try:
+        genai.configure(api_key=settings.gemini_api_key)
+
+        # Thử lần lượt các model, giống pattern trong vision_chain.py
+        for model_name in ["gemini-2.0-flash", "gemini-2.0-flash-lite"]:
+            try:
+                model = genai.GenerativeModel(
+                    model_name,
+                    generation_config={
+                        "temperature": 0.2,
+                        "max_output_tokens": 200,
+                        "response_mime_type": "application/json",
+                    },
+                )
+                response = model.generate_content(prompt)
+                raw = response.text.strip()
+
+                # Phòng trường hợp vẫn có ``` wrap
+                if raw.startswith("```"):
+                    raw = raw.split("\n", 1)[1].rsplit("```", 1)[0].strip()
+
+                data = json.loads(raw)
+                price = round(int(data["price"]) / 1_000) * 1_000
+                price = max(min_price, min(max_price, price))   # clamp an toàn
+                note = str(data.get("note", "Giá được ước tính bởi AI."))
+                return price, note
+
+            except Exception:
+                continue  # thử model tiếp theo
+
+    except Exception as e:
+        print(f"[pricing] Gemini fallback failed: {e}")
+
+    # Hard fallback cuối cùng — chỉ khi Gemini cũng lỗi
+    mid = round((min_price + max_price) / 2 / 1_000) * 1_000
+    return mid, "Giá tham khảo từ thị trường."
 
 async def calculate_price(
     product_name: str,
@@ -164,15 +242,18 @@ async def calculate_price(
 
     knn_count = len(found)
     if market_avg and knn_count >= 5:
+        # Đủ dữ liệu → dùng KNN, note thân thiện
         suggested = market_avg
-        note = f"KNN weighted avg từ {knn_count} mẫu (sau IQR filter) → {market_avg:,}đ/kg"
-    elif found:
-        prices = sorted(p.price for p in found)
-        suggested = round(prices[len(prices) // 2] / 1_000) * 1_000
-        note = f"Chỉ có {knn_count} mẫu (cần ≥5) → dùng median {suggested:,}đ/kg"
+        note = (
+            f"Dựa trên {knn_count} mẫu giá thị trường, "
+            f"giá ước tính là {market_avg:,}đ/{unit}."
+        )
     else:
-        suggested = 30_000
-        note = "Không tìm được dữ liệu giá từ web, dùng giá mặc định"
+        # Không đủ dữ liệu → nhờ Gemini suy luận
+        suggested, note = await _gemini_fallback_price(
+            product_name, grade, freshness, defects, certifications,
+            category, unit, found, min_price, max_price,
+        )
 
     # PriceBreakdown với multiplier=1.0 vì không còn dùng rule-based
     breakdown = PriceBreakdown(
