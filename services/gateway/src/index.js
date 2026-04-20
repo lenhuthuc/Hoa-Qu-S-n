@@ -92,6 +92,15 @@ const springProxy = createProxyMiddleware({
         proxyReq.setHeader("Authorization", req.headers.authorization);
       }
     },
+    proxyRes: (proxyRes, req, res) => {
+      // Ensure CORS headers are set correctly - use request origin if allowed
+      const requestOrigin = req.headers.origin;
+      const corsOrigin = allowedOrigins.includes(requestOrigin) ? requestOrigin : allowedOrigins[0] || "http://localhost:3000";
+      proxyRes.headers["Access-Control-Allow-Origin"] = corsOrigin;
+      proxyRes.headers["Access-Control-Allow-Credentials"] = "true";
+      proxyRes.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS";
+      proxyRes.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization";
+    },
     error: (err, _req, res) => {
       console.error("Spring proxy error:", err.message);
       res.status(502).json({ success: false, error: "Spring service unavailable" });
@@ -149,7 +158,7 @@ app.use((_req, res) => res.status(404).json({ success: false, error: "Route not 
 initSocket(server);
 
 // ─── Start ───
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3003;
 server.listen(PORT, () => console.log(`[Gateway] Running on port ${PORT}`));
 
 module.exports = { app, server };

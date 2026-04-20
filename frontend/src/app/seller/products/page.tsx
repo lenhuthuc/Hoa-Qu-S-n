@@ -127,7 +127,7 @@ export default function SellerProductsPage() {
                       <div className="flex items-center gap-3">
                         {p.imageUrl && (
                           <img
-                            src={`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000"}${p.imageUrl}`}
+                            src={`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:3003"}${p.imageUrl}`}
                             alt={p.productName}
                             className="w-12 h-12 rounded object-cover"
                           />

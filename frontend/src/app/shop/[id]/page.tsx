@@ -128,7 +128,7 @@ export default function ShopPage() {
                 <div className="h-40 bg-gray-100 flex items-center justify-center overflow-hidden">
                   {p.image ? (
                     <img
-                      src={`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000"}/api/products/${p.id}/img`}
+                      src={`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:3003"}/api/products/${p.id}/img`}
                       alt={p.productName}
                       className="w-full h-full object-cover group-hover:scale-105 transition"
                     />

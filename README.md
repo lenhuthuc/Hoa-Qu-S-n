@@ -149,6 +149,11 @@ docker compose start mysql
   * **Nhật ký canh tác:** Lưu trữ dữ liệu GPS, hình ảnh EXIF trên MongoDB.
   * **Truy xuất QR:** Quét mã để xem toàn bộ lịch sử lô hàng.
 
+### 📱 Chia sẻ lên mạng xã hội 
+  * **Facebook Share Dialog:** Chia sẻ sản phẩm lên Facebook với rich preview (hình ảnh, giá, mô tả).
+  * **Open Graph Tags:** Tích hợp OG tags tự động để Facebook crawl thông tin sản phẩm.
+  * **Hashtags tự động:** Thêm hashtags `#hoaquason #nongsan #fresh #vietnam` vào mỗi bài chia sẻ.
+
 -----
 
 ## 📡 Danh sách Port mặc định
@@ -163,8 +168,70 @@ docker compose start mysql
 
 -----
 
-## 🔧 Xử lý sự cố thường gặp
+## Cấu hình Facebook Sharing
+
+### Yêu cầu
+1. **Tài khoản Facebook Developer:** Đăng ký tại [developers.facebook.com](https://developers.facebook.com)
+2. **App ID:** Tạo ứng dụng Facebook để lấy App ID
+3. **Domain:** Thêm domain ngrok hoặc production URL vào danh sách domain được phép
+
+### Cấu hình trong Frontend
+
+1. **Thêm Facebook SDK vào `layout.tsx`:**
+```tsx
+useEffect(() => {
+  window.fbAsyncInit = function() {
+    FB.init({
+      appId: process.env.NEXT_PUBLIC_FB_APP_ID,
+      xfbml: true,
+      version: 'v18.0'
+    });
+  };
+  
+  // Load SDK script
+  const script = document.createElement('script');
+  script.src = 'https://connect.facebook.net/en_US/sdk.js';
+  script.async = true;
+  document.body.appendChild(script);
+}, []);
+```
+
+2. **Sử dụng Share Dialog trong Component:**
+```tsx
+import { shareToFacebookDialog } from '@/lib/facebookShare';
+
+const handleShare = async () => {
+  const success = await shareToFacebookDialog({
+    productId: product.id,
+    productName: product.productName,
+    productImage: product.imageUrls?.[0]
+  });
+  if (success) toast.success('Chia sẻ thành công!');
+};
+```
+
+3. **OG Tags tự động được generate từ `layout.tsx` trong `/product/[id]`:**
+   - Ảnh sản phẩm
+   - Giá bán
+   - Mô tả + hashtags #hoaquason
+   - Loại sản phẩm
+
+### Thư mục liên quan
+- `frontend/src/lib/facebookShare.ts` — Facebook Share helper
+- `frontend/src/app/product/[id]/layout.tsx` — OpenGraph metadata generation
+- `frontend/src/app/layout.tsx` — Facebook SDK initialization
+
+-----
+
+## �🔧 Xử lý sự cố thường gặp
 
   * **Lỗi tải Model:** FastAPI cần tải khoảng 1.1GB model embedding ở lần đầu chạy, hãy đảm bảo kết nối mạng ổn định.
   * **Kết nối DB:** Đảm bảo bạn đã tạo database `ecommerce` trong MySQL trước khi chạy Spring Boot.
-  * **CORS:** Nếu gặp lỗi kết nối giữa frontend và backend, kiểm tra cấu hình `ALLOWED_ORIGINS` trong Gateway và Spring Security.
+  * **CORS:** Nếu gặp lỗi kết nối giữa frontend và backend, kiểm tra cấu hình `ALLOWED_ORIGINS` trong Gateway và Spring Security.  * **Facebook Share không hiển thị ảnh:**
+    - Kiểm tra image URL trong OG tags có accessible từ internet không (phải dùng ngrok, không phải localhost).
+    - Sử dụng [Facebook Sharing Debugger](https://developers.facebook.com/tools/debug/sharing) để test preview.
+    - Đảm bảo `NEXT_PUBLIC_FB_APP_ID` được set đúng trong `.env.local`.
+  * **Facebook SDK không load:**
+    - Kiểm tra browser console có lỗi script không.
+    - Đảm bảo domain/URL được thêm vào Facebook App Settings.
+    - Clear browser cache và localStorage.

@@ -10,6 +10,9 @@ import lombok.NoArgsConstructor;
 public class ProductResponseDTO {
     String message;
     Long productId;
+    String publishStatus;
+    String facebookPostId;
+    String facebookError;
 
     public ProductResponseDTO(String message) {
         this.message = message;

@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Save, Loader2, Package, Tag, Leaf, QrCode, ImageIcon } from "lucide-react";
 import { sellerApi, categoryApi } from "@/lib/api";
+import { shareToFacebookDialog } from "@/lib/facebookShare";
 import toast from "react-hot-toast";
 
 interface CategoryOption {
@@ -16,6 +17,7 @@ export default function ManualCreateProductPage() {
   const [categories, setCategories] = useState<CategoryOption[]>([]);
   const [image, setImage] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
+  const [postToFacebook, setPostToFacebook] = useState(false);
   
   const [formData, setFormData] = useState({
     productName: "",
@@ -69,13 +71,35 @@ export default function ManualCreateProductPage() {
 
     setLoading(true);
     try {
-      await sellerApi.createProduct({
+      const payload = {
         ...formData,
         quantity: calculatedQuantity,
         batchId: formData.batchId || undefined,
         origin: formData.origin || undefined
-      }, image || undefined);
-      toast.success("Tạo sản phẩm thành công!");
+      };
+
+      // Bước 1: Tạo sản phẩm (không publish lên Facebook)
+      const createRes = await sellerApi.createProduct(payload, image || undefined);
+      const createdProduct = createRes.data?.data || createRes.data;
+      const productId = createdProduct?.productId || Date.now();
+      
+      toast.success("✅ Tạo sản phẩm thành công!");
+
+      // Bước 2: Nếu user tick "Đăng cùng Facebook", mở Share Dialog
+      if (postToFacebook) {
+        const shared = await shareToFacebookDialog({
+          productId,
+          productName: formData.productName,
+          price: formData.price,
+        });
+
+        if (shared) {
+          toast.success("✅ Đã share lên Facebook thành công!");
+        } else {
+          toast.success("✅ Bỏ qua share Facebook - sản phẩm đã được tạo");
+        }
+      }
+      
       router.push("/seller/products");
     } catch (err: any) {
       toast.error(err.response?.data?.message || "Lỗi khi tạo sản phẩm");
@@ -274,6 +298,24 @@ export default function ManualCreateProductPage() {
                   className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-green-500 outline-none transition"
                 />
               </div>
+            </div>
+
+            {/* Facebook Sync Section */}
+            <div className="rounded-xl border border-blue-100 bg-blue-50/60 p-6 space-y-4">
+              <label className="flex items-center gap-3 text-sm text-slate-700 cursor-pointer hover:text-slate-900">
+                <input
+                  type="checkbox"
+                  checked={postToFacebook}
+                  onChange={(e) => setPostToFacebook(e.target.checked)}
+                  className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                />
+                <span className="font-semibold">Đăng bài lên Facebook sau khi tạo sản phẩm</span>
+              </label>
+              {postToFacebook && (
+                <p className="text-xs text-blue-600 ml-7">
+                  ℹ️ Sau khi lưu sản phẩm, bạn sẽ được mở popup để share lên Facebook
+                </p>
+              )}
             </div>
 
             <div className="pt-6">
