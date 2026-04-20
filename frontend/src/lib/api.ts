@@ -117,11 +117,9 @@ export const productApi = {
 export const aiApi = {
   generatePost: (images: File | File[]) => {
     const form = new FormData();
-    form.append("image", image);
-    return api.post("/ai/generate-post", form, {
     const files = Array.isArray(images) ? images : [images];
     files.forEach((f) => form.append("images", f));
-    return api.post("/api/ai/generate-post", form, {
+    return api.post("/ai/generate-post", form, {
       headers: { "Content-Type": "multipart/form-data" },
       timeout: 90000,
     });
@@ -147,7 +145,7 @@ export const aiApi = {
     form.append("products", new Blob([JSON.stringify(product)], { type: "application/json" }));
     form.append("file", imageFile);
     
-    let url = "/api/user/products";
+    let url = "/user/products";
     if (publishToFacebook && facebookPageId) {
       url += `?publishToFacebook=true&facebookPageId=${encodeURIComponent(facebookPageId)}`;
     }
@@ -235,12 +233,12 @@ export const traceApi = {
 
 // ─── Seller Batches ───
 export const batchApi = {
-  getMyBatches: () => api.get("/api/seller/batches"),
+  getMyBatches: () => api.get("/seller/batches"),
   create: (payload: {
     batchName: string;
     cropType?: string;
     startDate?: string;
-  }) => api.post("/api/seller/batches", payload),
+  }) => api.post("/seller/batches", payload),
 };
 
 // ─── Shipping ───
@@ -289,7 +287,7 @@ export const orderApi = {
     toDistrictId?: string;
     toWardCode?: string;
   }) =>
-    api.get("/api/orders/preview", { params }),
+    api.get("/orders/preview", { params }),
   previewBuyNow: (params: {
     productId: number;
     quantity: number;
@@ -298,7 +296,7 @@ export const orderApi = {
     deliveryType?: "STANDARD" | "EXPRESS";
     toDistrictId?: string;
     toWardCode?: string;
-  }) => api.get("/api/orders/buy-now/preview", { params }),
+  }) => api.get("/orders/buy-now/preview", { params }),
   create: (
     paymentMethod: number,
     voucherCode?: string,
@@ -309,7 +307,7 @@ export const orderApi = {
     toWardCode?: string
   ) =>
     api.post(
-      `/api/orders/create?paymentMethod=${paymentMethod}` +
+      `/orders/create?paymentMethod=${paymentMethod}` +
       `${voucherCode ? `&voucherCode=${encodeURIComponent(voucherCode)}` : ""}` +
       `${discountVoucherCode ? `&discountVoucherCode=${encodeURIComponent(discountVoucherCode)}` : ""}` +
       `${shippingVoucherCode ? `&shippingVoucherCode=${encodeURIComponent(shippingVoucherCode)}` : ""}` +
@@ -327,11 +325,11 @@ createBuyNow: (params: {
     deliveryType?: "STANDARD" | "EXPRESS";
     toDistrictId?: string;
     toWardCode?: string;
-  }) => api.post("/api/orders/buy-now/create", null, { params }),
+  }) => api.post("/orders/buy-now/create", null, { params }),
 
-  retryPayment: (id: number) => api.post(`/api/orders/${id}/retry-payment`),
+  retryPayment: (id: number) => api.post(`/orders/${id}/retry-payment`),
   
-  delete: (id: number) => api.delete(`/api/orders/${id}`),
+  delete: (id: number) => api.delete(`/orders/${id}`),
   updateStatus: (id: number, status: string) =>
     api.put(`/orders/${id}/status?status=${status}`),
 };
@@ -345,12 +343,12 @@ export const categoryApi = {
 
 // ─── User Profile ───
 export const userApi = {
-getProfile: () => api.get("/api/user/profile"),
+getProfile: () => api.get("/user/profile"),
   
   uploadAvatar: (file: File) => {
     const form = new FormData();
     form.append("file", file);
-    return api.post("/api/user/profile/avatar", form, {
+    return api.post("/user/profile/avatar", form, {
       headers: { "Content-Type": "multipart/form-data" },
     });
   },
@@ -418,17 +416,17 @@ export const invoiceApi = {
 // ─── Payments ───
 export const paymentApi = {
   createVnPayUrl: (totalPrice: number, orderInfo: string, orderId: number) =>
-    api.post("/api/payments/createUrl", null, {
+    api.post("/payments/createUrl", null, {
       params: { totalPrice, orderInfo, orderId },
     }),
 
   createMoMoUrl: (totalPrice: number, orderInfo: string, orderId: number) =>
-    api.post("/api/payments/createMoMoUrl", null, {
+    api.post("/payments/createMoMoUrl", null, {
       params: { totalPrice, orderInfo, orderId },
     }),
 
   addMethod: (name: string) =>
-    api.post("/api/payments/methods", null, {
+    api.post("/payments/methods", null, {
       params: { name },
     }),
 };
@@ -476,21 +474,21 @@ export const trustScoreApi = {
 // ─── Returns / Refunds ───
 export const returnApi = {
   create: (data: { orderId: number; reasonCode: string; description: string; evidenceUrls?: string; refundAmount?: number }) =>
-    api.post("/api/returns", data),
+    api.post("/returns", data),
 
   uploadEvidence: (files: File[]) => {
     const form = new FormData();
     files.forEach((file) => form.append("files", file));
-    return api.post("/api/returns/evidence", form, {
+    return api.post("/returns/evidence", form, {
       headers: { "Content-Type": "multipart/form-data" },
     });
   },
 
-  getMyRequests: () => api.get("/api/returns/my-requests"),
+  getMyRequests: () => api.get("/returns/my-requests"),
 
-  getSellerRequests: () => api.get("/api/returns/seller-requests"),
+  getSellerRequests: () => api.get("/returns/seller-requests"),
 
-  getById: (id: number) => api.get(`/api/returns/${id}`),
+  getById: (id: number) => api.get(`/returns/${id}`),
 
   respond: (returnId: number, action: string, response?: string) =>
     api.post(`/api/returns/${returnId}/respond`, { response }, {
@@ -505,12 +503,12 @@ export const returnApi = {
 
 // ─── Seller ───
 export const sellerApi = {
-  getDashboard: () => api.get("/api/seller/dashboard"),
-  getShopSettings: () => api.get("/api/seller/shop-settings"),
+  getDashboard: () => api.get("/seller/dashboard"),
+  getShopSettings: () => api.get("/seller/shop-settings"),
   uploadShopAvatar: (file: File) => {
     const form = new FormData();
     form.append("file", file);
-    return api.post("/api/seller/shop-settings/avatar", form, {
+    return api.post("/seller/shop-settings/avatar", form, {
       headers: { "Content-Type": "multipart/form-data" },
     });
   },
@@ -524,8 +522,8 @@ export const sellerApi = {
     ghnProvinceId?: number | null;
     ghnDistrictId?: number | null;
     ghnWardCode?: string | null;
-  }) => api.put("/api/seller/shop-settings", data),
-  getProducts: () => api.get("/api/seller/products"),
+  }) => api.put("/seller/shop-settings", data),
+  getProducts: () => api.get("/seller/products"),
   deleteProduct: (id: number) => api.delete(`/api/seller/products/${id}`),
   updateStock: (id: number, quantity: number) =>
     api.put(`/seller/products/${id}/stock?quantity=${quantity}`),
@@ -550,7 +548,7 @@ export const sellerApi = {
     form.append("products", new Blob([JSON.stringify(product)], { type: "application/json" }));
     if (imageFile) form.append("file", imageFile);
     
-    let url = `/api/user/products?publishToFacebook=true&facebookPageId=${encodeURIComponent(facebookPageId)}`;
+    let url = `/user/products?publishToFacebook=true&facebookPageId=${encodeURIComponent(facebookPageId)}`;
     if (facebookMessage) {
       url += `&message=${encodeURIComponent(facebookMessage)}`;
     }
@@ -613,24 +611,24 @@ export const coinApi = {
 
 // ─── Stories ───
 export const storyApi = {
-  getAll: (page = 0, size = 20) => api.get(`/api/stories?page=${page}&size=${size}`),
-  getBySeller: (sellerId: number) => api.get(`/api/stories/seller/${sellerId}`),
+  getAll: (page = 0, size = 20) => api.get(`/stories?page=${page}&size=${size}`),
+  getBySeller: (sellerId: number) => api.get(`/stories/seller/${sellerId}`),
   getMyStories: () => api.get("/api/seller/stories/my"),
   create: (data: FormData) =>
-    api.post("/api/seller/stories", data, {
+    api.post("/seller/stories", data, {
       headers: { "Content-Type": "multipart/form-data" },
     }),
-  delete: (id: number) => api.delete(`/api/seller/stories/${id}`),
+  delete: (id: number) => api.delete(`/seller/stories/${id}`),
 };
 
 // ─── Admin Analytics ───
 export const adminAnalyticsApi = {
-  getOverview: () => api.get("/api/admin/analytics/overview"),
-  getTopProducts: () => api.get("/api/admin/analytics/top-products"),
+  getOverview: () => api.get("/admin/analytics/overview"),
+  getTopProducts: () => api.get("/admin/analytics/top-products"),
   getTopSellers: () => api.get("/api/admin/analytics/top-sellers"),
   getEscalatedReturns: () => api.get("/api/admin/analytics/escalated-returns"),
   resolveEscalatedReturn: (returnId: number, action: "REFUND" | "KEEP_REJECT", note: string) =>
-    api.post(`/api/admin/analytics/returns/${returnId}/resolve?action=${action}`, { note }),
+    api.post(`/admin/analytics/returns/${returnId}/resolve?action=${action}`, { note }),
 };
 
 export default api;

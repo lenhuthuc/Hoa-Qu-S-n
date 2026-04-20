@@ -1,11 +1,9 @@
 "use client";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Save, Loader2, Package, Tag, Leaf, QrCode, ImageIcon } from "lucide-react";
-import { sellerApi, categoryApi } from "@/lib/api";
-import { shareToFacebookDialog } from "@/lib/facebookShare";
-import { ArrowRight, Save, Loader2, Tag, Leaf, QrCode, ImageIcon, Upload, BarChart3, Sparkles } from "lucide-react";
+import { ArrowLeft, ArrowRight, Save, Loader2, Package, Tag, Leaf, QrCode, ImageIcon, Upload, BarChart3, Sparkles } from "lucide-react";
 import { sellerApi, categoryApi, aiApi, facebookApi, batchApi } from "@/lib/api";
+import { shareToFacebookDialog } from "@/lib/facebookShare";
 import toast from "react-hot-toast";
 
 interface CategoryOption {
@@ -38,7 +36,6 @@ export default function ManualCreateProductPage() {
   const [batchSearch, setBatchSearch] = useState("");
   const [image, setImage] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
-  const [postToFacebook, setPostToFacebook] = useState(false);
   const [unitWeightUnit, setUnitWeightUnit] = useState<"g" | "kg">("g");
   const [totalStockUnit, setTotalStockUnit] = useState<"g" | "kg">("kg");
   const [unitWeightInput, setUnitWeightInput] = useState("500");
@@ -53,7 +50,8 @@ export default function ManualCreateProductPage() {
     categoryId: 0,
     description: "",
     batchId: "",
-    shelfLifeDays: 30
+    shelfLifeDays: 30,
+    origin: ""
   });
 
   const calculatedQuantity =
@@ -235,66 +233,36 @@ export default function ManualCreateProductPage() {
         origin: formData.origin || undefined
       };
 
-      // Bước 1: Tạo sản phẩm (không publish lên Facebook)
-      const createRes = await sellerApi.createProduct(payload, image || undefined);
-      const createdProduct = createRes.data?.data || createRes.data;
-      const productId = createdProduct?.productId || Date.now();
+      let productId: number | null = null;
       
-      toast.success("✅ Tạo sản phẩm thành công!");
-
-      // Bước 2: Nếu user tick "Đăng cùng Facebook", mở Share Dialog
-      if (postToFacebook) {
-        const shared = await shareToFacebookDialog({
-          productId,
-          productName: formData.productName,
-          price: formData.price,
-        });
-
-        if (shared) {
-          toast.success("✅ Đã share lên Facebook thành công!");
-        } else {
-          toast.success("✅ Bỏ qua share Facebook - sản phẩm đã được tạo");
-        }
-      }
-      
-        batchId: formData.batchId
-      };
-
-      if (postToFacebook) {
-        if (!facebookPageId) {
-          toast.error("Vui lòng chọn Facebook Page trước khi đăng đồng bộ");
-          return;
-        }
-        if (!image) {
-          toast.error("Cần ảnh sản phẩm để đăng đồng bộ Facebook");
-          return;
-        }
-
-        const createRes = await aiApi.createProductWithFacebook(
+      // Bước 1: Tạo sản phẩm
+      if (postToFacebook && facebookPageId) {
+        const createRes = await sellerApi.createProductWithFacebook(
           payload,
-          image,
+          image || undefined,
           facebookPageId,
-          facebookMessage || formData.productName
+          facebookMessage || `Sản phẩm mới: ${formData.productName} - Giá chỉ ${new Intl.NumberFormat("vi-VN", { style: "currency", currency: "VND" }).format(parsedPrice)}/${formData.unitWeightGrams}g. #hoaquason #nongsan`
         );
-
-        const dbSuccess = Boolean(createRes.data?.databaseSuccess);
-        const facebookSuccess = Boolean(createRes.data?.facebookSuccess);
-
-        if (dbSuccess && facebookSuccess) {
-          toast.success("Đã tạo sản phẩm và đồng bộ Facebook thành công");
-        } else if (dbSuccess && !facebookSuccess) {
-          toast.success("Đã tạo sản phẩm, nhưng Facebook đăng bài thất bại");
-        } else if (!dbSuccess && facebookSuccess) {
-          toast.error("Facebook đăng bài thành công, nhưng lưu DB thất bại");
-          return;
-        } else {
-          toast.error("Cả lưu DB và đăng Facebook đều thất bại");
-          return;
-        }
+        const data = createRes.data?.data || createRes.data;
+        productId = data?.productId || data?.id;
+        toast.success("✅ Đã tạo sản phẩm và đăng lên Facebook thành công!");
       } else {
-        await sellerApi.createProduct(payload, image || undefined);
-        toast.success("Tạo sản phẩm thành công!");
+        const createRes = await sellerApi.createProduct(payload, image || undefined);
+        const data = createRes.data?.data || createRes.data;
+        productId = data?.productId || data?.id;
+        toast.success("✅ Tạo sản phẩm thành công!");
+
+        // Fallback to client-side share if no pageId but checkbox is checked
+        if (postToFacebook && !facebookPageId) {
+          const shared = await shareToFacebookDialog({
+            productId: productId || Date.now(),
+            productName: formData.productName,
+            price: parsedPrice,
+          });
+          if (shared) toast.success("✅ Đã share lên Facebook!");
+        }
       }
+
       router.push("/seller/products");
     } catch (err: any) {
       toast.error(err.response?.data?.message || "Lỗi khi tạo sản phẩm");
@@ -401,6 +369,23 @@ export default function ManualCreateProductPage() {
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-5">
+              <div className="group">
+                <label className="flex items-center gap-2 text-sm font-medium text-slate-500 mb-1.5 uppercase tracking-wider">
+                  <Tag className="w-4 h-4" /> Danh mục sản phẩm *
+                </label>
+                <select
+                  required
+                  value={formData.categoryId || (categories[0]?.id || 0)}
+                  onChange={(e) => setFormData({ ...formData, categoryId: Number(e.target.value) })}
+                  className="w-full bg-white/60 border border-slate-200 rounded-xl px-4 py-3 text-slate-800 font-medium focus:ring-2 focus:ring-primary-400 outline-none transition-all shadow-sm"
+                >
+                  <option value="">-- Chọn danh mục --</option>
+                  {categories.map((c) => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+                </select>
+              </div>
+
               <div className="group">
                 <label className="flex items-center gap-2 text-sm font-medium text-slate-500 mb-1.5 uppercase tracking-wider">
                   <Tag className="w-4 h-4" /> Tên sản phẩm *
@@ -628,37 +613,6 @@ export default function ManualCreateProductPage() {
                   )}
                 </button>
               </div>
-            </div>
-
-            {/* Facebook Sync Section */}
-            <div className="rounded-xl border border-blue-100 bg-blue-50/60 p-6 space-y-4">
-              <label className="flex items-center gap-3 text-sm text-slate-700 cursor-pointer hover:text-slate-900">
-                <input
-                  type="checkbox"
-                  checked={postToFacebook}
-                  onChange={(e) => setPostToFacebook(e.target.checked)}
-                  className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
-                />
-                <span className="font-semibold">Đăng bài lên Facebook sau khi tạo sản phẩm</span>
-              </label>
-              {postToFacebook && (
-                <p className="text-xs text-blue-600 ml-7">
-                  ℹ️ Sau khi lưu sản phẩm, bạn sẽ được mở popup để share lên Facebook
-                </p>
-              )}
-            </div>
-
-            <div className="pt-6">
-              <button
-                type="submit"
-                disabled={loading}
-                className="w-full py-4 bg-green-600 text-white rounded-xl font-bold text-lg hover:bg-green-700 transition flex items-center justify-center gap-2 shadow-lg shadow-green-100 disabled:opacity-50"
-              >
-                {loading ? <Loader2 className="w-6 h-6 animate-spin" /> : <Save className="w-6 h-6" />}
-                Tạo sản phẩm ngay
-              </button>
-            </div>
-          </form>
             </form>
           </div>
         </div>
