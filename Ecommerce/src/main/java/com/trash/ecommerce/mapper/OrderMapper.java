@@ -57,6 +57,7 @@ public class OrderMapper {
         OrderResponseDTO dto = new OrderResponseDTO();
 
         dto.setId(order.getId());
+        dto.setPaymentOrderId(order.getParentOrder() != null ? order.getParentOrder().getId() : order.getId());
         dto.setStatus(order.getStatus());
         dto.setTotalPrice(order.getTotalPrice());
         dto.setShippingFee(order.getShippingFee());
